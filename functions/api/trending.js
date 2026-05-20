@@ -159,90 +159,126 @@ async function getDexScreenerPairs(tokenAddresses) {
 }
 
 /**
- * Get trending memecoins from multiple data sources
+ * Fetch GMGN rank data for a specific chain
  */
-async function getTrendingMemecoins(chain, limit = 30) {
-  // Step 1: Get token profiles from DexScreener
-  const profiles = await getDexScreenerTrending(chain);
-  const tokenAddresses = profiles.map((t) => t.address).filter(Boolean);
-
-  // Step 2: Get detailed pair data
-  let pairs = await getDexScreenerPairs(tokenAddresses);
-
-  // Step 3: Also try gmgn.ai for additional data
-  let gmgnData = [];
+async function fetchGmgnRank(chain, limit = 30) {
+  const gmgnSlug = CHAIN_MAP[chain]?.gmgn;
+  if (!gmgnSlug) return [];
   try {
-    const gmgnChain = CHAIN_MAP[chain]?.gmgn || chain;
-    const gmgnResponse = await fetchGmgnApi(`/api/v1/rank/${gmgnChain}/swaps/1h`, {
+    const response = await fetchGmgnApi(`/api/v1/rank/${gmgnSlug}/swaps/1h`, {
       cacheTtl: 30,
     });
-
-    // gmgn response structure varies, try to extract tokens
-    if (gmgnResponse?.data?.rank) {
-      gmgnData = gmgnResponse.data.rank.map((t) => ({
-        address: t.address || '',
-        symbol: t.symbol || '',
-        name: t.name || '',
-        chain: chain,
-        priceUsd: parseFloat(t.price) || 0,
-        priceChange1h: parseFloat(t.priceChange1h) || 0,
-        priceChange24h: parseFloat(t.priceChange24h) || 0,
-        volume1h: parseFloat(t.volume1h) || 0,
-        volume24h: parseFloat(t.volume24h) || 0,
-        volume1hRaw: t.volume1h,
-        volume24hRaw: t.volume24h,
-        liquidity: parseFloat(t.liquidity) || 0,
-        fdv: parseFloat(t.fdv) || 0,
-        holders: t.holderCount || 0,
-        makerCount: t.makerCount || 0,
-        txns1h: {
-          buys: parseInt(t.buy1h) || 0,
-          sells: parseInt(t.sell1h) || 0,
-          total: (parseInt(t.buy1h) || 0) + (parseInt(t.sell1h) || 0),
-        },
-        age: t.age || '',
-        source: 'gmgn',
-        url: `https://gmgn.ai/${gmgnChain}/token/${t.address}`,
-        icon: t.logo || '',
-      }));
-    }
+    if (!response?.data?.rank) return [];
+    return response.data.rank.map((t) => ({
+      address: t.address || '',
+      symbol: t.symbol || '',
+      name: t.name || '',
+      chain: chain, // always use the param chain, not the GMGN slug
+      priceUsd: parseFloat(t.price) || 0,
+      priceChange1h: parseFloat(t.priceChange1h) || 0,
+      priceChange24h: parseFloat(t.priceChange24h) || 0,
+      volume1h: parseFloat(t.volume1h) || 0,
+      volume24h: parseFloat(t.volume24h) || 0,
+      volume1hRaw: t.volume1h,
+      volume24hRaw: t.volume24h,
+      liquidity: parseFloat(t.liquidity) || 0,
+      fdv: parseFloat(t.fdv) || 0,
+      holders: t.holderCount || 0,
+      makerCount: t.makerCount || 0,
+      txns1h: {
+        buys: parseInt(t.buy1h) || 0,
+        sells: parseInt(t.sell1h) || 0,
+        total: (parseInt(t.buy1h) || 0) + (parseInt(t.sell1h) || 0),
+      },
+      age: t.age || '',
+      source: 'gmgn',
+      url: `https://gmgn.ai/${gmgnSlug}/token/${t.address}`,
+      icon: t.logo || '',
+    }));
   } catch (e) {
-    console.error('gmgn.ai fetch error:', e.message);
-    // Fallback to DexScreener only
+    console.error(`gmgn.ai fetch error (${chain}):`, e.message);
+    return [];
+  }
+}
+
+/**
+ * Enrich token data with DexScreener pair details
+ */
+async function enrichWithDexScreener(tokens, chain) {
+  if (!tokens.length) return tokens;
+  const addresses = tokens.map((t) => t.address).filter(Boolean);
+  if (!addresses.length) return tokens;
+  const pairs = await getDexScreenerPairs(addresses);
+  if (!pairs.length) return tokens;
+
+  const pairMap = new Map();
+  for (const pair of pairs) {
+    pairMap.set(pair.address.toLowerCase(), pair);
   }
 
-  // Step 4: For tokens we have gmgn data for, try to get DexScreener details too
-  const gmgnAddresses = gmgnData.map((t) => t.address).filter(Boolean);
-  const missingAddresses = gmgnAddresses.filter(
-    (addr) => !pairs.some((p) => p.address.toLowerCase() === addr.toLowerCase())
+  return tokens.map((token) => {
+    const key = token.address.toLowerCase();
+    const dexPair = pairMap.get(key);
+    if (dexPair) {
+      // Merge DexScreener details into GMGN data, preserving chain
+      return { ...dexPair, ...token, chain: chain };
+    }
+    return token;
+  });
+}
+
+/**
+ * Get trending memecoins from GMGN (primary) + DexScreener (enrichment)
+ * For chain=all, fetches each chain independently with correct attribution
+ */
+async function getTrendingMemecoins(chain, limit = 30) {
+  const chainsToFetch = chain === 'all' ? ['solana', 'base', 'bsc'] : [chain];
+
+  // Fetch GMGN data for each chain independently
+  const allResults = await Promise.allSettled(
+    chainsToFetch.map(async (c) => {
+      let tokens = await fetchGmgnRank(c, limit);
+      // Enrich with DexScreener data if possible
+      tokens = await enrichWithDexScreener(tokens, c);
+      return { chain: c, tokens };
+    })
   );
 
-  if (missingAddresses.length > 0) {
-    const extraPairs = await getDexScreenerPairs(missingAddresses);
-    pairs = [...pairs, ...extraPairs];
+  // Also try DexScreener token profiles as supplement
+  let dexProfiles = [];
+  try {
+    dexProfiles = await getDexScreenerTrending(chain);
+  } catch (e) {
+    console.error('DexScreener profiles error:', e);
   }
 
-  // Step 5: Merge data from both sources
+  // Merge results
   const mergedMap = new Map();
 
-  // Add DexScreener data
-  for (const pair of pairs) {
-    const key = pair.address.toLowerCase();
-    mergedMap.set(key, pair);
-  }
-
-  // Add gmgn data (overrides DexScreener for same tokens)
-  for (const token of gmgnData) {
-    const key = token.address.toLowerCase();
-    if (mergedMap.has(key)) {
-      const existing = mergedMap.get(key);
-      mergedMap.set(key, { ...existing, ...token });
-    } else {
+  // First add GMGN data (primary source) — preserve chain from fetch
+  for (const result of allResults) {
+    if (result.status !== 'fulfilled') continue;
+    for (const token of result.value.tokens) {
+      const key = token.address.toLowerCase() + ':' + token.chain;
       mergedMap.set(key, token);
     }
   }
 
-  // Step 6: Sort by 24h volume (fallback to 1h if 24h unavailable) and limit
+  // Add DexScreener profiles as fallback (only if we don't have GMGN data for this chain)
+  for (const profile of dexProfiles) {
+    const tokenChain = profile.chain || chain;
+    const key = (profile.address || '').toLowerCase() + ':' + tokenChain;
+    if (!mergedMap.has(key)) {
+      mergedMap.set(key, {
+        ...profile,
+        chain: tokenChain,
+        source: 'dexscreener',
+        url: profile.url || '',
+      });
+    }
+  }
+
+  // Sort by 24h volume and limit
   const merged = Array.from(mergedMap.values())
     .sort((a, b) => {
       const bVol = b.volume24hRaw != null ? b.volume24h : (b.volume1hRaw != null ? b.volume1h : 0);

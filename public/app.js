@@ -335,7 +335,9 @@ function detectSignals(tokens) {
 }
 
 function createSignal(token, reason, reasonText) {
-  return { id: 0, tokenAddress: token.address, tokenSymbol: token.symbol || 'Unknown', tokenName: token.name || '', tokenIcon: token.icon || '', tokenChain: state.currentChain, reason, reasonText, priceAtSignal: token.priceUsd || 0, timestamp: Date.now(), active: true };
+  // Use the token's actual chain from the data, NOT state.currentChain
+  const actualChain = token.chain || state.currentChain;
+  return { id: 0, tokenAddress: token.address, tokenSymbol: token.symbol || 'Unknown', tokenName: token.name || '', tokenIcon: token.icon || '', tokenChain: actualChain, reason, reasonText, priceAtSignal: token.priceUsd || 0, timestamp: Date.now(), active: true };
 }
 
 function calculateBuyPercent(token) {
@@ -352,22 +354,42 @@ function startTrackingToken(signal) {
   state.trackedTokens[key] = { address: signal.tokenAddress, symbol: signal.tokenSymbol, name: signal.tokenName, icon: signal.tokenIcon, chain: signal.tokenChain, signalAt: signal.timestamp, signalReason: signal.reason, signalReasonText: signal.reasonText, priceAtSignal: signal.priceAtSignal, priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal }], currentPrice: signal.priceAtSignal };
 }
 
+function getChainBadgeHtml(chain) {
+  const chainBadges = {
+    solana: '<span class="chain-badge sol" title="Solana">Sol</span>',
+    base: '<span class="chain-badge base" title="Base">Base</span>',
+    bsc: '<span class="chain-badge bsc" title="BSC">BSC</span>',
+  };
+  return chainBadges[chain] || '';
+}
+
 function renderMemecoinSignals() {
   const now = Date.now();
   state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
-  const activeSignals = state.signals;
-  dom.signalCount.textContent = activeSignals.length;
-  if (activeSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
+  
+  // Filter signals by current chain if not viewing "all"
+  const isAllChain = state.currentChain === 'all';
+  const visibleSignals = isAllChain 
+    ? state.signals 
+    : state.signals.filter((s) => s.tokenChain === state.currentChain);
+  
+  dom.signalCount.textContent = visibleSignals.length;
+  if (visibleSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
   dom.signalsEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
   const typeLabels = { 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力' };
-  for (const signal of activeSignals) {
+  for (const signal of visibleSignals) {
     const card = document.createElement('div');
     card.className = `signal-card signal-${signal.reason}`;
     card.dataset.signalId = signal.id;
+    const chainBadge = getChainBadgeHtml(signal.tokenChain);
     card.innerHTML = `
       <button class="signal-dismiss-btn" data-signal-id="${signal.id}" title="关闭信号">✕</button>
-      <div class="signal-header"><span class="signal-type">${typeLabels[signal.reason] || '信号'}</span><span class="signal-time">${formatDuration(now - signal.timestamp)}</span></div>
+      <div class="signal-header">
+        <span class="signal-type">${typeLabels[signal.reason] || '信号'}</span>
+        ${chainBadge}
+        <span class="signal-time">${formatDuration(now - signal.timestamp)}</span>
+      </div>
       <div class="signal-body">
         <div class="signal-token-icon">${signal.tokenIcon ? `<img src="${signal.tokenIcon}" alt="" onerror="this.style.display='none'" />` : (signal.tokenSymbol?.charAt(0) || '?')}</div>
         <div class="signal-token-info"><span class="signal-token-symbol">${signal.tokenSymbol}</span><span class="signal-token-name">${signal.tokenName || shortAddress(signal.tokenAddress)}</span></div>
@@ -488,9 +510,12 @@ function renderMemecoinTokenRows(tokens) {
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1;
     const iconHtml = getTokenIcon(token);
-    const explorerUrl = getExplorerUrl(state.currentChain, token.address);
-    const gmgnUrl = getGmgnUrl(state.currentChain, token.address);
+    // Use token's actual chain for URLs, NOT state.currentChain
+    const tokenChain = token.chain || state.currentChain;
+    const explorerUrl = getExplorerUrl(tokenChain, token.address);
+    const gmgnUrl = getGmgnUrl(tokenChain, token.address);
     const buyPercent = calculateBuyPercent(token);
+    const chainBadge = getChainBadgeHtml(tokenChain);
     row.innerHTML = `
       <div class="td ${index < 3 ? 'rank-cell top-3' : 'rank-cell'}">${rankEmoji}</div>
       <div class="td token-cell">
@@ -500,6 +525,7 @@ function renderMemecoinTokenRows(tokens) {
           <span class="token-name">${token.name || shortAddress(token.address)}</span>
           <div class="token-links"><a href="${gmgnUrl}" target="_blank" rel="noopener" class="token-link">GMGN</a><a href="${explorerUrl}" target="_blank" rel="noopener" class="token-link">🔗</a></div>
         </div>
+        ${chainBadge}
       </div>
       <div class="td price-cell">${formatPrice(token.priceUsd)}</div>
       <div class="td"><span class="change-cell ${getChangeClass(token.priceChange1h)}">${formatChange(token.priceChange1h)}</span></div>
