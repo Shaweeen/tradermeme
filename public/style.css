@@ -1626,6 +1626,39 @@ a:hover {
   text-decoration: none;
 }
 
+.token-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  line-height: 1;
+}
+
+.token-copy-btn:hover {
+  background: rgba(75, 139, 255, 0.15);
+  color: var(--accent-blue);
+}
+
+.token-copy-btn.copied {
+  color: var(--accent-green);
+  animation: copyPop 0.3s ease;
+}
+
+@keyframes copyPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
 /* Price */
 .price-cell {
   font-family: var(--font-mono);

@@ -531,7 +531,7 @@ function renderMemecoinTokenRows(tokens) {
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
           <span class="token-name">${token.name || shortAddress(token.address)}</span>
-          <div class="token-links"><a href="${gmgnUrl}" target="_blank" rel="noopener" class="token-link">GMGN</a><a href="${explorerUrl}" target="_blank" rel="noopener" class="token-link">🔗</a></div>
+          <div class="token-links"><a href="${gmgnUrl}" target="_blank" rel="noopener" class="token-link">GMGN</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">📋</button></div>
         </div>
         ${chainBadge}
       </div>
@@ -548,6 +548,34 @@ function renderMemecoinTokenRows(tokens) {
   });
   dom.tokenList.innerHTML = '';
   dom.tokenList.appendChild(fragment);
+}
+
+// ===== Clipboard Copy =====
+function copyAddress(address, event) {
+  if (event) {
+    event.stopPropagation();
+    const btn = event.currentTarget;
+    btn.textContent = '✅';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '📋';
+      btn.classList.remove('copied');
+    }, 1500);
+  }
+  navigator.clipboard.writeText(address).then(() => {
+    showToast('地址已复制: ' + shortAddress(address), 'success');
+  }).catch(() => {
+    // Fallback for older browsers
+    const textarea = document.createElement('textarea');
+    textarea.value = address;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showToast('地址已复制', 'success');
+  });
 }
 
 function formatTxns(num) {
