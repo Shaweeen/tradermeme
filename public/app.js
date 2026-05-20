@@ -138,6 +138,30 @@ const dom = {
   sourceStatusDot: $('#sourceStatusDot'),
   sourceStatusText: $('#sourceStatusText'),
 
+  // BTC - Long/Short Ratio
+  lsGrid: $('#lsGrid'),
+  lsStatus: $('#lsStatus'),
+  lsSignal: $('#lsSignal'),
+
+  // BTC - Liquidations
+  liqTotalUsd: $('#liqTotalUsd'),
+  liqCount: $('#liqCount'),
+  liqSignal: $('#liqSignal'),
+  liqLongBar: $('#liqLongBar'),
+  liqShortBar: $('#liqShortBar'),
+  liqLongPct: $('#liqLongPct'),
+  liqShortPct: $('#liqShortPct'),
+  liqSources: $('#liqSources'),
+  liqStatus: $('#liqStatus'),
+
+  // BTC - HyperLiquid
+  hlPrice: $('#hlPrice'),
+  hlFundingRate: $('#hlFundingRate'),
+  hlAnnualFunding: $('#hlAnnualFunding'),
+  hlPredictedFunding: $('#hlPredictedFunding'),
+  hlOpenInterest: $('#hlOpenInterest'),
+  hlStatus: $('#hlStatus'),
+
   // Toast
   toastContainer: $('#toastContainer'),
 };
@@ -951,6 +975,15 @@ function renderBitcoinData() {
   const sources = d.sources || [];
   if (dom.btcSources) dom.btcSources.textContent = sources.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
 
+  // ---- Long/Short Ratio ----
+  renderLongShortRatio(d.longShortRatio);
+
+  // ---- Liquidations ----
+  renderLiquidations(d.liquidations);
+
+  // ---- HyperLiquid ----
+  renderHyperLiquid(d.hyperLiquid);
+
   // Coinglass
   if (dom.coinglassStatus) {
     if (d.coinglass?.price || d.coinglass?.openInterest || d.coinglass?.longShortRatio) {
@@ -964,6 +997,136 @@ function renderBitcoinData() {
       dom.coinglassStatus.style.color = '#fbbf24';
     }
   }
+}
+
+// ===== Long/Short Ratio Rendering =====
+function renderLongShortRatio(lsr) {
+  if (!dom.lsGrid || !dom.lsStatus) return;
+  if (!lsr || !lsr.summary || !lsr.summary.available) {
+    dom.lsStatus.textContent = '⏸ 数据不可用';
+    dom.lsStatus.style.background = 'rgba(255,193,7,0.1)';
+    dom.lsStatus.style.color = '#fbbf24';
+    dom.lsGrid.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)"><p>多空比数据不可用</p></div>';
+    return;
+  }
+
+  dom.lsStatus.textContent = '✅ 已连接';
+  dom.lsStatus.style.background = 'rgba(34,197,94,0.1)';
+  dom.lsStatus.style.color = '#22c55e';    // Clear grid
+    dom.lsGrid.innerHTML = '';
+
+  // Render each source
+  const sources = lsr.sources || {};
+  for (const [key, src] of Object.entries(sources)) {
+    if (!src || !src.ratio) continue;
+
+    const card = document.createElement('div');
+    card.className = 'ls-source-card';
+
+    const ratio = src.ratio;
+    const longPct = parseFloat(src.longPct) || 0;
+    const shortPct = parseFloat(src.shortPct) || 0;
+    const totalPct = longPct + shortPct;
+    const longWidth = totalPct > 0 ? (longPct / totalPct * 100) : 50;
+    const shortWidth = totalPct > 0 ? (shortPct / totalPct * 100) : 50;
+
+    const signalClass = ratio > 1.2 ? 'bullish' : ratio < 0.8 ? 'bearish' : 'neutral';
+    const signalText = ratio > 1.2 ? '偏多' : ratio < 0.8 ? '偏空' : '中性';
+
+    const sourceLabel = { binance: 'Binance 全网账户', bybit: 'Bybit 账户' }[key] || key;
+
+    card.innerHTML = `
+      <div class="ls-source-header">
+        <span class="ls-source-name">${sourceLabel}</span>
+        <span class="ls-ratio-value">${ratio.toFixed(3)}</span>
+      </div>
+      <div class="ls-bar-container">
+        <div class="ls-bar-label">多 ${longPct.toFixed(1)}%</div>
+        <div class="ls-bar-track">
+          <div class="ls-bar-fill long" style="width:${longWidth}%"></div>
+          <div class="ls-bar-fill short" style="width:${shortWidth}%"></div>
+        </div>
+        <div class="ls-bar-label right">空 ${shortPct.toFixed(1)}%</div>
+      </div>
+      <span class="ls-signal-tag ${signalClass}">${signalText}</span>`;
+    dom.lsGrid.appendChild(card);
+  }
+
+  // Summary signal
+  if (dom.lsSignal) {
+    const signalText = lsr.summary.signal || '中性';
+    dom.lsSignal.textContent = signalText;
+    dom.lsSignal.className = 'ls-summary-value';
+    const signalClass = signalText.includes('偏多') ? 'bullish' : signalText.includes('偏空') ? 'bearish' : 'neutral';
+    dom.lsSignal.classList.add(signalClass);
+  }
+}
+
+// ===== Liquidations Rendering =====
+function renderLiquidations(liq) {
+  if (!dom.liqTotalUsd || !dom.liqStatus) return;
+  if (!liq || !liq.summary || !liq.summary.available) {
+    dom.liqStatus.textContent = '⏸ 数据加载中';
+    dom.liqStatus.style.background = 'rgba(255,193,7,0.1)';
+    dom.liqStatus.style.color = '#fbbf24';
+    return;
+  }
+
+  dom.liqStatus.textContent = '✅ 已连接';
+  dom.liqStatus.style.background = 'rgba(34,197,94,0.1)';
+  dom.liqStatus.style.color = '#22c55e';
+
+  const s = liq.summary;
+  dom.liqTotalUsd.textContent = formatCompact(s.totalUsd || 0);
+  dom.liqCount.textContent = (s.count || 0).toString();
+  dom.liqSignal.textContent = s.side || '均衡';
+
+  const longPct = parseFloat(s.longPct) || 0;
+  const shortPct = parseFloat(s.shortPct) || 0;
+  dom.liqLongBar.style.width = Math.max(longPct, 5) + '%';
+  dom.liqShortBar.style.width = Math.max(shortPct, 5) + '%';
+  dom.liqLongPct.textContent = longPct.toFixed(1) + '%';
+  dom.liqShortPct.textContent = shortPct.toFixed(1) + '%';
+
+  // Sources info
+  if (dom.liqSources) {
+    const sourceKeys = Object.keys(liq.sources || {});
+    if (sourceKeys.length > 0) {
+      dom.liqSources.textContent = '来源: ' + sourceKeys.map(k => k === 'binance' ? 'Binance' : 'Bybit').join(' · ');
+    }
+  }
+}
+
+// ===== HyperLiquid Rendering =====
+function renderHyperLiquid(hl) {
+  if (!dom.hlPrice || !dom.hlStatus) return;
+  if (!hl || !hl.price) {
+    dom.hlStatus.textContent = '⏸ 未连接';
+    dom.hlStatus.style.background = 'rgba(255,193,7,0.1)';
+    dom.hlStatus.style.color = '#fbbf24';
+    return;
+  }
+
+  dom.hlStatus.textContent = '✅ 已连接';
+  dom.hlStatus.style.background = 'rgba(34,197,94,0.1)';
+  dom.hlStatus.style.color = '#22c55e';
+
+  dom.hlPrice.textContent = hl.price ? `$${hl.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$--';
+
+  const fr = hl.fundingRate || 0;
+  dom.hlFundingRate.textContent = fr !== 0 ? `${(fr * 100).toFixed(4)}%` : '--';
+  dom.hlFundingRate.className = `btc-metric-value ${getChangeClass(fr)}`;
+
+  const af = hl.annualFundingRate || (fr * 3 * 365 * 100);
+  dom.hlAnnualFunding.textContent = af !== 0 ? `${af.toFixed(2)}%` : '--';
+  dom.hlAnnualFunding.className = `btc-metric-value ${getChangeClass(af)}`;
+
+  const pf = hl.predictedFundingRate || 0;
+  dom.hlPredictedFunding.textContent = pf !== 0 ? `${(pf * 100).toFixed(4)}%` : '--';
+  dom.hlPredictedFunding.className = `btc-metric-value ${getChangeClass(pf)}`;
+
+  const oi = hl.openInterestUsd || (hl.openInterest * (hl.price || 1)) || 0;
+  dom.hlOpenInterest.textContent = oi > 0 ? formatCompact(oi) : '--';
 }
 
 function renderCoinglassData(cg) {

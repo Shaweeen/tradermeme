@@ -522,6 +522,241 @@ a:hover {
   margin: 0;
 }
 
+/* ===== Long/Short Ratio Card ===== */
+.ls-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ls-source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.04);
+}
+
+.ls-source-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ls-source-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ls-ratio-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.ls-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ls-bar-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 50px;
+  white-space: nowrap;
+}
+
+.ls-bar-label.right {
+  text-align: right;
+}
+
+.ls-bar-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.15);
+  display: flex;
+  overflow: hidden;
+}
+
+.ls-bar-fill {
+  height: 100%;
+  transition: width 0.6s ease;
+}
+
+.ls-bar-fill.long {
+  background: var(--accent-green);
+  border-radius: 4px 0 0 4px;
+}
+
+.ls-bar-fill.short {
+  background: var(--accent-red);
+  border-radius: 0 4px 4px 0;
+}
+
+.ls-signal-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  align-self: flex-start;
+}
+
+.ls-signal-tag.bullish {
+  color: var(--accent-green);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.ls-signal-tag.bearish {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.ls-signal-tag.neutral {
+  color: var(--accent-yellow);
+  background: rgba(234, 179, 8, 0.1);
+}
+
+.ls-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.ls-summary-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ls-summary-value {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ls-summary-value.bullish {
+  color: var(--accent-green);
+}
+
+.ls-summary-value.bearish {
+  color: var(--accent-red);
+}
+
+.ls-summary-value.neutral {
+  color: var(--accent-yellow);
+}
+
+/* ===== Liquidations Card ===== */
+.liq-summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.liq-summary-item {
+  text-align: center;
+  padding: 10px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+}
+
+.liq-summary-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.liq-summary-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.liq-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.liq-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.liq-bar-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 55px;
+}
+
+.liq-bar-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.04);
+  overflow: hidden;
+}
+
+.liq-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.liq-bar-fill.long {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.liq-bar-fill.short {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.liq-bar-pct {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: right;
+}
+
+.liq-sources {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ===== HyperLiquid Card ===== */
+.hl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
+@media (max-width: 640px) {
+  .hl-grid {
+    grid-template-columns: 1fr;
+  }
+  .liq-summary-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 900px) {
   .btc-grid {
     grid-template-columns: 1fr;

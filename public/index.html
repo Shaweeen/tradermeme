@@ -420,6 +420,112 @@
         </div>
       </div>
 
+      <!-- Long/Short Ratio Card -->
+      <div class="btc-card" id="btcCardLSRatio">
+        <div class="btc-card-header">
+          <span class="btc-card-icon">⚖️</span>
+          <h3>多空比 · Long/Short Ratio</h3>
+          <span class="btc-badge" id="lsStatus">检测中</span>
+        </div>
+        <div class="btc-card-body" id="lsBody">
+          <div class="ls-grid" id="lsGrid"></div>
+          <div class="ls-summary" id="lsSummary">
+            <span class="ls-summary-label">综合信号:</span>
+            <span class="ls-summary-value" id="lsSignal">加载中...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Liquidations Card -->
+      <div class="btc-card" id="btcCardLiq">
+        <div class="btc-card-header">
+          <span class="btc-card-icon">💥</span>
+          <h3>清算数据 · Liquidations</h3>
+          <span class="btc-badge" id="liqStatus">检测中</span>
+        </div>
+        <div class="btc-card-body" id="liqBody">
+          <div class="liq-summary-row">
+            <div class="liq-summary-item">
+              <span class="liq-summary-label">总清算额</span>
+              <span class="liq-summary-value" id="liqTotalUsd">--</span>
+            </div>
+            <div class="liq-summary-item">
+              <span class="liq-summary-label">清算笔数</span>
+              <span class="liq-summary-value" id="liqCount">--</span>
+            </div>
+            <div class="liq-summary-item">
+              <span class="liq-summary-label">信号</span>
+              <span class="liq-summary-value" id="liqSignal">--</span>
+            </div>
+          </div>
+          <div class="liq-bars">
+            <div class="liq-bar-group">
+              <span class="liq-bar-label">多头清算</span>
+              <div class="liq-bar-track">
+                <div class="liq-bar-fill long" id="liqLongBar" style="width:50%"></div>
+              </div>
+              <span class="liq-bar-pct" id="liqLongPct">50%</span>
+            </div>
+            <div class="liq-bar-group">
+              <span class="liq-bar-label">空头清算</span>
+              <div class="liq-bar-track">
+                <div class="liq-bar-fill short" id="liqShortBar" style="width:50%"></div>
+              </div>
+              <span class="liq-bar-pct" id="liqShortPct">50%</span>
+            </div>
+          </div>
+          <div class="liq-sources" id="liqSources"></div>
+        </div>
+      </div>
+
+      <!-- HyperLiquid Card -->
+      <div class="btc-card" id="btcCardHL">
+        <div class="btc-card-header">
+          <span class="btc-card-icon">⚡</span>
+          <h3>HyperLiquid · DEX 永续数据</h3>
+          <span class="btc-badge" id="hlStatus">检测中</span>
+        </div>
+        <div class="btc-card-body" id="hlBody">
+          <div class="hl-grid">
+            <div class="btc-metric">
+              <span class="btc-metric-label">BTC 价格</span>
+              <span class="btc-metric-value" id="hlPrice">$--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">资金费率</span>
+              <span class="btc-metric-value" id="hlFundingRate">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">年化费率</span>
+              <span class="btc-metric-value" id="hlAnnualFunding">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">预预测资金费率</span>
+              <span class="btc-metric-value" id="hlPredictedFunding">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">未平仓量</span>
+              <span class="btc-metric-value" id="hlOpenInterest">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arkham Intelligence placeholder -->
+      <div class="btc-card" id="btcCardArkham">
+        <div class="btc-card-header">
+          <span class="btc-card-icon">🕵️</span>
+          <h3>Arkham · 链上数据</h3>
+          <span class="btc-badge" style="background:rgba(255,193,7,0.1);color:#fbbf24">需 API Key</span>
+        </div>
+        <div class="btc-card-body">
+          <div style="text-align:center;padding:10px 0;color:var(--text-muted);font-size:13px;">
+            <p style="margin-bottom:6px">🕵️ Arkham Intelligence API 需要付费密钥</p>
+            <p style="font-size:11px;color:var(--text-muted);opacity:0.7">已通过 Binance · Bybit · HyperLiquid 提供替代数据</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Coinglass Data Section -->
       <div class="btc-card coinglass-card" id="btcCardCoinglass">
         <div class="btc-card-header">
@@ -439,7 +545,7 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <p>数据来源: <a href="https://gmgn.ai/" target="_blank" rel="noopener">GMGN.AI</a> · <a href="https://dexscreener.com/" target="_blank" rel="noopener">DexScreener</a> · <a href="https://www.coingecko.com/" target="_blank" rel="noopener">CoinGecko</a> · <a href="https://www.binance.com/" target="_blank" rel="noopener">Binance</a> · <a href="https://www.bybit.com/" target="_blank" rel="noopener">Bybit</a></p>
+    <p>数据来源: <a href="https://gmgn.ai/" target="_blank" rel="noopener">GMGN.AI</a> · <a href="https://dexscreener.com/" target="_blank" rel="noopener">DexScreener</a> · <a href="https://www.coingecko.com/" target="_blank" rel="noopener">CoinGecko</a> · <a href="https://www.binance.com/" target="_blank" rel="noopener">Binance</a> · <a href="https://www.bybit.com/" target="_blank" rel="noopener">Bybit</a> · <a href="https://hyperliquid.xyz/" target="_blank" rel="noopener">HyperLiquid</a></p>
     <p class="footer-note">仅供信息参考，不构成投资建议。交易有风险，请谨慎决策。</p>
   </footer>
 
