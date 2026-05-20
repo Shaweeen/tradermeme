@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MemeWatch - 多链 Memecoin 监控仪表盘</title>
-  <meta name="description" content="实时监控 Solana、Base、BSC 链上热门 Memecoin 动态" />
+  <meta name="description" content="实时监控 Solana、Base、BSC 链上热门 Memecoin 动态、信号预警与走势追踪" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>" />
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -16,7 +16,7 @@
         <span class="logo-icon">🔥</span>
         <div class="logo-text">
           <h1>MemeWatch</h1>
-          <span class="logo-subtitle">多链 Memecoin 实时监控</span>
+          <span class="logo-subtitle">多链 Memecoin 实时监控 · 信号预警</span>
         </div>
       </div>
       <div class="header-controls">
@@ -62,61 +62,103 @@
     </nav>
   </header>
 
-  <!-- Stats Bar -->
-  <section class="stats-bar" id="statsBar">
-    <div class="stat-card" id="statCount">
-      <div class="stat-value">--</div>
-      <div class="stat-label">代币数量</div>
-    </div>
-    <div class="stat-card" id="statVolume">
-      <div class="stat-value">--</div>
-      <div class="stat-label">24h 总交易量</div>
-    </div>
-    <div class="stat-card" id="statNewest">
-      <div class="stat-value">--</div>
-      <div class="stat-label">最新代币</div>
-    </div>
-    <div class="stat-card" id="statUpdated">
-      <div class="stat-value">--</div>
-      <div class="stat-label">更新于</div>
-    </div>
-  </section>
-
-  <!-- Main Content -->
-  <main class="main-content">
-    <!-- Token Table -->
-    <div class="table-container" id="tableContainer">
-      <div class="table-header">
-        <div class="table-header-row">
-          <div class="th rank">#</div>
-          <div class="th token">代币</div>
-          <div class="th price">价格</div>
-          <div class="th change1h">1h 变化</div>
-          <div class="th change24h">24h 变化</div>
-          <div class="th volume">24h 交易量</div>
-          <div class="th liquidity">流动性</div>
-          <div class="th fdv">FDV</div>
-          <div class="th txns">24h 交易数</div>
-          <div class="th trades">买卖比</div>
-          <div class="th actions">操作</div>
+  <div class="dashboard">
+    <!-- ===== Section 1: Signal Alerts ===== -->
+    <section class="dashboard-section" id="signalSection">
+      <div class="section-header">
+        <div class="section-title-group">
+          <span class="section-icon">🚨</span>
+          <h2 class="section-title">实时信号</h2>
+          <span class="section-badge" id="signalCount">0</span>
+        </div>
+        <div class="section-controls">
+          <button class="section-action-btn" id="clearSignalsBtn" title="清除所有信号">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>清除</span>
+          </button>
         </div>
       </div>
-      <div class="table-body" id="tokenList">
-        <div class="loading-state" id="loadingState">
-          <div class="spinner"></div>
-          <p>正在获取数据...</p>
+      <div class="signals-container" id="signalsContainer">
+        <div class="signals-empty" id="signalsEmpty">
+          <span class="signals-empty-icon">🛡️</span>
+          <p class="signals-empty-text">暂无信号，持续监控中...</p>
+        </div>
+        <div class="signals-list" id="signalsList"></div>
+      </div>
+    </section>
+
+    <!-- ===== Section 2: 15-Minute Hot Tokens ===== -->
+    <section class="dashboard-section" id="hotTokensSection">
+      <div class="section-header">
+        <div class="section-title-group">
+          <span class="section-icon">⚡</span>
+          <h2 class="section-title">15分钟热门代币</h2>
+          <span class="section-badge" id="hotCount">0</span>
+        </div>
+        <div class="section-controls">
+          <div class="section-filter" id="sortSelect">
+            <button class="filter-btn active" data-sort="volume">交易量</button>
+            <button class="filter-btn" data-sort="priceChange">涨幅</button>
+            <button class="filter-btn" data-sort="buyRatio">买入比</button>
+          </div>
         </div>
       </div>
-    </div>
+      <div class="table-container" id="tableContainer">
+        <div class="table-header">
+          <div class="table-header-row">
+            <div class="th rank">#</div>
+            <div class="th token">代币</div>
+            <div class="th price">价格</div>
+            <div class="th change1h">1h 变化</div>
+            <div class="th change24h">24h 变化</div>
+            <div class="th volume">交易量</div>
+            <div class="th liquidity">流动性</div>
+            <div class="th fdv">FDV</div>
+            <div class="th txns">交易数</div>
+            <div class="th trades">买卖比</div>
+            <div class="th actions">操作</div>
+          </div>
+        </div>
+        <div class="table-body" id="tokenList">
+          <div class="loading-state" id="loadingState">
+            <div class="spinner"></div>
+            <p>正在获取数据...</p>
+          </div>
+        </div>
+      </div>
+      <!-- Error State -->
+      <div class="error-state" id="errorState" style="display: none;">
+        <div class="error-icon">⚠️</div>
+        <h3>数据加载失败</h3>
+        <p id="errorMessage">无法连接到数据源，请检查网络连接后重试</p>
+        <button class="retry-btn" id="retryBtn">重试</button>
+      </div>
+    </section>
 
-    <!-- Error State -->
-    <div class="error-state" id="errorState" style="display: none;">
-      <div class="error-icon">⚠️</div>
-      <h3>数据加载失败</h3>
-      <p id="errorMessage">无法连接到数据源，请检查网络连接后重试</p>
-      <button class="retry-btn" id="retryBtn">重试</button>
-    </div>
-  </main>
+    <!-- ===== Section 3: Post-Signal Monitoring ===== -->
+    <section class="dashboard-section" id="monitorSection">
+      <div class="section-header">
+        <div class="section-title-group">
+          <span class="section-icon">📈</span>
+          <h2 class="section-title">信号追踪</h2>
+          <span class="section-badge" id="trackedCount">0</span>
+        </div>
+        <div class="section-controls">
+          <span class="section-hint" id="trackingHint">信号发出后的代币走势追踪</span>
+        </div>
+      </div>
+      <div class="monitor-grid" id="monitorGrid">
+        <div class="monitor-empty" id="monitorEmpty">
+          <span class="monitor-empty-icon">🔭</span>
+          <p class="monitor-empty-text">尚未追踪任何代币<br/>当有信号触发时，代币将自动出现在这里</p>
+        </div>
+        <div class="monitor-cards" id="monitorCards"></div>
+      </div>
+    </section>
+  </div>
 
   <!-- Footer -->
   <footer class="footer">
