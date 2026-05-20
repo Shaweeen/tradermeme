@@ -324,6 +324,32 @@
               <span class="btc-detail-value" id="btcUpdated">--</span>
             </div>
           </div>
+          <!-- Source Selector -->
+          <div class="btc-source-selector" id="btcSourceSelector">
+            <span class="btc-source-label">数据源:</span>
+            <div class="btc-source-btns" id="btcSourceBtns">
+              <button class="btc-source-btn active" data-source="auto" title="自动选择最快更新的数据源">
+                <span class="source-btn-icon">🤖</span>
+                <span class="source-btn-label">自动</span>
+              </button>
+              <button class="btc-source-btn" data-source="binance" title="Binance 现货价格">
+                <span class="source-btn-icon">📊</span>
+                <span class="source-btn-label">Binance</span>
+              </button>
+              <button class="btc-source-btn" data-source="bybit" title="Bybit 期货/永续合约">
+                <span class="source-btn-icon">📈</span>
+                <span class="source-btn-label">Bybit</span>
+              </button>
+              <button class="btc-source-btn" data-source="coingecko" title="CoinGecko 聚合价格">
+                <span class="source-btn-icon">🦎</span>
+                <span class="source-btn-label">CoinGecko</span>
+              </button>
+            </div>
+            <div class="btc-source-status" id="btcSourceStatus">
+              <span class="source-status-dot" id="sourceStatusDot"></span>
+              <span class="source-status-text" id="sourceStatusText">检测中</span>
+            </div>
+          </div>
           <!-- BTC Mini Chart -->
           <div class="btc-hero-chart">
             <div class="btc-chart-container" id="btcChartContainer">

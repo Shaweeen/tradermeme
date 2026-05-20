@@ -280,6 +280,120 @@ a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* BTC Source Selector */
+.btc-source-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.btc-source-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btc-source-btns {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btc-source-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
+.btc-source-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
+.btc-source-btn.active {
+  background: rgba(247, 147, 26, 0.12);
+  border-color: rgba(247, 147, 26, 0.4);
+  color: #f7931a;
+}
+
+.btc-source-btn .source-btn-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.btc-source-btn .source-btn-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.btc-source-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+  font-size: 11px;
+}
+
+.source-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.source-status-dot.healthy {
+  background: var(--accent-green);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+.source-status-dot.warning {
+  background: var(--accent-yellow);
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+  animation: blink 1s ease-in-out infinite;
+}
+
+.source-status-dot.error {
+  background: var(--accent-red);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+.source-status-text {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.source-status-text span.fallback {
+  color: var(--accent-yellow);
+}
+
+.source-status-text .source-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* BTC Chart */
 .btc-hero-chart {
   margin-top: 20px;
@@ -1845,6 +1959,7 @@ a:hover {
 .toast.success { border-left: 3px solid var(--accent-green); }
 .toast.error { border-left: 3px solid var(--accent-red); }
 .toast.info { border-left: 3px solid var(--accent-blue); }
+.toast.warning { border-left: 3px solid var(--accent-yellow); }
 
 .toast-icon { font-size: 16px; }
 .toast-message { font-size: 13px; color: var(--text-primary); flex: 1; }

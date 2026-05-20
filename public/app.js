@@ -37,6 +37,9 @@ const state = {
   btcLoading: false,
   btcError: null,
   btcPriceHistory: [],
+  btcPreferredSource: 'auto',
+  btcSourceRetryCount: 0,
+  btcSourceMaxRetries: 2,
 };
 
 // ===== Signal Thresholds =====
@@ -130,6 +133,10 @@ const dom = {
   btcSources: $('#btcSources'),
   coinglassStatus: $('#coinglassStatus'),
   coinglassBody: $('#coinglassBody'),
+  // BTC Source Selector
+  btcSourceBtns: $$('#btcSourceBtns .btc-source-btn'),
+  sourceStatusDot: $('#sourceStatusDot'),
+  sourceStatusText: $('#sourceStatusText'),
 
   // Toast
   toastContainer: $('#toastContainer'),
@@ -215,7 +222,7 @@ function formatDuration(ms) {
 
 // ===== Toast =====
 function showToast(message, type = 'info') {
-  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-message">${message}</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>`;
@@ -773,8 +780,9 @@ function updateOthercoinStats(tokens, timestamp) {
 // BITCOIN PAGE
 // ====================================================================================
 
-async function fetchBitcoinApi() {
-  const response = await fetch('/api/bitcoin', { headers: { 'Accept': 'application/json' } });
+async function fetchBitcoinApi(source = 'auto') {
+  const url = source && source !== 'auto' ? `/api/bitcoin?source=${source}` : '/api/bitcoin';
+  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
@@ -785,10 +793,13 @@ async function loadBitcoinData() {
   dom.btcHeroLoading.style.display = 'flex';
   dom.btcHeroContent.style.display = 'none';
   setStatus('loading', '加载 BTC 数据...');
+  updateSourceStatus('loading', '连接中...');
   try {
-    const result = await fetchBitcoinApi();
+    const result = await fetchBitcoinApi(state.btcPreferredSource);
     if (!result.success || !result.data) throw new Error('BTC API返回数据异常');
     state.btcData = result.data;
+    // Track source info
+    const sourceInfo = result.source || { active: 'auto', label: '自动', autoFallback: false };
     // Add to price history for sparkline
     const price = result.data.price?.index || result.data.price?.spot || 0;
     if (price > 0) {
@@ -799,20 +810,88 @@ async function loadBitcoinData() {
     setStatus('', `BTC $${price.toLocaleString()} · ${formatTime(result.timestamp)}`);
     dom.btcHeroLoading.style.display = 'none';
     dom.btcHeroContent.style.display = 'block';
+    state.btcSourceRetryCount = 0;
+    // Update source status
+    updateSourceStatus(sourceInfo, result.sourceHealth);
   } catch (err) {
     console.error('BTC load error:', err);
     state.btcError = err.message;
+    state.btcSourceRetryCount++;
+    // Attempt auto-fallback: if we have a specific source selected, try auto mode
+    if (state.btcPreferredSource !== 'auto' && state.btcSourceRetryCount <= state.btcSourceMaxRetries) {
+      const sourceName = state.btcPreferredSource.charAt(0).toUpperCase() + state.btcPreferredSource.slice(1);
+      showToast(`${sourceName} 无响应，自动回退到其他数据源...`, 'warning');
+      state.btcPreferredSource = 'auto';
+      // Update UI to show auto mode
+      dom.btcSourceBtns.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.source === 'auto');
+      });
+      setTimeout(() => loadBitcoinData(), 1000);
+      return;
+    }
     showToast(`BTC数据加载失败: ${err.message}`, 'error');
     dom.btcHeroLoading.innerHTML = `<div class="error-icon">⚠️</div><p style="color:var(--accent-red)">BTC 数据加载失败</p><button class="retry-btn" onclick="loadBitcoinData()" style="margin-top:12px">重试</button>`;
+    updateSourceStatus('error', '所有数据源不可用');
     setStatus('error', 'BTC 连接失败');
   } finally {
     state.btcLoading = false;
   }
 }
 
+function updateSourceStatus(status, detail) {
+  if (!dom.sourceStatusDot || !dom.sourceStatusText) return;
+  if (typeof status === 'object') {
+    // status is sourceInfo from API
+    const si = status;
+    const health = detail || {};
+    const label = si.label || '未知';
+    const isAuto = si.active === 'auto';
+    const hadFallback = si.autoFallback;
+    dom.sourceStatusDot.className = 'source-status-dot healthy';
+    if (hadFallback) {
+      dom.sourceStatusText.innerHTML = `<span class="fallback">⚠ 已回退</span> · <span class="source-name">${label}</span>`;
+    } else if (isAuto) {
+      dom.sourceStatusText.innerHTML = `🤖 自动 · <span class="source-name">${label}</span>`;
+    } else {
+      dom.sourceStatusText.textContent = `✓ ${label}`;
+    }
+    // Check if any sources are unhealthy
+    let unhealthyCount = 0;
+    if (health && typeof health === 'object') {
+      for (const [key, h] of Object.entries(health)) {
+        if (h && !h.healthy) unhealthyCount++;
+      }
+    }
+    if (unhealthyCount > 1) {
+      dom.sourceStatusDot.className = 'source-status-dot warning';
+    }
+    return;
+  }
+  // Simple string mode
+  dom.sourceStatusDot.className = 'source-status-dot';
+  if (status === 'loading') {
+    dom.sourceStatusDot.classList.add('warning');
+    dom.sourceStatusText.innerHTML = `<span class="fallback">⟳ ${detail || '请求中'}</span>`;
+  } else if (status === 'error') {
+    dom.sourceStatusDot.classList.add('error');
+    dom.sourceStatusText.textContent = `✗ ${detail || '错误'}`;
+  } else {
+    dom.sourceStatusDot.classList.add('healthy');
+    dom.sourceStatusText.textContent = detail || '正常';
+  }
+}
+
 function renderBitcoinData() {
   if (!state.btcData) return;
   const d = state.btcData;
+
+  // Sync source buttons with actual active source from API
+  if (d.source && d.source.active) {
+    dom.btcSourceBtns.forEach((btn) => {
+      const isActive = btn.dataset.source === d.source.active;
+      btn.classList.toggle('active', isActive);
+    });
+  }
 
   // Price hero
   const price = d.price?.index || d.price?.spot || 0;
@@ -1031,6 +1110,23 @@ dom.clearSignalsBtn.addEventListener('click', () => {
   renderMemecoinSignals();
   renderMemecoinMonitoring();
   showToast('所有信号已清除', 'info');
+});
+
+// BTC Source Selector
+dom.btcSourceBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const source = btn.dataset.source;
+    if (source === state.btcPreferredSource) return;
+    // Update button states
+    dom.btcSourceBtns.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Update state
+    state.btcPreferredSource = source;
+    state.btcSourceRetryCount = 0;
+    // Reload with new source
+    showToast(`切换到 ${btn.querySelector('.source-btn-label')?.textContent || source} 数据源`, 'info');
+    loadBitcoinData();
+  });
 });
 
 // ====================================================================================
