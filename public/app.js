@@ -30,7 +30,7 @@ const state = {
   otherTokens: [],
   otherLoading: false,
   otherError: null,
-  otherSortBy: 'marketCap',
+  otherSortBy: 'signalScore',
 
   // Bitcoin state
   btcData: null,
@@ -254,7 +254,7 @@ function switchPage(page) {
   });
 
   // Update header
-  const labels = { memecoin: 'Meme 代币监控 · 信号预警', othercoin: '主流币监控 · 市值排行', bitcoin: 'BTC 市场数据 · Coinglass' };
+  const labels = { memecoin: 'Meme 代币监控 · 信号预警', othercoin: 'Coinglass 信号扫描 · 动态收录', bitcoin: 'BTC 市场数据 · Coinglass' };
   dom.logoSubtitle.textContent = labels[page] || labels.memecoin;
 
   // Load data for the page
@@ -629,11 +629,11 @@ function drawSparkline(canvas, priceHistory) {
 }
 
 // ====================================================================================
-// OTHERCOIN PAGE
+// OTHERCOIN PAGE — Signal-Based Scanner
 // ====================================================================================
 
-async function fetchOthercoinApi(limit = 30) {
-  const response = await fetch(`/api/othercoin?limit=${limit}`, { headers: { 'Accept': 'application/json' } });
+async function fetchOthercoinApi() {
+  const response = await fetch('/api/othercoin', { headers: { 'Accept': 'application/json' } });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
@@ -645,24 +645,24 @@ async function loadOthercoinData() {
   dom.otherErrorState.style.display = 'none';
   dom.otherLoadingState.style.display = 'flex';
   dom.otherTokenList.innerHTML = '';
-  setStatus('loading', '加载主流币...');
+  setStatus('loading', '扫描信号...');
   try {
-    const data = await fetchOthercoinApi(30);
+    const data = await fetchOthercoinApi();
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.otherTokens = data.data;
     renderOthercoinSortedTokens(data.data);
     updateOthercoinStats(data.data, data.timestamp);
-    setStatus('', `${data.data.length} 个主流币 · ${formatTime(data.timestamp)}`);
+    setStatus('', `${data.data.length} 个信号币 · ${formatTime(data.timestamp)}`);
     dom.otherLoadingState.style.display = 'none';
   } catch (err) {
     console.error('Othercoin load error:', err);
     state.otherError = err.message;
-    showToast(`其他币数据加载失败: ${err.message}`, 'error');
+    showToast(`信号扫描失败: ${err.message}`, 'error');
     dom.otherLoadingState.style.display = 'none';
     dom.otherTokenList.innerHTML = '';
     dom.otherErrorState.style.display = 'flex';
     dom.otherErrorMessage.textContent = err.message;
-    setStatus('error', '连接失败');
+    setStatus('error', '扫描失败');
   } finally {
     state.otherLoading = false;
   }
@@ -671,7 +671,7 @@ async function loadOthercoinData() {
 function renderOthercoinSortedTokens(tokens) {
   const sorted = [...tokens].sort((a, b) => {
     switch (state.otherSortBy) {
-      case 'marketCap': return (b.marketCap || 0) - (a.marketCap || 0);
+      case 'signalScore': return (b.signalScore || 0) - (a.signalScore || 0);
       case 'volume': return (b.volume24h || 0) - (a.volume24h || 0);
       case 'priceChange': return Math.abs(b.priceChange24h || 0) - Math.abs(a.priceChange24h || 0);
       default: return 0;
@@ -681,20 +681,53 @@ function renderOthercoinSortedTokens(tokens) {
   renderOthercoinTokenRows(sorted);
 }
 
+const SIGNAL_BADGE_LABELS = {
+  funding: '资金费率',
+  price: '价格异动',
+  volume: '交易量',
+  oi: '持仓量',
+};
+
 function renderOthercoinTokenRows(tokens) {
   if (!tokens || tokens.length === 0) {
-    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>暂无数据</p></div>';
+    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>暂无信号数据</p></div>';
     return;
   }
   const fragment = document.createDocumentFragment();
   tokens.forEach((token, index) => {
     const row = document.createElement('div');
-    row.className = 'token-row';
+    row.className = 'token-row othercoin-token-row';
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
-    const iconHtml = token.icon ? `<img src="${token.icon}" alt="${token.symbol}" onerror="this.style.display='none'" />` : (token.symbol?.charAt(0)?.toUpperCase() || '?');
-    const coinGeckoUrl = `https://www.coingecko.com/en/coins/${token.address}`;
-    const logoUrl = token.icon || '';
+    const iconHtml = getTokenIcon(token);
+    const coinGeckoUrl = token.url || `https://www.coingecko.com/en/coins/${token.address}`;
+
+    // Build signal badges
+    let badgesHtml = '';
+    const signals = token.signals || [];
+    if (signals.length > 0) {
+      badgesHtml = '<div class="signal-badge-row">';
+      const badgeType = signals.length >= 3 ? 'multi' : '';
+      if (signals.length >= 3) {
+        badgesHtml += `<span class="signal-badge multi">+${signals.length} 信号</span>`;
+      } else {
+        for (const sig of signals.slice(0, 2)) {
+          badgesHtml += `<span class="signal-badge ${sig.type}">${SIGNAL_BADGE_LABELS[sig.type] || sig.type}</span>`;
+        }
+      }
+      badgesHtml += '</div>';
+    }
+
+    // Signal detail text
+    let detailText = '';
+    if (signals.length > 0) {
+      detailText = signals[0].detail || signals[0].label || '';
+    }
+
+    // Signal score bar
+    const score = token.signalScore || 0;
+    const scoreBarWidth = Math.min(score, 100);
+    const scoreClass = score >= 60 ? 'high' : score >= 30 ? 'med' : 'low';
 
     row.innerHTML = `
       <div class="td ${index < 3 ? 'rank-cell top-3' : 'rank-cell'}">${rankEmoji}</div>
@@ -702,20 +735,20 @@ function renderOthercoinTokenRows(tokens) {
         <div class="token-icon">${iconHtml}</div>
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
-          <span class="token-name">${token.name || shortAddress(token.address)}</span>
-          <div class="token-links">
-            <a href="${coinGeckoUrl}" target="_blank" rel="noopener" class="token-link">CoinGecko</a>
-          </div>
+          <span class="token-name">${token.name || ''}</span>
         </div>
       </div>
       <div class="td price-cell">${formatPrice(token.priceUsd)}</div>
       <div class="td"><span class="change-cell ${getChangeClass(token.priceChange24h)}">${formatChange(token.priceChange24h)}</span></div>
       <div class="td volume-cell">${formatCompact(token.volume24h || 0)}</div>
-      <div class="td liquidity-cell">${formatCompact(token.marketCap || 0)}</div>
-      <div class="td fdv-cell">${formatCompact(token.fdv || 0)}</div>
-      <div class="td trades-cell">
-        <span class="buy-sell-ratio" style="color:var(--text-muted);font-size:11px">#${token.marketCapRank || '--'}</span>
+      <div class="td signal-col">
+        <div class="signal-score-cell">
+          <div class="signal-score-bar"><div class="signal-score-fill ${scoreClass}" style="width:${scoreBarWidth}%"></div></div>
+          <span class="signal-score-label">${Math.round(score)}</span>
+        </div>
+        ${badgesHtml}
       </div>
+      <div class="td signal-detail"><span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span></div>
       <div class="td actions-cell">
         <a href="${coinGeckoUrl}" target="_blank" rel="noopener" class="action-btn primary">查看</a>
       </div>`;
@@ -730,8 +763,9 @@ function updateOthercoinStats(tokens, timestamp) {
   if (dom.statCountOther) dom.statCountOther.textContent = tokens.length;
   const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h || 0), 0);
   if (dom.statVolOther) dom.statVolOther.textContent = formatCompact(totalVolume);
-  const totalCap = tokens.reduce((sum, t) => sum + (t.marketCap || 0), 0);
-  if (dom.statCapOther) dom.statCapOther.textContent = formatCompact(totalCap);
+  const totalScore = tokens.reduce((sum, t) => sum + (t.signalScore || 0), 0);
+  const avgScore = tokens.length > 0 ? (totalScore / tokens.length).toFixed(1) : '--';
+  if (dom.statCapOther) dom.statCapOther.textContent = avgScore;
   if (dom.statUpdatedOther) dom.statUpdatedOther.textContent = formatTime(timestamp || Date.now());
 }
 
