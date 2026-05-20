@@ -432,10 +432,6 @@ a:hover {
   border-color: var(--accent);
 }
 
-.coinglass-card {
-  grid-column: 1 / -1;
-}
-
 .btc-card-header {
   display: flex;
   align-items: center;
@@ -497,29 +493,24 @@ a:hover {
 .btc-metric-value.positive { color: var(--accent-green); }
 .btc-metric-value.negative { color: var(--accent-red); }
 
-/* Coinglass Section */
-.btc-coinglass-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 80px;
+/* ===== Funding History Card ===== */
+.funding-history-chart {
+  width: 100%;
+  height: 72px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 4px;
 }
 
-.coinglass-empty {
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.coinglass-empty-icon {
-  font-size: 28px;
+.funding-history-chart canvas {
   display: block;
-  margin-bottom: 8px;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.coinglass-empty p {
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 0;
+.funding-history-stats {
+  margin-top: 8px;
 }
 
 /* ===== Long/Short Ratio Card ===== */

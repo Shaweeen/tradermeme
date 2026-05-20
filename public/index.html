@@ -511,32 +511,38 @@
         </div>
       </div>
 
-      <!-- Arkham Intelligence placeholder -->
-      <div class="btc-card" id="btcCardArkham">
+      <!-- Historical Funding Rate Card -->
+      <div class="btc-card" id="btcCardFundingHistory">
         <div class="btc-card-header">
-          <span class="btc-card-icon">🕵️</span>
-          <h3>Arkham · 链上数据</h3>
-          <span class="btc-badge" style="background:rgba(255,193,7,0.1);color:#fbbf24">需 API Key</span>
+          <span class="btc-card-icon">📜</span>
+          <h3>历史资金费率 · 过去 24h</h3>
+          <span class="btc-badge" id="fundingHistoryStatus">检测中</span>
         </div>
-        <div class="btc-card-body">
-          <div style="text-align:center;padding:10px 0;color:var(--text-muted);font-size:13px;">
-            <p style="margin-bottom:6px">🕵️ Arkham Intelligence API 需要付费密钥</p>
-            <p style="font-size:11px;color:var(--text-muted);opacity:0.7">已通过 Binance · Bybit · HyperLiquid 提供替代数据</p>
+        <div class="btc-card-body" id="fundingHistoryBody">
+          <div class="funding-history-chart" id="fundingHistoryChart">
+            <canvas id="fundingSparkline"></canvas>
           </div>
-        </div>
-      </div>
-
-      <!-- Coinglass Data Section -->
-      <div class="btc-card coinglass-card" id="btcCardCoinglass">
-        <div class="btc-card-header">
-          <span class="btc-card-icon">📡</span>
-          <h3>Coinglass · 多空比 & 持仓数据</h3>
-          <span class="btc-badge" id="coinglassStatus">检测中</span>
-        </div>
-        <div class="btc-card-body btc-coinglass-body" id="coinglassBody">
-          <div class="coinglass-empty">
-            <span class="coinglass-empty-icon">🔌</span>
-            <p>Coinglass API 可能需要 API Key，<br/>已通过 Bybit/Binance 提供基础数据</p>
+          <div class="funding-history-stats" id="fundingHistoryStats">
+            <div class="btc-metric">
+              <span class="btc-metric-label">当前费率</span>
+              <span class="btc-metric-value" id="fhCurrent">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">24h 最高</span>
+              <span class="btc-metric-value" id="fhHigh">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">24h 最低</span>
+              <span class="btc-metric-value" id="fhLow">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">24h 平均</span>
+              <span class="btc-metric-value" id="fhAvg">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">数据源</span>
+              <span class="btc-metric-value" id="fhSource" style="font-size:12px;color:var(--text-muted)">--</span>
+            </div>
           </div>
         </div>
       </div>

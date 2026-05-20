@@ -19,8 +19,6 @@ const BINANCE_FUTURES = 'https://fapi.binance.com';
 const BYBIT_BASE = 'https://api.bybit.com';
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const HYPERLIQUID_BASE = 'https://api.hyperliquid.xyz';
-const COINGLASS_BASE = 'https://open-api.coinglass.com/api/pro/v1';
-
 const SOURCE_TIMEOUT = 8000;
 
 async function safeFetch(url, timeoutMs = SOURCE_TIMEOUT, options = {}) {
@@ -359,6 +357,60 @@ async function fetchBinanceOI() {
 }
 
 // ===================================================================================
+// HISTORICAL FUNDING RATE (Binance Futures)
+// ===================================================================================
+
+async function fetchBinanceFundingHistory() {
+  // Get premium index for current funding rate
+  const premiumResult = await safeFetch(`${BINANCE_FUTURES}/fapi/v1/premiumIndex?symbol=BTCUSDT`);
+  // Get last 100 funding rate records (about 8+ hours at 30min intervals)
+  const historyResult = await safeFetch(`${BINANCE_FUTURES}/fapi/v1/fundingRate?symbol=BTCUSDT&limit=100`);
+  
+  if (!premiumResult.data && !historyResult.data) {
+    return { available: false, error: premiumResult.error || 'No data', data: null };
+  }
+
+  const current = premiumResult.data || {};
+  const currentFr = parseFloat(current.lastFundingRate) || 0;
+  const nextTime = parseInt(current.nextFundingTime) || null;
+
+  // Parse history
+  let history = [];
+  if (historyResult.data && Array.isArray(historyResult.data)) {
+    history = historyResult.data.map(entry => ({
+      time: parseInt(entry.fundingTime) || 0,
+      rate: parseFloat(entry.fundingRate) || 0,
+      markPrice: parseFloat(entry.markPrice) || 0,
+    }));
+  }
+
+  // Calculate stats
+  const rates = history.map(h => h.rate);
+  const high = rates.length > 0 ? Math.max(...rates) : currentFr;
+  const low = rates.length > 0 ? Math.min(...rates) : currentFr;
+  const avg = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : currentFr;
+
+  return {
+    available: true,
+    healthy: true,
+    timestamp: Date.now(),
+    data: {
+      current: currentFr,
+      nextFundingTime: nextTime,
+      annualized: currentFr * 3 * 365 * 100,
+      history,
+      stats: {
+        high24h: high,
+        low24h: low,
+        avg24h: avg,
+        count: history.length,
+      },
+    },
+    note: history.length === 0 ? '历史数据不足' : null,
+  };
+}
+
+// ===================================================================================
 // DOMINANCE & MARKET OVERVIEW
 // ===================================================================================
 
@@ -377,22 +429,6 @@ async function fetchDominance() {
   };
 }
 
-async function fetchCoinglass() {
-  const [price, oi, ls] = await Promise.all([
-    safeFetch(`${COINGLASS_BASE}/futures/price/bitcoin`),
-    safeFetch(`${COINGLASS_BASE}/futures/openInterest/bitcoin?interval=ALL`),
-    safeFetch(`${COINGLASS_BASE}/futures/longShortRatio/bitcoin?interval=1h`),
-  ]);
-  const hasData = (price.data?.data || oi.data?.data || ls.data?.data);
-  return {
-    available: hasData,
-    healthy: hasData,
-    timestamp: Date.now(),
-    data: hasData ? { price: price.data?.data, openInterest: oi.data?.data, longShortRatio: ls.data?.data } : null,
-    note: !hasData ? 'Coinglass 需要 API Key' : null,
-  };
-}
-
 // ===================================================================================
 // SOURCE REGISTRY
 // ===================================================================================
@@ -402,8 +438,8 @@ const SOURCES = {
   bybit: { name: 'Bybit', icon: '📈', fetch: fetchBybit, priority: 2 },
   coingecko: { name: 'CoinGecko', icon: '🦎', fetch: fetchCoinGecko, priority: 3 },
   hyperliquid: { name: 'HyperLiquid', icon: '⚡', fetch: fetchHyperLiquid, priority: 4 },
-  coinglass: { name: 'Coinglass', icon: '📡', fetch: fetchCoinglass, priority: 5 },
-  dominance: { name: 'CG Global', icon: '🌐', fetch: fetchDominance, priority: 6 },
+  dominance: { name: 'CG Global', icon: '🌐', fetch: fetchDominance, priority: 5 },
+  funding_history: { name: 'Funding History', icon: '📜', fetch: fetchBinanceFundingHistory, priority: 6 },
   ls_binance: { name: 'L/S Binance', icon: '📊', fetch: fetchBinanceLSRatio, priority: 7 },
   ls_bybit: { name: 'L/S Bybit', icon: '📊', fetch: fetchBybitLSRatio, priority: 8 },
   liq_binance: { name: 'Liq Binance', icon: '💥', fetch: fetchBinanceLiquidations, priority: 9 },
@@ -439,7 +475,7 @@ async function getBtcMarketData(preferredSource = 'auto') {
     if (isStale(results[preferredSource])) activeSource = 'auto';
   }
   if (activeSource === 'auto') {
-    const pricePriority = ['binance', 'bybit', 'coingecko', 'hyperliquid', 'coinglass'];
+    const pricePriority = ['binance', 'bybit', 'coingecko', 'hyperliquid'];
     for (const key of pricePriority) {
       if (results[key] && results[key].available && results[key].healthy && !isStale(results[key])) {
         activeSource = key;
@@ -470,7 +506,7 @@ async function getBtcMarketData(preferredSource = 'auto') {
   const gecko = results.coingecko?.data || null;
   const hl = results.hyperliquid?.data || null;
   const dominance = results.dominance?.data || null;
-  const coinglass = results.coinglass?.data || null;
+  const fundingHistory = results.funding_history?.data || null;
   const lsBinance = results.ls_binance?.data || null;
   const lsBybit = results.ls_bybit?.data || null;
   const liqBinance = results.liq_binance?.data || null;
@@ -592,8 +628,9 @@ async function getBtcMarketData(preferredSource = 'auto') {
         totalOiBtc: Object.values(oiAgg).reduce((sum, v) => sum + (v?.oi || 0), 0),
       },
 
-      // Existing sections
-      coinglass: coinglass || null,
+      // Historical Funding Rate
+      fundingHistory: fundingHistory || null,
+
       gecko: gecko || null,
     },
     sources: Object.keys(results).filter(k => results[k]?.available),

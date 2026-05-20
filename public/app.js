@@ -131,8 +131,6 @@ const dom = {
   btcTotalVolume: $('#btcTotalVolume'),
   btcMarketCapChange: $('#btcMarketCapChange'),
   btcSources: $('#btcSources'),
-  coinglassStatus: $('#coinglassStatus'),
-  coinglassBody: $('#coinglassBody'),
   // BTC Source Selector
   btcSourceBtns: $$('#btcSourceBtns .btc-source-btn'),
   sourceStatusDot: $('#sourceStatusDot'),
@@ -161,6 +159,16 @@ const dom = {
   hlPredictedFunding: $('#hlPredictedFunding'),
   hlOpenInterest: $('#hlOpenInterest'),
   hlStatus: $('#hlStatus'),
+
+  // BTC - Funding History
+  fundingHistoryStatus: $('#fundingHistoryStatus'),
+  fundingHistoryBody: $('#fundingHistoryBody'),
+  fundingSparkline: $('#fundingSparkline'),
+  fhCurrent: $('#fhCurrent'),
+  fhHigh: $('#fhHigh'),
+  fhLow: $('#fhLow'),
+  fhAvg: $('#fhAvg'),
+  fhSource: $('#fhSource'),
 
   // Toast
   toastContainer: $('#toastContainer'),
@@ -1010,19 +1018,8 @@ function renderBitcoinData() {
   // ---- HyperLiquid ----
   renderHyperLiquid(d.hyperLiquid);
 
-  // Coinglass
-  if (dom.coinglassStatus) {
-    if (d.coinglass?.price || d.coinglass?.openInterest || d.coinglass?.longShortRatio) {
-      dom.coinglassStatus.textContent = '✅ 已连接';
-      dom.coinglassStatus.style.background = 'rgba(34,197,94,0.1)';
-      dom.coinglassStatus.style.color = '#22c55e';
-      renderCoinglassData(d.coinglass);
-    } else {
-      dom.coinglassStatus.textContent = '⏸ 免费模式';
-      dom.coinglassStatus.style.background = 'rgba(255,193,7,0.1)';
-      dom.coinglassStatus.style.color = '#fbbf24';
-    }
-  }
+  // ---- Historical Funding Rate ----
+  renderFundingHistory(d.fundingHistory);
 }
 
 // ===== Long/Short Ratio Rendering =====
@@ -1155,47 +1152,144 @@ function renderHyperLiquid(hl) {
   dom.hlOpenInterest.textContent = oi > 0 ? formatCompact(oi) : '--';
 }
 
-function renderCoinglassData(cg) {
-  if (!cg || (!cg.price && !cg.openInterest && !cg.longShortRatio)) return;
-  const body = dom.coinglassBody;
-  if (!body) return;
+// ===== Historical Funding Rate Rendering =====
+function renderFundingHistory(fh) {
+  if (!dom.fundingHistoryStatus) return;
 
-  let html = '<div class="coinglass-data-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;width:100%">';
-
-  if (cg.price && cg.price.data) {
-    const p = cg.price.data;
-    html += `
-      <div class="cg-card" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Coinglass BTC Index</div>
-        <div style="font-size:18px;font-weight:700">$${p.price?.toLocaleString() || '--'}</div>
-        <div style="font-size:12px">24h: <span class="${getChangeClass(p.priceChange24h)}">${formatChange(p.priceChange24h)}</span></div>
-      </div>`;
+  if (!fh || fh.current === undefined || !fh.history) {
+    dom.fundingHistoryStatus.textContent = '⏸ 数据不可用';
+    dom.fundingHistoryStatus.style.background = 'rgba(255,193,7,0.1)';
+    dom.fundingHistoryStatus.style.color = '#fbbf24';
+    return;
   }
 
-  if (cg.longShortRatio && cg.longShortRatio.data) {
-    const ratio = cg.longShortRatio.data;
-    const ls = ratio.longShortRatio || ratio.longShortAccountRatio || 0;
-    html += `
-      <div class="cg-card" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">多空比 (LS Ratio)</div>
-        <div style="font-size:18px;font-weight:700">${ls.toFixed(3) || '--'}</div>
-        <div style="font-size:12px">多: ${((ratio.longAccount || 0) * 100).toFixed(1)}% / 空: ${((ratio.shortAccount || 0) * 100).toFixed(1)}%</div>
-      </div>`;
+  dom.fundingHistoryStatus.textContent = '✅ 已连接';
+  dom.fundingHistoryStatus.style.background = 'rgba(34,197,94,0.1)';
+  dom.fundingHistoryStatus.style.color = '#22c55e';
+
+  // Current funding rate
+  const currentFr = fh.current != null ? fh.current : 0;
+  if (dom.fhCurrent) {
+    dom.fhCurrent.textContent = currentFr !== 0 ? `${(currentFr * 100).toFixed(4)}%` : '0.0000%';
+    dom.fhCurrent.className = `btc-metric-value ${getChangeClass(currentFr)}`;
   }
 
-  if (cg.openInterest && cg.openInterest.data) {
-    const oi = cg.openInterest.data;
-    const oiTotal = oi.totalOpenInterest || 0;
-    html += `
-      <div class="cg-card" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">全网持仓量</div>
-        <div style="font-size:18px;font-weight:700">${formatCompact(oiTotal)}</div>
-        <div style="font-size:12px">24h变化: <span class="${getChangeClass(oi.openInterestChange24h)}">${formatChange(oi.openInterestChange24h)}</span></div>
-      </div>`;
+  // Stats
+  const stats = fh.stats || {};
+  if (dom.fhHigh) dom.fhHigh.textContent = `${(stats.high24h * 100).toFixed(4)}%`;
+  if (dom.fhLow) dom.fhLow.textContent = `${(stats.low24h * 100).toFixed(4)}%`;
+  if (dom.fhAvg) dom.fhAvg.textContent = `${(stats.avg24h * 100).toFixed(4)}%`;
+  if (dom.fhSource) dom.fhSource.textContent = `Binance Futures · ${stats.count || 0} 条记录`;
+
+  // Draw funding history sparkline
+  const history = fh.history || [];
+  if (dom.fundingSparkline && history.length >= 2) {
+    drawFundingSparkline(dom.fundingSparkline, history);
+  }
+}
+
+function drawFundingSparkline(canvas, history) {
+  if (!canvas || !history || history.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = rect.width || 600;
+  const height = rect.height || 64;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, width, height);
+
+  const rates = history.map(h => h.rate).filter(r => r != null);
+  if (rates.length < 2) return;
+
+  const min = Math.min(...rates);
+  const max = Math.max(...rates);
+  const range = max - min || 0.0001;
+  const padding = { top: 8, bottom: 8, left: 8, right: 8 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  // Find zero line Y
+  const zeroY = padding.top + (1 - (0 - min) / range) * chartHeight;
+
+  // Draw zero line
+  ctx.beginPath();
+  ctx.moveTo(padding.left, zeroY);
+  ctx.lineTo(width - padding.right, zeroY);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Build points
+  const points = history.map((h, i) => ({
+    x: padding.left + (i / (history.length - 1)) * chartWidth,
+    y: padding.top + (1 - (h.rate - min) / range) * chartHeight,
+    rate: h.rate,
+  }));
+
+  // Draw area fill (green above zero, red below)
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, zeroY);
+  for (let i = 0; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.lineTo(points[points.length - 1].x, zeroY);
+  ctx.closePath();
+
+  // Create gradient based on position relative to zero
+  const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+  gradient.addColorStop(0, 'rgba(34, 197, 94, 0.15)');
+  gradient.addColorStop(0.45, 'rgba(34, 197, 94, 0.05)');
+  gradient.addColorStop(0.55, 'rgba(239, 68, 68, 0.05)');
+  gradient.addColorStop(1, 'rgba(239, 68, 68, 0.15)');
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  // Draw the line (green for positive rates, red for negative)
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
   }
 
-  html += '</div>';
-  body.innerHTML = html;
+  // Color the line based on latest rate direction
+  const latestRate = rates[rates.length - 1];
+  const lineColor = latestRate >= 0 ? '#22c55e' : '#ef4444';
+
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Glow effect
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.strokeStyle = lineColor + '33'; // 20% opacity
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  // Draw start/end dots
+  const startColor = rates[0] >= 0 ? '#22c55e' : '#ef4444';
+  ctx.beginPath();
+  ctx.arc(points[0].x, points[0].y, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = startColor;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(points[points.length - 1].x, points[points.length - 1].y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(points[points.length - 1].x, points[points.length - 1].y, 6, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor + '33';
+  ctx.fill();
 }
 
 // ====================================================================================
