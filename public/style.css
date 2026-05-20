@@ -92,6 +92,360 @@ a:hover {
   text-decoration: underline;
 }
 
+/* ===== Page Navigation ===== */
+.page-nav {
+  display: flex;
+  gap: 4px;
+  margin: 0 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px;
+}
+
+.page-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 9px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.page-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.04);
+}
+
+.page-tab.active {
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.page-tab .page-tab-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.page-content {
+  display: none;
+}
+
+.page-content.active {
+  display: block;
+}
+
+/* ===== Bitcoin Dashboard ===== */
+.btc-dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* BTC Hero Card */
+.btc-hero {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.btc-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(247, 147, 26, 0.08) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.btc-hero-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.btc-hero-content {
+  animation: fadeIn 0.4s ease;
+}
+
+.btc-hero-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.btc-hero-icon {
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, #f7931a, #f9b24a);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(247, 147, 26, 0.3);
+}
+
+.btc-hero-title-group {
+  flex: 1;
+  min-width: 100px;
+}
+
+.btc-hero-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.btc-hero-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.btc-hero-price-group {
+  text-align: right;
+}
+
+.btc-hero-price {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+
+.btc-hero-change {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.btc-hero-change.positive { color: var(--accent-green); }
+.btc-hero-change.negative { color: var(--accent-red); }
+
+.btc-hero-details {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.btc-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.btc-detail-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btc-detail-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* BTC Chart */
+.btc-hero-chart {
+  margin-top: 20px;
+}
+
+.btc-chart-container {
+  width: 100%;
+  height: 60px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.btc-chart-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* BTC Grid Cards */
+.btc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.btc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color 0.3s ease;
+}
+
+.btc-card:hover {
+  border-color: var(--accent);
+}
+
+.coinglass-card {
+  grid-column: 1 / -1;
+}
+
+.btc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.btc-card-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.btc-card-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.btc-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.btc-card-body {
+  padding: 16px 20px;
+}
+
+.btc-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.btc-metric:last-child {
+  border-bottom: none;
+}
+
+.btc-metric-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.btc-metric-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.btc-metric-value.positive { color: var(--accent-green); }
+.btc-metric-value.negative { color: var(--accent-red); }
+
+/* Coinglass Section */
+.btc-coinglass-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+}
+
+.coinglass-empty {
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.coinglass-empty-icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.coinglass-empty p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .btc-grid {
+    grid-template-columns: 1fr;
+  }
+  .btc-hero-details {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .btc-hero-price {
+    font-size: 28px;
+  }
+}
+
+@media (max-width: 640px) {
+  .btc-hero {
+    padding: 20px 16px;
+  }
+  .btc-hero-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .btc-hero-price-group {
+    text-align: left;
+    width: 100%;
+  }
+  .btc-detail-value {
+    font-size: 13px;
+  }
+  .page-nav {
+    margin: 0 4px;
+    overflow-x: auto;
+  }
+  .page-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}
+
 /* ===== Header ===== */
 .header {
   position: sticky;
