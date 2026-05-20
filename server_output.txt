@@ -1,0 +1,18 @@
+
+ ⛅️ wrangler 4.93.0
+───────────────────
+✨ Compiled Worker successfully
+Your Worker has access to the following bindings:
+Binding                                                                   Resource                  Mode
+env.CF_PAGES ("1")                                                        Environment Variable      local
+env.CF_PAGES_BRANCH ("main")                                              Environment Variable      local
+env.CF_PAGES_COMMIT_SHA ("806b0cf276acfd0091f546d11e448257c1733...")      Environment Variable      local
+env.CF_PAGES_URL ("https://806b0cf.memecoin-monitor.page...")             Environment Variable      local
+
+⎔ Starting local server...
+*** Fatal uncaught kj::Exception: kj/async-io-unix.c++:945: failed: ::bind(sockfd, &addr.generic, addrlen): Address already in use; toString() = 127.0.0.1:8788
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mAddress already in use (127.0.0.1:8788). Please check that you are not already running a server on this address or specify a different port with --port.[0m
+
+
+🪵  Logs were written to "/Users/xx/Library/Preferences/.wrangler/logs/wrangler-2026-05-20_09-44-59_746.log"

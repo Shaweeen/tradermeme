@@ -66,6 +66,7 @@ const dom = {
   statVolume: $('#statVolume .stat-value'),
   statNewest: $('#statNewest .stat-value'),
   statUpdated: $('#statUpdated .stat-value'),
+  statsBar: $('#statsBar'),
 
   // Toast
   toastContainer: $('#toastContainer'),
@@ -590,11 +591,13 @@ function renderTokens(tokens) {
 // ===== Stats =====
 
 function updateStats(tokens, timestamp) {
+  if (!dom.statsBar) return;
+
   const count = tokens.length;
-  dom.statCount.textContent = count;
+  if (dom.statCount) dom.statCount.textContent = count;
 
   const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h != null ? t.volume24h : (t.volume1h ?? 0)), 0);
-  dom.statVolume.textContent = formatCompact(totalVolume);
+  if (dom.statVolume) dom.statVolume.textContent = formatCompact(totalVolume);
 
   const newest = tokens.reduce((latest, t) => {
     if (!latest) return t;
@@ -602,9 +605,9 @@ function updateStats(tokens, timestamp) {
     const lTime = latest.createdAt || 0;
     return tTime > lTime ? t : latest;
   }, null);
-  dom.statNewest.textContent = newest?.symbol || '--';
+  if (dom.statNewest) dom.statNewest.textContent = newest?.symbol || '--';
 
-  dom.statUpdated.textContent = formatTime(timestamp || Date.now());
+  if (dom.statUpdated) dom.statUpdated.textContent = formatTime(timestamp || Date.now());
 }
 
 // ===== Post-Signal Monitoring =====
