@@ -1,0 +1,16 @@
+{
+  "name": "memecoin-monitor",
+  "version": "1.0.0",
+  "description": "Multi-chain memecoin monitoring dashboard powered by gmgn.ai data",
+  "main": "functions/api/trending.js",
+  "scripts": {
+    "dev": "wrangler pages dev public --binding --port 8788",
+    "deploy": "wrangler pages deploy public",
+    "build": "echo 'Static site, no build step needed'"
+  },
+  "keywords": ["memecoin", "solana", "base", "bsc", "gmgn", "crypto", "dashboard"],
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

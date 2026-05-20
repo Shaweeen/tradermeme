@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MemeWatch - 多链 Memecoin 监控仪表盘</title>
+  <meta name="description" content="实时监控 Solana、Base、BSC 链上热门 Memecoin 动态" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <span class="logo-icon">🔥</span>
+        <div class="logo-text">
+          <h1>MemeWatch</h1>
+          <span class="logo-subtitle">多链 Memecoin 实时监控</span>
+        </div>
+      </div>
+      <div class="header-controls">
+        <div class="status-indicator" id="statusIndicator">
+          <span class="status-dot"></span>
+          <span class="status-text" id="statusText">连接中...</span>
+        </div>
+        <div class="auto-refresh-toggle">
+          <label class="toggle">
+            <input type="checkbox" id="autoRefreshToggle" checked />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">自动刷新</span>
+        </div>
+        <button class="refresh-btn" id="refreshBtn" title="立即刷新">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span>刷新</span>
+        </button>
+      </div>
+    </div>
+    <!-- Chain Tabs -->
+    <nav class="chain-tabs" id="chainTabs">
+      <button class="chain-tab active" data-chain="solana">
+        <span class="chain-dot sol"></span>
+        Solana
+      </button>
+      <button class="chain-tab" data-chain="base">
+        <span class="chain-dot base"></span>
+        Base
+      </button>
+      <button class="chain-tab" data-chain="bsc">
+        <span class="chain-dot bsc"></span>
+        BSC
+      </button>
+      <button class="chain-tab" data-chain="all">
+        <span class="chain-dot all"></span>
+        全部链
+      </button>
+    </nav>
+  </header>
+
+  <!-- Stats Bar -->
+  <section class="stats-bar" id="statsBar">
+    <div class="stat-card" id="statCount">
+      <div class="stat-value">--</div>
+      <div class="stat-label">代币数量</div>
+    </div>
+    <div class="stat-card" id="statVolume">
+      <div class="stat-value">--</div>
+      <div class="stat-label">24h 总交易量</div>
+    </div>
+    <div class="stat-card" id="statNewest">
+      <div class="stat-value">--</div>
+      <div class="stat-label">最新代币</div>
+    </div>
+    <div class="stat-card" id="statUpdated">
+      <div class="stat-value">--</div>
+      <div class="stat-label">更新于</div>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Token Table -->
+    <div class="table-container" id="tableContainer">
+      <div class="table-header">
+        <div class="table-header-row">
+          <div class="th rank">#</div>
+          <div class="th token">代币</div>
+          <div class="th price">价格</div>
+          <div class="th change1h">1h 变化</div>
+          <div class="th change24h">24h 变化</div>
+          <div class="th volume">24h 交易量</div>
+          <div class="th liquidity">流动性</div>
+          <div class="th fdv">FDV</div>
+          <div class="th txns">24h 交易数</div>
+          <div class="th trades">买卖比</div>
+          <div class="th actions">操作</div>
+        </div>
+      </div>
+      <div class="table-body" id="tokenList">
+        <div class="loading-state" id="loadingState">
+          <div class="spinner"></div>
+          <p>正在获取数据...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error State -->
+    <div class="error-state" id="errorState" style="display: none;">
+      <div class="error-icon">⚠️</div>
+      <h3>数据加载失败</h3>
+      <p id="errorMessage">无法连接到数据源，请检查网络连接后重试</p>
+      <button class="retry-btn" id="retryBtn">重试</button>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>数据来源: <a href="https://gmgn.ai/" target="_blank" rel="noopener">GMGN.AI</a> + <a href="https://dexscreener.com/" target="_blank" rel="noopener">DexScreener</a></p>
+    <p class="footer-note">仅供信息参考，不构成投资建议。交易有风险，请谨慎决策。</p>
+  </footer>
+
+  <!-- Toast Notification -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
