@@ -1,17 +1,23 @@
 /**
  * Memecoin Monitor - Cloudflare Pages Function
  *
- * Fetches trending memecoin data from multiple sources across Solana, Base, and BSC chains.
- * Primary source: gmgn.ai API (proxied through Cloudflare)
- * Secondary source: DexScreener API (reliable fallback)
- *
+ * Fetches trending memecoin data from authenticated GMGN OpenAPI.
  * Endpoints:
- *   GET /api/trending?chain=solana      - Top trending memecoins on Solana
- *   GET /api/trending?chain=base        - Top trending memecoins on Base
- *   GET /api/trending?chain=bsc         - Top trending memecoins on BSC
- *   GET /api/trending?chain=all         - Trending memecoins across all chains
- *   GET /api/gmgn/proxy?path=...        - Proxy to gmgn.ai API
+ *   GET /api/trending?chain=solana      - Top trending memecoins
+ *   GET /api/smartmoney?chain=sol       - Smart Money activity
+ *   GET /api/kol?chain=sol              - KOL activity
+ *   GET /api/token-info?chain=sol&address=... - Token detail
+ *   GET /api/chains                      - List supported chains
  */
+
+// Use dynamic import for ESM compatibility in CF Workers
+let gmgn;
+async function initGmgn() {
+  if (!gmgn) {
+    gmgn = await import('./_gmgn.js');
+  }
+  return gmgn;
+}
 
 const CHAIN_MAP = {
   solana: { gmgn: 'sol', dexscreener: 'solana' },
@@ -19,243 +25,91 @@ const CHAIN_MAP = {
   bsc: { gmgn: 'bsc', dexscreener: 'bsc' },
 };
 
-const GMGN_BASE = 'https://gmgn.ai';
-const DEXSCREENER_BASE = 'https://api.dexscreener.com';
-
-// Cache durations in seconds
 const CACHE_SHORT = 30;
-const CACHE_MEDIUM = 60;
-const CACHE_LONG = 120;
 
-/**
- * Fetch from gmgn.ai API with proper headers
- */
-async function fetchGmgnApi(path, cf) {
-  const url = `${GMGN_BASE}${path}`;
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; MemecoinMonitor/1.0; +https://memecoin-monitor.pages.dev)',
-      'Accept': 'application/json, text/plain, */*',
-      'Referer': 'https://gmgn.ai/',
-      'Origin': 'https://gmgn.ai',
-    },
-    cf: {
-      cacheTtl: CACHE_SHORT,
-      cacheEverything: true,
-      ...cf,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`gmgn.ai API error: ${response.status} ${response.statusText}`);
-  }
-
-  return response.json();
+function getCorsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
 }
 
-/**
- * Fetch from DexScreener API
- */
-async function fetchDexScreener(path) {
-  const url = `${DEXSCREENER_BASE}${path}`;
-  const response = await fetch(url, {
-    headers: {
-      'Accept': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`DexScreener API error: ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Get trending tokens from DexScreener token profiles
- * Returns the latest token profiles that are most active
- */
-async function getDexScreenerTrending(chain) {
-  try {
-    const chainParam = CHAIN_MAP[chain]?.dexscreener || chain;
-    const data = await fetchDexScreener('/token-profiles/latest/v1');
-
-    if (!data || !Array.isArray(data)) {
-      return [];
-    }
-
-    // Filter by chain and map to our format
-    return data
-      .filter((t) => {
-        if (chain === 'all') return true;
-        return t.chainId === chainParam;
-      })
-      .slice(0, 50)
-      .map((t) => ({
-        id: t.tokenAddress || t.url,
-        address: t.tokenAddress || '',
-        symbol: t.symbol || '',
-        name: t.name || '',
-        chain: t.chainId || chain,
-        icon: t.icon || '',
-        url: t.url || '',
-        source: 'dexscreener',
-        description: t.description || '',
-      }));
-  } catch (e) {
-    console.error('DexScreener profiles error:', e);
-    return [];
-  }
-}
-
-/**
- * Get detailed pair data from DexScreener for tokens
- */
-async function getDexScreenerPairs(tokenAddresses) {
-  if (!tokenAddresses.length) return [];
-
-  try {
-    // DexScreener allows batch queries with comma-separated addresses
-    const addresses = tokenAddresses.slice(0, 30).join(',');
-    const data = await fetchDexScreener(`/latest/dex/tokens/${addresses}`);
-
-    if (!data || !data.pairs) return [];
-
-    return data.pairs.map((p) => ({
-      address: p.baseToken?.address || '',
-      symbol: p.baseToken?.symbol || '',
-      name: p.baseToken?.name || '',
-      chain: p.chainId || '',
-      dex: p.dexId || '',
-      pairAddress: p.pairAddress || '',
-      priceUsd: parseFloat(p.priceUsd) || 0,
-      priceChange1h: parseFloat(p.priceChange?.h1) || 0,
-      priceChange24h: parseFloat(p.priceChange?.h24) || 0,
-      volume1h: parseFloat(p.volume?.h1) || 0,
-      volume24h: parseFloat(p.volume?.h24) || 0,
-      volume1hRaw: p.volume?.h1,
-      volume24hRaw: p.volume?.h24,
-      liquidity: parseFloat(p.liquidity?.usd) || 0,
-      fdv: parseFloat(p.fdv) || 0,
-      txns1h: {
-        buys: p.txns?.h1?.buys || 0,
-        sells: p.txns?.h1?.sells || 0,
-        total: (p.txns?.h1?.buys || 0) + (p.txns?.h1?.sells || 0),
-      },
-      txns24h: {
-        buys: p.txns?.h24?.buys || 0,
-        sells: p.txns?.h24?.sells || 0,
-        total: (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0),
-      },
-      createdAt: p.pairCreatedAt || null,
-      url: p.url || '',
-      source: 'dexscreener',
-      liquidityUsd: parseFloat(p.liquidity?.usd) || 0,
-    }));
-  } catch (e) {
-    console.error('DexScreener pairs error:', e);
-    return [];
-  }
-}
-
-/**
- * Fetch GMGN rank data for a specific chain
- */
-async function fetchGmgnRank(chain, limit = 30) {
-  const gmgnSlug = CHAIN_MAP[chain]?.gmgn;
-  if (!gmgnSlug) return [];
-  try {
-    const response = await fetchGmgnApi(`/api/v1/rank/${gmgnSlug}/swaps/1h`, {
-      cacheTtl: 30,
-    });
-    if (!response?.data?.rank) return [];
-    return response.data.rank.map((t) => ({
-      address: t.address || '',
-      symbol: t.symbol || '',
-      name: t.name || '',
-      chain: chain, // always use the param chain, not the GMGN slug
-      priceUsd: parseFloat(t.price) || 0,
-      priceChange1h: parseFloat(t.priceChange1h) || 0,
-      priceChange24h: parseFloat(t.priceChange24h) || 0,
-      volume1h: parseFloat(t.volume1h) || 0,
-      volume24h: parseFloat(t.volume24h) || 0,
-      volume1hRaw: t.volume1h,
-      volume24hRaw: t.volume24h,
-      liquidity: parseFloat(t.liquidity) || 0,
-      fdv: parseFloat(t.fdv) || 0,
-      holders: t.holderCount || 0,
-      makerCount: t.makerCount || 0,
-      txns1h: {
-        buys: parseInt(t.buy1h) || 0,
-        sells: parseInt(t.sell1h) || 0,
-        total: (parseInt(t.buy1h) || 0) + (parseInt(t.sell1h) || 0),
-      },
-      age: t.age || '',
-      source: 'gmgn',
-      url: `https://gmgn.ai/${gmgnSlug}/token/${t.address}`,
-      icon: t.logo || '',
-    }));
-  } catch (e) {
-    console.error(`gmgn.ai fetch error (${chain}):`, e.message);
-    return [];
-  }
-}
-
-/**
- * Enrich token data with DexScreener pair details
- */
-async function enrichWithDexScreener(tokens, chain) {
-  if (!tokens.length) return tokens;
-  const addresses = tokens.map((t) => t.address).filter(Boolean);
-  if (!addresses.length) return tokens;
-  const pairs = await getDexScreenerPairs(addresses);
-  if (!pairs.length) return tokens;
-
-  const pairMap = new Map();
-  for (const pair of pairs) {
-    pairMap.set(pair.address.toLowerCase(), pair);
-  }
-
-  return tokens.map((token) => {
-    const key = token.address.toLowerCase();
-    const dexPair = pairMap.get(key);
-    if (dexPair) {
-      // Merge DexScreener details into GMGN data, preserving chain
-      return { ...dexPair, ...token, chain: chain };
-    }
-    return token;
+function jsonResponse(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...getCorsHeaders(), ...extraHeaders },
   });
 }
 
-/**
- * Get trending memecoins from GMGN (primary) + DexScreener (enrichment)
- * For chain=all, fetches each chain independently with correct attribution
- */
-async function getTrendingMemecoins(chain, limit = 30) {
+// Transform GMGN rank response to internal format
+function transformGmgnRank(data, chain, gmgnSlug) {
+  if (!Array.isArray(data)) return [];
+  return data.map((t, idx) => ({
+    rank: idx + 1,
+    address: t.address || '',
+    symbol: t.symbol || '',
+    name: t.name || '',
+    chain: chain,
+    icon: t.icon_url || t.logo || '',
+    priceUsd: parseFloat(t.price) || 0,
+    priceChange1h: parseFloat(t.price_1h) || 0,
+    priceChange24h: parseFloat(t.price_24h) || 0,
+    volume1h: parseFloat(t.volume_1h) || 0,
+    volume24h: parseFloat(t.volume_24h) || 0,
+    liquidity: parseFloat(t.liquidity) || 0,
+    fdv: parseFloat(t.fdv) || 0,
+    marketCap: parseFloat(t.market_cap) || 0,
+    holders: t.holder_count || 0,
+    makerCount: t.buy_count_1h ? t.buy_count_1h + t.sell_count_1h : 0,
+    txns1h: {
+      buys: parseInt(t.buy_count_1h) || 0,
+      sells: parseInt(t.sell_count_1h) || 0,
+      total: (parseInt(t.buy_count_1h) || 0) + (parseInt(t.sell_count_1h) || 0),
+    },
+    txns24h: {
+      buys: parseInt(t.buy_count_24h) || 0,
+      sells: parseInt(t.sell_count_24h) || 0,
+      total: (parseInt(t.buy_count_24h) || 0) + (parseInt(t.sell_count_24h) || 0),
+    },
+    source: 'gmgn-openapi',
+    url: `https://gmgn.ai/${gmgnSlug}/token/${t.address}`,
+    firstTradeTimestamp: t.first_trade_timestamp,
+    firstTradePrice: parseFloat(t.first_trade_price) || 0,
+    smartBalance: parseFloat(t.smart_balance) || 0,
+    smartCount: t.smart_count || 0,
+    smartRatio: parseFloat(t.smart_ratio) || 0,
+    top10Holders: parseFloat(t.top10) || 0,
+    age: t.age || '',
+    isBan: t.is_ban || false,
+    isRug: t.is_rug || false,
+    isHoneypot: t.is_honeypot || false,
+  }));
+}
+
+async function getTrendingMemecoins(context, chain, limit = 30) {
   const chainsToFetch = chain === 'all' ? ['solana', 'base', 'bsc'] : [chain];
-
-  // Fetch GMGN data for each chain independently
+  const apiKey = context?.env?.GMGN_API_KEY || '';
+  const gmgnMod = await initGmgn();
+  
   const allResults = await Promise.allSettled(
     chainsToFetch.map(async (c) => {
-      let tokens = await fetchGmgnRank(c, limit);
-      // Enrich with DexScreener data if possible
-      tokens = await enrichWithDexScreener(tokens, c);
-      return { chain: c, tokens };
+      try {
+        const gmgnSlug = CHAIN_MAP[c]?.gmgn;
+        if (!gmgnSlug) return { chain: c, tokens: [] };
+        
+        const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
+        const tokens = transformGmgnRank(rankData, c, gmgnSlug);
+        
+        return { chain: c, tokens };
+      } catch (e) {
+        console.error(`GMGN OpenAPI error for ${c}:`, e.message);
+        return { chain: c, tokens: [] };
+      }
     })
   );
 
-  // Also try DexScreener token profiles as supplement
-  let dexProfiles = [];
-  try {
-    dexProfiles = await getDexScreenerTrending(chain);
-  } catch (e) {
-    console.error('DexScreener profiles error:', e);
-  }
-
-  // Merge results
   const mergedMap = new Map();
-
-  // First add GMGN data (primary source) — preserve chain from fetch
   for (const result of allResults) {
     if (result.status !== 'fulfilled') continue;
     for (const token of result.value.tokens) {
@@ -264,77 +118,117 @@ async function getTrendingMemecoins(chain, limit = 30) {
     }
   }
 
-  // Add DexScreener profiles as fallback (only if we don't have GMGN data for this chain)
-  for (const profile of dexProfiles) {
-    const tokenChain = profile.chain || chain;
-    const key = (profile.address || '').toLowerCase() + ':' + tokenChain;
-    if (!mergedMap.has(key)) {
-      mergedMap.set(key, {
-        ...profile,
-        chain: tokenChain,
-        source: 'dexscreener',
-        url: profile.url || '',
-      });
-    }
-  }
-
-  // Sort by 24h volume and limit
   const merged = Array.from(mergedMap.values())
     .sort((a, b) => {
-      const bVol = b.volume24hRaw != null ? b.volume24h : (b.volume1hRaw != null ? b.volume1h : 0);
-      const aVol = a.volume24hRaw != null ? a.volume24h : (a.volume1hRaw != null ? a.volume1h : 0);
-      return bVol - aVol;
+      const bScore = (b.smartCount || 0) * 1000 + (b.volume24h || 0);
+      const aScore = (a.smartCount || 0) * 1000 + (a.volume24h || 0);
+      return bScore - aScore;
     })
     .slice(0, limit);
 
   return merged;
 }
 
-/**
- * Proxy request to gmgn.ai API
- */
-async function proxyGmgnRequest(url) {
-  const path = url.searchParams.get('path') || '/api/v1/meme/top?chain=sol&limit=20';
-
+async function getSmartMoneyActivity(context, chain, limit = 50) {
+  const apiKey = context?.env?.GMGN_API_KEY || '';
+  const gmgnChain = CHAIN_MAP[chain]?.gmgn || 'sol';
+  const gmgnMod = await initGmgn();
+  
   try {
-    const data = await fetchGmgnApi(path);
-    return new Response(JSON.stringify(data), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': `public, s-maxage=${CACHE_SHORT}`,
-      },
-    });
+    const data = await gmgnMod.getSmartMoney(apiKey, gmgnChain, limit);
+    if (!Array.isArray(data)) return [];
+    
+    return data.map((w) => ({
+      walletAddress: w.address || w.wallet_address || '',
+      tag: w.tag || '',
+      platform: w.platform || w.source || gmgnChain,
+      chain: chain,
+      balance: parseFloat(w.balance) || 0,
+      pnl24h: parseFloat(w.pnl_24h) || parseFloat(w.profit) || 0,
+      winRate: parseFloat(w.win_rate) || 0,
+      tradeCount: w.trade_count || 0,
+      realizedPnl: parseFloat(w.realized_pnl) || 0,
+      avgRoi: parseFloat(w.avg_roi) || 0,
+      tokensTraded: w.tokens_traded || 0,
+      followers: w.followers || 0,
+      lastActive: w.last_active || 0,
+      source: 'gmgn-smartmoney',
+    }));
   } catch (e) {
-    return new Response(
-      JSON.stringify({ error: e.message, source: 'gmgn-proxy' }),
-      {
-        status: 502,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      }
-    );
+    console.error('SmartMoney fetch error:', e.message);
+    return [];
   }
 }
 
-/**
- * Handle API requests
- */
+async function getKolActivity(context, chain, limit = 50) {
+  const apiKey = context?.env?.GMGN_API_KEY || '';
+  const gmgnChain = CHAIN_MAP[chain]?.gmgn || 'sol';
+  const gmgnMod = await initGmgn();
+  
+  try {
+    const data = await gmgnMod.getKol(apiKey, gmgnChain, limit);
+    if (!Array.isArray(data)) return [];
+    
+    return data.map((w) => ({
+      walletAddress: w.address || w.wallet_address || '',
+      tag: w.tag || w.name || '',
+      platform: w.platform || w.source || gmgnChain,
+      chain: chain,
+      balance: parseFloat(w.balance) || 0,
+      pnl24h: parseFloat(w.pnl_24h) || parseFloat(w.profit) || 0,
+      winRate: parseFloat(w.win_rate) || 0,
+      tradeCount: w.trade_count || 0,
+      realizedPnl: parseFloat(w.realized_pnl) || 0,
+      avgRoi: parseFloat(w.avg_roi) || 0,
+      followers: w.followers || 0,
+      twitterHandle: w.twitter || '',
+      source: 'gmgn-kol',
+    }));
+  } catch (e) {
+    console.error('KOL fetch error:', e.message);
+    return [];
+  }
+}
+
+async function getTokenDetails(context, chain, address) {
+  const apiKey = context?.env?.GMGN_API_KEY || '';
+  const gmgnChain = CHAIN_MAP[chain]?.gmgn || chain;
+  const gmgnMod = await initGmgn();
+  
+  try {
+    const tokenData = await gmgnMod.getTokenInfo(apiKey, gmgnChain, address);
+    return {
+      address,
+      chain,
+      symbol: tokenData?.symbol || '',
+      name: tokenData?.name || '',
+      icon: tokenData?.icon_url || tokenData?.logo || '',
+      priceUsd: parseFloat(tokenData?.price) || 0,
+      priceChange1h: parseFloat(tokenData?.price_1h) || 0,
+      priceChange24h: parseFloat(tokenData?.price_24h) || 0,
+      volume24h: parseFloat(tokenData?.volume_24h) || 0,
+      liquidity: parseFloat(tokenData?.liquidity) || 0,
+      marketCap: parseFloat(tokenData?.market_cap) || 0,
+      fdv: parseFloat(tokenData?.fdv) || 0,
+      holders: tokenData?.holder_count || 0,
+      top10Holders: parseFloat(tokenData?.top10) || 0,
+      smartCount: tokenData?.smart_count || 0,
+      smartRatio: parseFloat(tokenData?.smart_ratio) || 0,
+      firstTradeTimestamp: tokenData?.first_trade_timestamp,
+      source: 'gmgn-openapi',
+    };
+  } catch (e) {
+    console.error('Token info fetch error:', e.message);
+    return null;
+  }
+}
+
 export async function onRequest(context) {
   const { request } = context;
   const url = new URL(request.url);
   const pathname = url.pathname;
+  const corsHeaders = getCorsHeaders();
 
-  // CORS headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-
-  // Handle preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -345,74 +239,106 @@ export async function onRequest(context) {
     const limit = parseInt(url.searchParams.get('limit')) || 30;
 
     if (!CHAIN_MAP[chain] && chain !== 'all') {
-      return new Response(
-        JSON.stringify({
-          error: `Unsupported chain: ${chain}. Supported: ${Object.keys(CHAIN_MAP).join(', ')}, all`,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-        }
-      );
+      return jsonResponse({
+        error: `Unsupported chain: ${chain}. Supported: ${Object.keys(CHAIN_MAP).join(', ')}, all`,
+        supported: Object.keys(CHAIN_MAP),
+      }, 400);
     }
 
     try {
-      const tokens = await getTrendingMemecoins(chain, limit);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          chain,
-          count: tokens.length,
-          timestamp: Date.now(),
-          data: tokens,
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': `public, s-maxage=${CACHE_SHORT}`,
-            ...corsHeaders,
-          },
-        }
-      );
+      const tokens = await getTrendingMemecoins(context, chain, limit);
+      return jsonResponse({
+        success: true,
+        chain,
+        count: tokens.length,
+        timestamp: Date.now(),
+        source: 'gmgn-openapi',
+        data: tokens,
+      }, 200, { 'Cache-Control': `public, s-maxage=${CACHE_SHORT}` });
     } catch (e) {
-      return new Response(
-        JSON.stringify({ error: e.message, success: false }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-        }
-      );
+      return jsonResponse({ error: e.message, success: false }, 500);
     }
   }
 
-  // Route: GET /api/gmgn/proxy - proxy to gmgn.ai
-  if (pathname === '/api/gmgn/proxy' && request.method === 'GET') {
-    return proxyGmgnRequest(url);
+  // Route: GET /api/smartmoney
+  if (pathname === '/api/smartmoney' && request.method === 'GET') {
+    const chain = url.searchParams.get('chain') || 'solana';
+    const limit = parseInt(url.searchParams.get('limit')) || 50;
+
+    try {
+      const wallets = await getSmartMoneyActivity(context, chain, limit);
+      return jsonResponse({
+        success: true,
+        chain,
+        count: wallets.length,
+        timestamp: Date.now(),
+        source: 'gmgn-smartmoney',
+        data: wallets,
+      }, 200);
+    } catch (e) {
+      return jsonResponse({ error: e.message, success: false }, 500);
+    }
   }
 
-  // Route: GET /api/chains - list supported chains
-  if (pathname === '/api/chains' && request.method === 'GET') {
-    return new Response(
-      JSON.stringify({
-        chains: Object.entries(CHAIN_MAP).map(([key, val]) => ({
-          id: key,
-          name: key.charAt(0).toUpperCase() + key.slice(1),
-          gmgnSlug: val.gmgn,
-          dexscreenerSlug: val.dexscreener,
-        })),
-      }),
-      {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  // Route: GET /api/kol
+  if (pathname === '/api/kol' && request.method === 'GET') {
+    const chain = url.searchParams.get('chain') || 'solana';
+    const limit = parseInt(url.searchParams.get('limit')) || 50;
+
+    try {
+      const wallets = await getKolActivity(context, chain, limit);
+      return jsonResponse({
+        success: true,
+        chain,
+        count: wallets.length,
+        timestamp: Date.now(),
+        source: 'gmgn-kol',
+        data: wallets,
+      }, 200);
+    } catch (e) {
+      return jsonResponse({ error: e.message, success: false }, 500);
+    }
+  }
+
+  // Route: GET /api/token-info
+  if (pathname === '/api/token-info' && request.method === 'GET') {
+    const chain = url.searchParams.get('chain');
+    const address = url.searchParams.get('address');
+
+    if (!chain || !address) {
+      return jsonResponse({ error: 'Missing chain or address parameter' }, 400);
+    }
+
+    try {
+      const token = await getTokenDetails(context, chain, address);
+      if (!token) {
+        return jsonResponse({ error: 'Token not found' }, 404);
       }
-    );
+      return jsonResponse({
+        success: true,
+        timestamp: Date.now(),
+        source: 'gmgn-openapi',
+        data: token,
+      }, 200);
+    } catch (e) {
+      return jsonResponse({ error: e.message, success: false }, 500);
+    }
   }
 
-  // 404 for unknown API routes
-  return new Response(
-    JSON.stringify({ error: 'Not found', available: ['/api/trending', '/api/gmgn/proxy', '/api/chains'] }),
-    {
-      status: 404,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    }
-  );
+  // Route: GET /api/chains
+  if (pathname === '/api/chains' && request.method === 'GET') {
+    return jsonResponse({
+      chains: Object.entries(CHAIN_MAP).map(([key, val]) => ({
+        id: key,
+        name: key.charAt(0).toUpperCase() + key.slice(1),
+        gmgnSlug: val.gmgn,
+        dexscreenerSlug: val.dexscreener,
+      })),
+    }, 200);
+  }
+
+  return jsonResponse({
+    error: 'Not found',
+    available: ['/api/trending', '/api/smartmoney', '/api/kol', '/api/token-info', '/api/chains'],
+  }, 404);
 }

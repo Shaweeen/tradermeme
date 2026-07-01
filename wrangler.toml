@@ -4,3 +4,11 @@ compatibility_date = "2025-04-16"
 compatibility_flags = ["nodejs_compat"]
 
 pages_build_output_dir = "public"
+
+# IMPORTANT: Set your GMGN API key as a secret (NOT in this file):
+#   npx wrangler pages secret put GMGN_API_KEY
+# This enables authenticated GMGN OpenAPI endpoints:
+#   - /api/trending     (authenticated)
+#   - /api/smartmoney   (authenticated)
+#   - /api/kol          (authenticated)
+#   - /api/token-info   (authenticated)
