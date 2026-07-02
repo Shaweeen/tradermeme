@@ -120,7 +120,15 @@ async function gmgnRequest(context, method, path, query, body) {
  * Mirrors `gmgn-cli market trending --chain X --interval I`.
  */
 async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
-  return gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
+  const result = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
+  // GMGN returns nested: {code: 0, data: {code: 0, data: {rank: [...]}}}
+  // gmgnFetch unwraps one level, so result = {code: 0, data: {rank: [...]}}
+  if (result && result.data && Array.isArray(result.data.rank)) {
+    return result.data.rank;
+  }
+  // Fallback: maybe it's a flat array
+  if (Array.isArray(result)) return result;
+  return [];
 }
 
 /**
@@ -164,7 +172,12 @@ async function getTokenSignalV2(apiKey, chain, groups = []) {
  * Mirrors `gmgn-cli track smartmoney --chain X --limit N`.
  */
 async function getSmartMoney(apiKey, chain = 'sol', limit = 50) {
-  return gmgnFetch(apiKey, 'GET', '/v1/user/smartmoney', chain ? { chain, limit } : { limit });
+  const result = await gmgnFetch(apiKey, 'GET', '/v1/user/smartmoney', chain ? { chain, limit } : { limit });
+  // GMGN nested response: {code:0, data: {users: [...]}}
+  if (result && Array.isArray(result.users)) return result.users;
+  if (result && Array.isArray(result.data)) return result.data;
+  if (Array.isArray(result)) return result;
+  return [];
 }
 
 /**
@@ -172,7 +185,12 @@ async function getSmartMoney(apiKey, chain = 'sol', limit = 50) {
  * Mirrors `gmgn-cli track kol --chain X --limit N`.
  */
 async function getKol(apiKey, chain = 'sol', limit = 50) {
-  return gmgnFetch(apiKey, 'GET', '/v1/user/kol', chain ? { chain, limit } : { limit });
+  const result = await gmgnFetch(apiKey, 'GET', '/v1/user/kol', chain ? { chain, limit } : { limit });
+  // GMGN nested response: {code:0, data: {users: [...]}}
+  if (result && Array.isArray(result.users)) return result.users;
+  if (result && Array.isArray(result.data)) return result.data;
+  if (Array.isArray(result)) return result;
+  return [];
 }
 
 /**
@@ -180,7 +198,11 @@ async function getKol(apiKey, chain = 'sol', limit = 50) {
  * Mirrors `gmgn-cli token info --chain X --address A`.
  */
 async function getTokenInfo(apiKey, chain, address) {
-  return gmgnFetch(apiKey, 'GET', '/v1/token/info', { chain, address });
+  const result = await gmgnFetch(apiKey, 'GET', '/v1/token/info', { chain, address });
+  // GMGN nested response: {code:0, data: {token: {...}}}
+  if (result && result.token) return result.token;
+  if (result && result.data) return result.data;
+  return result || null;
 }
 
 /**
