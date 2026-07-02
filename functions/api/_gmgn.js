@@ -202,7 +202,7 @@ async function getTokenKline(apiKey, chain, address, resolution, from, to) {
   return gmgnFetch(apiKey, 'GET', '/v1/market/token_kline', q);
 }
 
-module.exports = {
+export {
   GMGN_HOST,
   gmgnRequest,
   gmgnFetch,
