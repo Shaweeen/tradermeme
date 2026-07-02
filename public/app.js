@@ -535,7 +535,7 @@ function renderMemecoinTokenRows(tokens) {
         </div>
         ${chainBadge}
       </div>
-      <div class="td price-cell">${formatPrice(token.priceUsd)}</div>
+      <div class="td price-cell">${formatPrice(token.priceUsd ?? token.price)}</div>
       <div class="td"><span class="change-cell ${getChangeClass(token.priceChange1h)}">${formatChange(token.priceChange1h)}</span></div>
       <div class="td"><span class="change-cell ${getChangeClass(token.priceChange24h)}">${formatChange(token.priceChange24h)}</span></div>
       <div class="td volume-cell">${formatCompact(token.volume24h != null ? token.volume24h : token.volume1h)}</div>
@@ -764,7 +764,7 @@ async function loadOthercoinData() {
 function renderOthercoinSortedTokens(tokens) {
   const sorted = [...tokens].sort((a, b) => {
     switch (state.otherSortBy) {
-      case 'signalScore': return (b.signalScore || 0) - (a.signalScore || 0);
+      case 'signalScore': return (b.signalScore ?? b.score ?? 0) - (a.signalScore ?? a.score ?? 0);
       case 'volume': return (b.volume24h || 0) - (a.volume24h || 0);
       case 'priceChange': return Math.abs(b.priceChange24h || 0) - Math.abs(a.priceChange24h || 0);
       default: return 0;
@@ -793,7 +793,7 @@ function renderOthercoinTokenRows(tokens) {
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
     const iconHtml = getTokenIcon(token);
-    const coinGeckoUrl = token.url || `https://www.coingecko.com/en/coins/${token.address}`;
+    const coinGeckoUrl = token.url || (token.id ? `https://www.coingecko.com/en/coins/${token.id}` : `https://www.coingecko.com/en/search?query=${encodeURIComponent(token.symbol || '')}`);
 
     // Build signal badges
     let badgesHtml = '';
@@ -818,7 +818,7 @@ function renderOthercoinTokenRows(tokens) {
     }
 
     // Signal score bar
-    const score = token.signalScore || 0;
+    const score = token.signalScore ?? token.score ?? 0;
     const scoreBarWidth = Math.min(score, 100);
     const scoreClass = score >= 60 ? 'high' : score >= 30 ? 'med' : 'low';
 
@@ -831,7 +831,7 @@ function renderOthercoinTokenRows(tokens) {
           <span class="token-name">${token.name || ''}</span>
         </div>
       </div>
-      <div class="td price-cell">${formatPrice(token.priceUsd)}</div>
+      <div class="td price-cell">${formatPrice(token.priceUsd ?? token.price)}</div>
       <div class="td"><span class="change-cell ${getChangeClass(token.priceChange24h)}">${formatChange(token.priceChange24h)}</span></div>
       <div class="td volume-cell">${formatCompact(token.volume24h || 0)}</div>
       <div class="td signal-col">
@@ -856,7 +856,7 @@ function updateOthercoinStats(tokens, timestamp) {
   if (dom.statCountOther) dom.statCountOther.textContent = tokens.length;
   const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h || 0), 0);
   if (dom.statVolOther) dom.statVolOther.textContent = formatCompact(totalVolume);
-  const totalScore = tokens.reduce((sum, t) => sum + (t.signalScore || 0), 0);
+  const totalScore = tokens.reduce((sum, t) => sum + (t.signalScore ?? t.score ?? 0), 0);
   const avgScore = tokens.length > 0 ? (totalScore / tokens.length).toFixed(1) : '--';
   if (dom.statCapOther) dom.statCapOther.textContent = avgScore;
   if (dom.statUpdatedOther) dom.statUpdatedOther.textContent = formatTime(timestamp || Date.now());
