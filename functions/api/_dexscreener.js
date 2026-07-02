@@ -5,8 +5,8 @@
  * to GMGN OpenAPI for memecoin data.
  *
  * Endpoints:
- *   - GET /dex/token-profiles/latest/v1  — Latest token profiles (new pairs)
- *   - GET /dex/search?q=                 — Search tokens by symbol/address
+ *   - GET /token-profiles/latest/v1  — Latest token profiles (new pairs)
+ *   - GET /latest/dex/search?q=                 — Search tokens by symbol/address
  *   - GET /token/{chain}/{address}       — Token pairs by chain + address
  *
  * DexScreener chain slugs:
@@ -19,7 +19,7 @@
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
 
 /** Fetch with timeout */
-async function safeFetch(url, timeoutMs = 8000) {
+async function safeFetch(url, timeoutMs = 5000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -49,7 +49,24 @@ const CHAIN_SLUG = {
  * Returns the most recently created pairs with some metadata.
  */
 async function getLatestTokenProfiles(limit = 50) {
-  const result = await safeFetch(`${DEXSCREENER_BASE}/dex/token-profiles/latest/v1`, 10000);
+  const result = await safeFetch(`${DEXSCREENER_BASE}/token-profiles/latest/v1`, 5000);
+  if (result.error || !Array.isArray(result.data)) {
+    return { error: result.error || 'Invalid response', tokens: [] };
+  }
+  return { tokens: result.data.slice(0, limit) };
+}
+
+/**
+ * Resolve token profile addresses into full DexScreener pairs.
+ * DexScreener's latest profile endpoint returns lightweight token profiles,
+ * not pair rows, so we must hydrate them before transformDexScreenerPairs().
+ */
+async function getPairsByTokenAddresses(chain, addresses, limit = 30) {
+  const slug = CHAIN_SLUG[chain];
+  const unique = [...new Set((addresses || []).filter(Boolean))].slice(0, Math.min(limit, 30));
+  if (!slug || unique.length === 0) return { tokens: [] };
+
+  const result = await safeFetch(`${DEXSCREENER_BASE}/tokens/v1/${slug}/${unique.join(',')}`, 5000);
   if (result.error || !Array.isArray(result.data)) {
     return { error: result.error || 'Invalid response', tokens: [] };
   }
@@ -60,7 +77,7 @@ async function getLatestTokenProfiles(limit = 50) {
  * Search tokens by symbol on DexScreener.
  */
 async function searchTokens(query, limit = 30) {
-  const result = await safeFetch(`${DEXSCREENER_BASE}/dex/search?q=${encodeURIComponent(query)}`, 10000);
+  const result = await safeFetch(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(query)}`, 5000);
   if (result.error || !result.data?.pairs) {
     return { error: result.error || 'Invalid response', tokens: [] };
   }
@@ -78,19 +95,43 @@ async function getTrendingPairs(chain, limit = 30) {
 
   const { tokens, error } = await getLatestTokenProfiles(100);
 
-  if (error || !tokens.length) {
-    // Fallback: search common terms to get fresh pairs
-    const searchResult = await searchTokens(chain === 'solana' ? 'SOL' : 
-      chain === 'ethereum' ? 'ETH' : 
-      chain === 'base' ? 'BASE' : 'BNB', limit * 2);
-    if (searchResult.error) return { tokens: [] };
-    return { tokens: searchResult.tokens.slice(0, limit) };
+  if (!error && tokens.length) {
+    const addresses = tokens
+      .filter((t) => (t.chainId || '').toLowerCase() === slug)
+      .map((t) => t.tokenAddress)
+      .filter(Boolean);
+    const hydrated = await getPairsByTokenAddresses(chain, addresses, limit * 2);
+    if (hydrated.tokens.length) {
+      const chainPairs = hydrated.tokens
+        .filter((p) => (p.chainId || '').toLowerCase() === slug)
+        .sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0));
+      if (chainPairs.length) return { tokens: chainPairs.slice(0, limit) };
+    }
   }
 
-  // Filter by chain if profile has chain info
-  // DexScreener latest profiles may not have chain info directly,
-  // so we just return the latest ones
-  return { tokens: tokens.slice(0, limit) };
+  // Fallback: search broad chain/meme terms and keep real pair rows for this chain.
+  const terms = chain === 'solana' ? ['pump', 'solana meme', 'SOL']
+    : chain === 'ethereum' ? ['ethereum meme', 'ETH']
+    : chain === 'base' ? ['base meme', 'BASE']
+    : ['bsc meme', 'BNB'];
+  const searchResults = await Promise.allSettled(terms.map((term) => searchTokens(term, limit * 3)));
+  const allPairs = [];
+  for (const result of searchResults) {
+    if (result.status !== 'fulfilled') continue;
+    const searchResult = result.value;
+    if (!searchResult.error && Array.isArray(searchResult.tokens)) allPairs.push(...searchResult.tokens);
+  }
+  const deduped = new Map();
+  for (const pair of allPairs) {
+    if ((pair.chainId || '').toLowerCase() !== slug) continue;
+    const key = pair.pairAddress || `${pair.baseToken?.address}:${pair.dexId}`;
+    if (key) deduped.set(key, pair);
+  }
+  return {
+    tokens: [...deduped.values()]
+      .sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0))
+      .slice(0, limit),
+  };
 }
 
 /**
@@ -158,6 +199,7 @@ export {
   DEXSCREENER_BASE,
   CHAIN_SLUG,
   getLatestTokenProfiles,
+  getPairsByTokenAddresses,
   searchTokens,
   getTrendingPairs,
   transformDexScreenerPairs,

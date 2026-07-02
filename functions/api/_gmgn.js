@@ -21,6 +21,7 @@
  */
 
 const GMGN_HOST = 'https://openapi.gmgn.ai';
+const GMGN_TIMEOUT_MS = 4000;
 
 /**
  * Build timestamp + client_id per signer.js buildAuthQuery().
@@ -66,14 +67,20 @@ async function gmgnFetch(apiKey, method, path, query = {}, body = null) {
   };
 
   let res;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GMGN_TIMEOUT_MS);
   try {
     res = await fetch(url, {
       method,
       headers,
       body: body == null ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch (e) {
-    throw new Error(`gmgn fetch(${method} ${path}) failed: ${e?.message || e}`);
+    const reason = e?.name === 'AbortError' ? `timeout after ${GMGN_TIMEOUT_MS}ms` : (e?.message || e);
+    throw new Error(`gmgn fetch(${method} ${path}) failed: ${reason}`);
+  } finally {
+    clearTimeout(timeout);
   }
 
   let payload;
