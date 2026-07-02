@@ -123,11 +123,27 @@ async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
   const result = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
   // GMGN returns nested: {code: 0, data: {code: 0, data: {rank: [...]}}}
   // gmgnFetch unwraps one level, so result = {code: 0, data: {rank: [...]}}
-  if (result && result.data && Array.isArray(result.data.rank)) {
-    return result.data.rank;
+  console.log(`GMGN raw result type: ${typeof result}, isArray: ${Array.isArray(result)}, keys: ${result ? Object.keys(result).join(',') : 'null'}`);
+  if (result && typeof result === 'object') {
+    if (result.data && Array.isArray(result.data.rank)) {
+      console.log(`GMGN found ${result.data.rank.length} tokens via result.data.rank`);
+      return result.data.rank;
+    }
+    if (Array.isArray(result.rank)) {
+      console.log(`GMGN found ${result.rank.length} tokens via result.rank`);
+      return result.rank;
+    }
+    if (Array.isArray(result.data)) {
+      console.log(`GMGN found ${result.data.length} tokens via result.data`);
+      return result.data;
+    }
   }
   // Fallback: maybe it's a flat array
-  if (Array.isArray(result)) return result;
+  if (Array.isArray(result)) {
+    console.log(`GMGN found ${result.length} tokens via direct array`);
+    return result;
+  }
+  console.log('GMGN returned no recognizable token data');
   return [];
 }
 
