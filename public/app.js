@@ -13,6 +13,7 @@ const state = {
   tokens: [],
   signals: [],
   trackedTokens: {},
+  aiExpanded: {},
   isLoading: false,
   error: null,
   lastUpdated: null,
@@ -411,7 +412,30 @@ function detectSignals(tokens) {
 function createSignal(token, reason, reasonText) {
   // Use the token's actual chain from the data, NOT state.currentChain
   const actualChain = token.chain || state.currentChain;
-  return { id: 0, tokenAddress: token.address, tokenSymbol: token.symbol || 'Unknown', tokenName: token.name || '', tokenIcon: token.icon || '', tokenChain: actualChain, reason, reasonText, priceAtSignal: (token.priceUsd ?? token.price ?? 0), timestamp: Date.now(), active: true };
+  const buyPercent = calculateBuyPercent(token);
+  return {
+    id: 0,
+    tokenAddress: token.address,
+    tokenSymbol: token.symbol || 'Unknown',
+    tokenName: token.name || '',
+    tokenIcon: token.icon || '',
+    tokenChain: actualChain,
+    reason,
+    reasonText,
+    priceAtSignal: (token.priceUsd ?? token.price ?? 0),
+    timestamp: Date.now(),
+    active: true,
+    meta: {
+      priceChange1h: token.priceChange1h,
+      priceChange24h: token.priceChange24h,
+      volume24h: token.volume24h,
+      volume1h: token.volume1h,
+      liquidity: token.liquidity,
+      fdv: token.fdv,
+      txns24h: token.txns24h,
+      buyPercent,
+    },
+  };
 }
 
 function calculateBuyPercent(token) {
@@ -438,6 +462,8 @@ function startTrackingToken(signal) {
     buyMarker: { time: signal.timestamp, price: signal.priceAtSignal, label: '信号买入点' },
     priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal, marker: 'buy' }],
     currentPrice: signal.priceAtSignal,
+    signalMeta: signal.meta || {},
+    aiNotes: null,
     historyStatus: 'active',
   };
 }
@@ -685,6 +711,141 @@ function updateMemecoinStats(tokens, timestamp) {
   dom.statUpdated.textContent = formatTime(timestamp || Date.now());
 }
 
+// --- AI Decision Helpers ---
+
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getTrackedPerformance(tracked) {
+  const base = Number(tracked.priceAtSignal || 0);
+  const current = Number(tracked.currentPrice || 0);
+  const points = (tracked.priceHistory || []).filter((p) => p && p.price != null && Number(p.price) > 0);
+  const prices = points.map((p) => Number(p.price));
+  if (base > 0) prices.push(base);
+  if (current > 0) prices.push(current);
+  const maxPrice = prices.length ? Math.max(...prices) : current;
+  const minPrice = prices.length ? Math.min(...prices) : current;
+  const currentChange = base > 0 ? ((current - base) / base) * 100 : 0;
+  const maxGain = base > 0 ? ((maxPrice - base) / base) * 100 : 0;
+  const maxDrawdown = base > 0 ? ((minPrice - base) / base) * 100 : 0;
+  return { base, current, currentChange, maxGain, maxDrawdown, maxPrice, minPrice };
+}
+
+function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
+  const perf = getTrackedPerformance(tracked);
+  const meta = tracked.signalMeta || {};
+  const buyPercent = Number(meta.buyPercent || 50);
+  const volume = Number(meta.volume24h ?? meta.volume1h ?? 0);
+  const liquidity = Number(meta.liquidity || 0);
+  const priceChange1h = Number(meta.priceChange1h || 0);
+  const elapsed = now - tracked.signalAt;
+
+  let phase = '可观察';
+  if (perf.currentChange >= 80) phase = '高位加速';
+  else if (perf.currentChange >= 30) phase = '突破加速';
+  else if (perf.currentChange >= 8) phase = '趋势延续';
+  else if (perf.currentChange <= -15) phase = '跌破买入点';
+  else if (!isActive && elapsed > state.signalExpiryMs) phase = '历史观察';
+
+  const riskFlags = [];
+  let riskScore = 25;
+  if (liquidity && liquidity < 10000) { riskScore += 28; riskFlags.push('流动性偏低'); }
+  else if (liquidity && liquidity < 50000) { riskScore += 14; riskFlags.push('流动性一般'); }
+  if (perf.maxDrawdown <= -40) { riskScore += 22; riskFlags.push('信号后回撤过大'); }
+  if (priceChange1h >= 80 || perf.currentChange >= 120) { riskScore += 18; riskFlags.push('短线涨幅过高'); }
+  if (buyPercent < 50) { riskScore += 15; riskFlags.push('买入占比不足'); }
+  if (!volume || volume < 100000) { riskScore += 10; riskFlags.push('成交量不足'); }
+  riskScore = clampScore(riskScore);
+  const riskLevel = riskScore >= 78 ? '极高' : riskScore >= 58 ? '高' : riskScore >= 38 ? '中' : '低';
+
+  let resonanceScore = 0;
+  if ((tracked.signalReasonText || '').includes('买入占比')) resonanceScore += 35;
+  if ((tracked.signalReasonText || '').includes('交易量')) resonanceScore += 30;
+  if (buyPercent >= 75) resonanceScore += 20;
+  if (volume >= 1000000) resonanceScore += 15;
+  const resonanceLevel = resonanceScore >= 75 ? '强' : resonanceScore >= 50 ? '中' : resonanceScore >= 25 ? '弱' : '无';
+
+  let action = '继续观察';
+  if (riskLevel === '极高') action = '禁止交易';
+  else if (perf.currentChange <= -15) action = '信号失效';
+  else if (perf.currentChange >= 80) action = '等待回踩';
+  else if (resonanceLevel === '强' && riskLevel !== '高') action = '重点观察';
+
+  const aiScore = clampScore(50 + Math.min(perf.currentChange, 80) * 0.25 + resonanceScore * 0.22 - riskScore * 0.25);
+  const confidence = aiScore >= 75 ? '中高' : aiScore >= 55 ? '中' : '偏低';
+  const historyStatus = perf.currentChange <= -15 ? '跌破买入点' : perf.maxGain >= 80 && perf.currentChange < perf.maxGain * 0.45 ? '疑似出货' : perf.currentChange >= 20 ? '趋势延续' : '高位观察';
+  const summary = `${tracked.symbol} 触发 ${tracked.signalReasonText || '交易信号'}。当前相对买入标注点 ${formatChange(perf.currentChange)}，${resonanceLevel !== '无' ? `共振${resonanceLevel}` : '暂无明显共振'}，风险等级${riskLevel}。`;
+  const suggestion = action === '禁止交易' ? '风险过高，仅保留观察，不建议进入策略订单。' : action === '等待回踩' ? '短线涨幅较高，不建议直接追高，等待回踩或二次放量确认。' : action === '重点观察' ? '信号质量较好，可加入重点观察，策略订单仍需二次确认。' : '继续观察价格是否守住买入标注点。';
+  return { ...perf, phase, riskScore, riskLevel, riskFlags, resonanceScore, resonanceLevel, action, aiScore, confidence, historyStatus, summary, suggestion };
+}
+
+function getLevelClass(level) {
+  if (['低', '强', '重点观察', '趋势延续', '中高'].includes(level)) return 'good';
+  if (['中', '弱', '等待回踩', '高位观察', '历史观察'].includes(level)) return 'warn';
+  if (['高', '极高', '禁止交易', '跌破买入点', '信号失效', '疑似出货'].includes(level)) return 'danger';
+  return 'neutral';
+}
+
+function renderAiDetailPanel(tracked, analysis, key, isOpen) {
+  if (!isOpen) return '';
+  const canTradePreview = analysis.action !== '禁止交易';
+  const riskFlags = analysis.riskFlags.length ? analysis.riskFlags.join(' / ') : '未发现明显硬风险（仍需接入 GMGN security 完整校验）';
+  return `
+    <div class="ai-detail-panel">
+      <div class="ai-detail-grid">
+        <div class="ai-mini-card ai-wide">
+          <div class="ai-mini-title">AI 信号解释</div>
+          <div class="ai-mini-main">${analysis.phase} · 强度 ${analysis.aiScore}/100 · 置信度 ${analysis.confidence}</div>
+          <p>${analysis.summary}</p>
+          <p class="ai-suggestion">${analysis.suggestion}</p>
+        </div>
+        <div class="ai-mini-card">
+          <div class="ai-mini-title">Token 安全检查</div>
+          <div class="ai-mini-main ${getLevelClass(analysis.riskLevel)}">风险 ${analysis.riskLevel} · ${100 - analysis.riskScore}/100</div>
+          <p>${riskFlags}</p>
+        </div>
+        <div class="ai-mini-card">
+          <div class="ai-mini-title">Smart Money 共振</div>
+          <div class="ai-mini-main ${getLevelClass(analysis.resonanceLevel)}">${analysis.resonanceLevel}共振</div>
+          <p>当前 MVP 用买压、放量、信号组合估算；下一步接入 GMGN smartmoney/KOL 实时钱包。</p>
+        </div>
+        <div class="ai-mini-card">
+          <div class="ai-mini-title">百强交易员分析</div>
+          <div class="ai-mini-main neutral">摘要占位</div>
+          <p>后续接入 token traders Top100：Smart/KOL/Sniper/Bundler、仍持仓、已卖出。</p>
+        </div>
+        <div class="ai-mini-card">
+          <div class="ai-mini-title">钱包画像</div>
+          <div class="ai-mini-main neutral">点击钱包后展开</div>
+          <p>后续接入 wallet stats：胜率、PnL、平均持仓、交易风格评级。</p>
+        </div>
+        <div class="ai-mini-card ai-wide">
+          <div class="ai-mini-title">AI 历史追踪总结</div>
+          <div class="ai-mini-main ${getLevelClass(analysis.historyStatus)}">${analysis.historyStatus}</div>
+          <p>信号后最高 ${formatChange(analysis.maxGain)}，最大回撤 ${formatChange(analysis.maxDrawdown)}，当前 ${formatChange(analysis.currentChange)}。买入标注点将持续保留 24 小时。</p>
+        </div>
+      </div>
+      <div class="strategy-preview-box ${canTradePreview ? '' : 'blocked'}">
+        <div>
+          <strong>策略订单预览</strong>
+          <span>${canTradePreview ? '限价买入 + 止盈/止损，仅生成预览，不自动下单' : '风险过高，交易入口已拦截'}</span>
+        </div>
+        <button class="monitor-action-btn primary strategy-preview-btn" data-tracked-key="${key}" ${canTradePreview ? '' : 'disabled'}>策略预览</button>
+      </div>
+    </div>`;
+}
+
+function showStrategyPreview(tracked, analysis) {
+  if (analysis.action === '禁止交易') {
+    showToast('风险过高：当前仅允许观察，不生成策略订单', 'error');
+    return;
+  }
+  const entry = analysis.current > 0 ? analysis.current * 0.9 : 0;
+  const text = `策略预览：${tracked.symbol} · 限价买入 ${formatPrice(entry)} · 标准模板：+100%卖50%，+300%卖剩余，-50%止损。当前仅为预览，不执行真实交易。`;
+  showToast(text, 'info');
+}
+
 // --- Monitoring ---
 
 function renderMemecoinMonitoring() {
@@ -701,11 +862,13 @@ function renderMemecoinMonitoring() {
   const badgeLabels = { 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
   for (const key of remainingKeys) {
     const tracked = state.trackedTokens[key];
-    const priceChange = tracked.priceAtSignal > 0 ? ((tracked.currentPrice - tracked.priceAtSignal) / tracked.priceAtSignal) * 100 : 0;
     const elapsed = now - tracked.signalAt;
     const isActive = activeAddresses.has(key);
+    const analysis = analyzeTrackedToken(tracked, isActive, now);
+    const priceChange = analysis.currentChange;
     const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
     const statusClass = isActive ? 'active' : 'history';
+    const isExpanded = !!state.aiExpanded[key];
     const card = document.createElement('div');
     card.className = 'monitor-card';
     card.style.animationDelay = `${cardIndex * 0.05}s`;
@@ -723,6 +886,12 @@ function renderMemecoinMonitoring() {
         <span class="monitor-signal-badge ${tracked.signalReason}">${badgeLabels[tracked.signalReason] || '信号'}</span>
         <span class="monitor-status-badge ${statusClass}">${statusLabel}</span>
       </div>
+      <div class="ai-chip-row">
+        <span class="ai-chip ${getLevelClass(analysis.phase)}">AI：${analysis.phase}</span>
+        <span class="ai-chip ${getLevelClass(analysis.riskLevel)}">风险：${analysis.riskLevel}</span>
+        <span class="ai-chip ${getLevelClass(analysis.resonanceLevel)}">共振：${analysis.resonanceLevel}</span>
+        <span class="ai-chip ${getLevelClass(analysis.action)}">${analysis.action}</span>
+      </div>
       <div class="monitor-chart-area"><canvas data-tracked-key="${key}"></canvas></div>
       <div class="monitor-stats">
         <div class="monitor-stat"><span class="monitor-stat-label">买入标注点</span><span class="monitor-stat-value" style="font-size:11px;color:var(--accent-green)">${formatPrice(tracked.priceAtSignal)}</span></div>
@@ -731,14 +900,32 @@ function renderMemecoinMonitoring() {
         <div class="monitor-stat" style="margin-left:auto"><span class="monitor-stat-label">已追踪</span><span class="monitor-stat-value" style="font-size:11px;color:var(--text-muted)">${formatDuration(elapsed)}</span></div>
       </div>
       <div class="monitor-actions">
-        <a href="${gmgnUrl}" target="_blank" rel="noopener" class="monitor-action-btn primary">交易</a>
-        <a href="${explorerUrl}" target="_blank" rel="noopener" class="monitor-action-btn">详情</a>
-        <span class="monitor-action-btn" style="border-color:${isActive ? 'rgba(34,197,94,0.3)' : 'rgba(148,163,184,0.25)'};color:${isActive ? 'var(--accent-green)' : 'var(--text-muted)'};cursor:default">${statusLabel}</span>
-      </div>`;
+        <button class="monitor-action-btn primary ai-detail-toggle" data-tracked-key="${key}">${isExpanded ? '收起' : '详情'}</button>
+        <button class="monitor-action-btn strategy-preview-btn" data-tracked-key="${key}">策略预览</button>
+        <a href="${gmgnUrl}" target="_blank" rel="noopener" class="monitor-action-btn">GMGN</a>
+        <a href="${explorerUrl}" target="_blank" rel="noopener" class="monitor-action-btn">链上</a>
+      </div>
+      ${renderAiDetailPanel(tracked, analysis, key, isExpanded)}`;
     fragment.appendChild(card);
   }
   dom.monitorCards.innerHTML = '';
   dom.monitorCards.appendChild(fragment);
+  dom.monitorCards.querySelectorAll('.ai-detail-toggle').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const key = e.currentTarget.dataset.trackedKey;
+      state.aiExpanded[key] = !state.aiExpanded[key];
+      renderMemecoinMonitoring();
+    });
+  });
+  dom.monitorCards.querySelectorAll('.strategy-preview-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const key = e.currentTarget.dataset.trackedKey;
+      const tracked = state.trackedTokens[key];
+      if (!tracked) return;
+      const isActive = state.signals.some((s) => s.active && getTrackingKey(s.tokenAddress, s.tokenChain) === key);
+      showStrategyPreview(tracked, analyzeTrackedToken(tracked, isActive));
+    });
+  });
   requestAnimationFrame(() => {
     dom.monitorCards.querySelectorAll('canvas[data-tracked-key]').forEach((canvas) => {
       const key = canvas.dataset.trackedKey;
