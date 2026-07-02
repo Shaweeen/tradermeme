@@ -92,7 +92,9 @@ async function gmgnFetch(apiKey, method, path, query = {}, body = null) {
   }
 
   // unwrap `data` envelope (gmgn wraps data in { code, data })
-  return payload.data ?? payload;
+  // GMGN returns: {code: 0, data: {code: 0, data: {rank: [...]}}}
+  // We return the raw payload so endpoint wrappers can handle the nesting
+  return payload;
 }
 
 /**
@@ -120,48 +122,76 @@ async function gmgnRequest(context, method, path, query, body) {
  * Mirrors `gmgn-cli market trending --chain X --interval I`.
  */
 async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
-  const result = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
-  // GMGN returns nested: {code: 0, data: {code: 0, data: {rank: [...]}}}
-  // gmgnFetch unwraps one level, so result = {code: 0, data: {rank: [...]}}
-  console.log(`GMGN raw result type: ${typeof result}, isArray: ${Array.isArray(result)}, keys: ${result ? Object.keys(result).join(',') : 'null'}`);
-  if (result && typeof result === 'object') {
-    // Try result.data.rank (most common pattern)
-    if (result.data && Array.isArray(result.data.rank)) {
-      console.log(`GMGN found ${result.data.rank.length} tokens via result.data.rank`);
-      return result.data.rank;
-    }
-    // Try result.rank
-    if (Array.isArray(result.rank)) {
-      console.log(`GMGN found ${result.rank.length} tokens via result.rank`);
-      return result.rank;
-    }
-    // Try result.data (array)
-    if (Array.isArray(result.data)) {
-      console.log(`GMGN found ${result.data.length} tokens via result.data`);
-      return result.data;
-    }
-    // Try result.list
-    if (Array.isArray(result.list)) {
-      console.log(`GMGN found ${result.list.length} tokens via result.list`);
-      return result.list;
-    }
-    // Try result.tokens
-    if (Array.isArray(result.tokens)) {
-      console.log(`GMGN found ${result.tokens.length} tokens via result.tokens`);
-      return result.tokens;
-    }
-    // Dump first-level keys for debugging
-    console.log('GMGN result first-level:', JSON.stringify(Object.fromEntries(
-      Object.entries(result).map(([k, v]) => [k, Array.isArray(v) ? `Array(${v.length})` : typeof v])
-    )));
+  const payload = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
+  // GMGN returns: {code: 0, data: {code: 0, data: {rank: [...]}}}
+  // gmgnFetch now returns raw payload (no unwrapping)
+  // Try different response structures
+  if (!payload || typeof payload !== 'object') {
+    console.log('GMGN payload not an object');
+    return [];
   }
-  // Fallback: maybe it's a flat array
-  if (Array.isArray(result)) {
-    console.log(`GMGN found ${result.length} tokens via direct array`);
-    return result;
+
+  // Deep unwrap: payload.data.data.rank
+  try {
+    const inner = payload?.data?.data || payload?.data;
+    if (inner) {
+      if (Array.isArray(inner.rank)) {
+        console.log(`GMGN: found ${inner.rank.length} via data.data.rank`);
+        return inner.rank;
+      }
+      if (Array.isArray(inner.list)) {
+        console.log(`GMGN: found ${inner.list.length} via data.data.list`);
+        return inner.list;
+      }
+      if (Array.isArray(inner.tokens)) {
+        console.log(`GMGN: found ${inner.tokens.length} via data.data.tokens`);
+        return inner.tokens;
+      }
+    }
+
+    // Try payload.data directly (one level unwrap)
+    if (payload.data) {
+      const d = payload.data;
+      if (Array.isArray(d)) {
+        console.log(`GMGN: found ${d.length} via payload.data (array)`);
+        return d;
+      }
+    }
+
+    // Try payload.rank (flat structure)
+    if (Array.isArray(payload.rank)) {
+      console.log(`GMGN: found ${payload.rank.length} via payload.rank`);
+      return payload.rank;
+    }
+
+    // Debug: dump all keys
+    const keyTypes = Object.entries(payload).map(([k, v]) =>
+      `${k}: ${Array.isArray(v) ? `Array(${v.length})` : typeof v}`
+    ).join(', ');
+    console.log(`GMGN payload keys: ${keyTypes}`);
+
+    // Try any array field at any level
+    const found = findFirstArray(payload);
+    if (found) return found;
+  } catch (e) {
+    console.log(`GMGN unwrap error: ${e.message}`);
   }
-  console.log('GMGN returned no recognizable token data');
+
   return [];
+}
+
+/** Recursively find the first array property in an object (depth-first) */
+function findFirstArray(obj, depth = 0) {
+  if (depth > 4) return null;
+  if (!obj || typeof obj !== 'object') return null;
+  for (const [k, v] of Object.entries(obj)) {
+    if (Array.isArray(v) && v.length > 0) return v;
+    if (typeof v === 'object') {
+      const found = findFirstArray(v, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 /**
