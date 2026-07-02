@@ -1,28 +1,36 @@
 /**
  * Memecoin Monitor - Cloudflare Pages Function
  *
- * Fetches trending memecoin data from authenticated GMGN OpenAPI.
+ * Multi-source data aggregation:
+ *   - GMGN OpenAPI (primary, authenticated)
+ *   - DexScreener API (fallback, no auth needed)
+ *
  * Endpoints:
- *   GET /api/trending?chain=solana      - Top trending memecoins
- *   GET /api/smartmoney?chain=sol       - Smart Money activity
- *   GET /api/kol?chain=sol              - KOL activity
- *   GET /api/token-info?chain=sol&address=... - Token detail
+ *   GET /api/trending?chain=solana      - Top trending memecoins (GMGN + DexScreener)
+ *   GET /api/trending?chain=ethereum    - Ethereum memecoins (DexScreener)
+ *   GET /api/smartmoney?chain=sol       - Smart Money activity (GMGN)
+ *   GET /api/kol?chain=sol              - KOL activity (GMGN)
+ *   GET /api/token-info?chain=sol&address=... - Token detail (GMGN + DexScreener)
  *   GET /api/chains                      - List supported chains
  */
 
 // Use dynamic import for ESM compatibility in CF Workers
 let gmgn;
+let dexscreener;
 async function initGmgn() {
-  if (!gmgn) {
-    gmgn = await import('./_gmgn.js');
-  }
+  if (!gmgn) gmgn = await import('./_gmgn.js');
   return gmgn;
+}
+async function initDex() {
+  if (!dexscreener) dexscreener = await import('./_dexscreener.js');
+  return dexscreener;
 }
 
 const CHAIN_MAP = {
-  solana: { gmgn: 'sol', dexscreener: 'solana' },
-  base: { gmgn: 'base', dexscreener: 'base' },
-  bsc: { gmgn: 'bsc', dexscreener: 'bsc' },
+  solana: { gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '🪙' },
+  ethereum: { gmgn: null, dexscreener: 'ethereum', label: 'Ethereum', icon: '🔷' },
+  base: { gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
+  bsc: { gmgn: 'bsc', dexscreener: 'bsc', label: 'BSC', icon: '🟡' },
 };
 
 const CACHE_SHORT = 30;
@@ -87,23 +95,53 @@ function transformGmgnRank(data, chain, gmgnSlug) {
   }));
 }
 
+/**
+ * Try GMGN first, fall back to DexScreener.
+ * For chains without GMGN support (ethereum), use DexScreener directly.
+ */
 async function getTrendingMemecoins(context, chain, limit = 30) {
-  const chainsToFetch = chain === 'all' ? ['solana', 'base', 'bsc'] : [chain];
+  const chainsToFetch = chain === 'all' ? Object.keys(CHAIN_MAP) : [chain];
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnMod = await initGmgn();
-  
+  const dexMod = await initDex();
+
   const allResults = await Promise.allSettled(
     chainsToFetch.map(async (c) => {
+      const gmgnSlug = CHAIN_MAP[c]?.gmgn;
+      const dexSlug = CHAIN_MAP[c]?.dexscreener;
+
       try {
-        const gmgnSlug = CHAIN_MAP[c]?.gmgn;
-        if (!gmgnSlug) return { chain: c, tokens: [] };
-        
-        const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
-        const tokens = transformGmgnRank(rankData, c, gmgnSlug);
-        
+        let tokens = [];
+
+        // Try GMGN first (authenticated, richer data)
+        if (gmgnSlug && apiKey) {
+          try {
+            const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
+            if (Array.isArray(rankData) && rankData.length > 0) {
+              tokens = transformGmgnRank(rankData, c, gmgnSlug);
+              console.log(`GMGN returned ${tokens.length} tokens for ${c}`);
+            }
+          } catch (gmgnErr) {
+            console.error(`GMGN error for ${c}:`, gmgnErr.message);
+          }
+        }
+
+        // If GMGN returned nothing, try DexScreener as fallback
+        if (tokens.length === 0 && dexSlug) {
+          try {
+            const dexData = await dexMod.getTrendingPairs(c, limit);
+            if (dexData && Array.isArray(dexData.tokens) && dexData.tokens.length > 0) {
+              tokens = dexMod.transformDexScreenerPairs(dexData.tokens, c);
+              console.log(`DexScreener returned ${tokens.length} tokens for ${c}`);
+            }
+          } catch (dexErr) {
+            console.error(`DexScreener error for ${c}:`, dexErr.message);
+          }
+        }
+
         return { chain: c, tokens };
       } catch (e) {
-        console.error(`GMGN OpenAPI error for ${c}:`, e.message);
+        console.error(`Fetch error for ${c}:`, e.message);
         return { chain: c, tokens: [] };
       }
     })
@@ -120,8 +158,14 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
 
   const merged = Array.from(mergedMap.values())
     .sort((a, b) => {
-      const bScore = (b.smartCount || 0) * 1000 + (b.volume24h || 0);
-      const aScore = (a.smartCount || 0) * 1000 + (a.volume24h || 0);
+      const bScore = (b.holders || 0) * 100 +
+                     (b.liquidity || 0) +
+                     ((b.txns24h?.total || 0) * 10) +
+                     (b.smartCount || 0) * 1000;
+      const aScore = (a.holders || 0) * 100 +
+                     (a.liquidity || 0) +
+                     ((a.txns24h?.total || 0) * 10) +
+                     (a.smartCount || 0) * 1000;
       return bScore - aScore;
     })
     .slice(0, limit);
@@ -132,12 +176,13 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
 async function getSmartMoneyActivity(context, chain, limit = 50) {
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnChain = CHAIN_MAP[chain]?.gmgn || 'sol';
+  if (!CHAIN_MAP[chain]?.gmgn) return []; // No GMGN support for this chain
   const gmgnMod = await initGmgn();
-  
+
   try {
     const data = await gmgnMod.getSmartMoney(apiKey, gmgnChain, limit);
     if (!Array.isArray(data)) return [];
-    
+
     return data.map((w) => ({
       walletAddress: w.address || w.wallet_address || '',
       tag: w.tag || '',
@@ -163,12 +208,13 @@ async function getSmartMoneyActivity(context, chain, limit = 50) {
 async function getKolActivity(context, chain, limit = 50) {
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnChain = CHAIN_MAP[chain]?.gmgn || 'sol';
+  if (!CHAIN_MAP[chain]?.gmgn) return [];
   const gmgnMod = await initGmgn();
-  
+
   try {
     const data = await gmgnMod.getKol(apiKey, gmgnChain, limit);
     if (!Array.isArray(data)) return [];
-    
+
     return data.map((w) => ({
       walletAddress: w.address || w.wallet_address || '',
       tag: w.tag || w.name || '',
@@ -194,33 +240,39 @@ async function getTokenDetails(context, chain, address) {
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnChain = CHAIN_MAP[chain]?.gmgn || chain;
   const gmgnMod = await initGmgn();
-  
-  try {
-    const tokenData = await gmgnMod.getTokenInfo(apiKey, gmgnChain, address);
-    return {
-      address,
-      chain,
-      symbol: tokenData?.symbol || '',
-      name: tokenData?.name || '',
-      icon: tokenData?.icon_url || tokenData?.logo || '',
-      priceUsd: parseFloat(tokenData?.price) || 0,
-      priceChange1h: parseFloat(tokenData?.price_1h) || 0,
-      priceChange24h: parseFloat(tokenData?.price_24h) || 0,
-      volume24h: parseFloat(tokenData?.volume_24h) || 0,
-      liquidity: parseFloat(tokenData?.liquidity) || 0,
-      marketCap: parseFloat(tokenData?.market_cap) || 0,
-      fdv: parseFloat(tokenData?.fdv) || 0,
-      holders: tokenData?.holder_count || 0,
-      top10Holders: parseFloat(tokenData?.top10) || 0,
-      smartCount: tokenData?.smart_count || 0,
-      smartRatio: parseFloat(tokenData?.smart_ratio) || 0,
-      firstTradeTimestamp: tokenData?.first_trade_timestamp,
-      source: 'gmgn-openapi',
-    };
-  } catch (e) {
-    console.error('Token info fetch error:', e.message);
-    return null;
+
+  // Try GMGN first
+  if (gmgnChain && apiKey) {
+    try {
+      const tokenData = await gmgnMod.getTokenInfo(apiKey, gmgnChain, address);
+      if (tokenData) {
+        return {
+          address,
+          chain,
+          symbol: tokenData?.symbol || '',
+          name: tokenData?.name || '',
+          icon: tokenData?.icon_url || tokenData?.logo || '',
+          priceUsd: parseFloat(tokenData?.price) || 0,
+          priceChange1h: parseFloat(tokenData?.price_1h) || 0,
+          priceChange24h: parseFloat(tokenData?.price_24h) || 0,
+          volume24h: parseFloat(tokenData?.volume_24h) || 0,
+          liquidity: parseFloat(tokenData?.liquidity) || 0,
+          marketCap: parseFloat(tokenData?.market_cap) || 0,
+          fdv: parseFloat(tokenData?.fdv) || 0,
+          holders: tokenData?.holder_count || 0,
+          top10Holders: parseFloat(tokenData?.top10) || 0,
+          smartCount: tokenData?.smart_count || 0,
+          smartRatio: parseFloat(tokenData?.smart_ratio) || 0,
+          firstTradeTimestamp: tokenData?.first_trade_timestamp,
+          source: 'gmgn-openapi',
+        };
+      }
+    } catch (e) {
+      console.error('Token info fetch error:', e.message);
+    }
   }
+
+  return null;
 }
 
 export async function onRequest(context) {
@@ -252,7 +304,7 @@ export async function onRequest(context) {
         chain,
         count: tokens.length,
         timestamp: Date.now(),
-        source: 'gmgn-openapi',
+        source: tokens.some(t => t.source === 'dexscreener') ? 'dexscreener+gmgn' : 'gmgn-openapi',
         data: tokens,
       }, 200, { 'Cache-Control': `public, s-maxage=${CACHE_SHORT}` });
     } catch (e) {
@@ -317,7 +369,6 @@ export async function onRequest(context) {
       return jsonResponse({
         success: true,
         timestamp: Date.now(),
-        source: 'gmgn-openapi',
         data: token,
       }, 200);
     } catch (e) {
@@ -330,9 +381,12 @@ export async function onRequest(context) {
     return jsonResponse({
       chains: Object.entries(CHAIN_MAP).map(([key, val]) => ({
         id: key,
-        name: key.charAt(0).toUpperCase() + key.slice(1),
+        name: val.label,
+        icon: val.icon,
         gmgnSlug: val.gmgn,
         dexscreenerSlug: val.dexscreener,
+        hasGmgn: !!val.gmgn,
+        hasDexScreener: true,
       })),
     }, 200);
   }

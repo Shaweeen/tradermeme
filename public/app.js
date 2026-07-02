@@ -233,17 +233,17 @@ function getTokenIcon(token) {
 }
 
 function getExplorerUrl(chain, address) {
-  const explorers = { solana: `https://solscan.io/token/${address}`, base: `https://basescan.org/token/${address}`, bsc: `https://bscscan.com/token/${address}` };
+  const explorers = { solana: `https://solscan.io/token/${address}`, ethereum: `https://etherscan.io/token/${address}`, base: `https://basescan.org/token/${address}`, bsc: `https://bscscan.com/token/${address}` };
   return explorers[chain] || `https://solscan.io/token/${address}`;
 }
 
 function getGmgnUrl(chain, address) {
-  const slugs = { solana: 'sol', base: 'base', bsc: 'bsc' };
+  const slugs = { solana: 'sol', base: 'base', bsc: 'bsc', ethereum: 'eth' };
   return `https://gmgn.ai/${slugs[chain] || 'sol'}/token/${address}`;
 }
 
 function getChainDotClass(chain) {
-  return { solana: 'sol', base: 'base', bsc: 'bsc' }[chain] || 'sol';
+  return { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc' }[chain] || 'sol';
 }
 
 function formatDuration(ms) {

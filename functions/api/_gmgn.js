@@ -125,18 +125,35 @@ async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
   // gmgnFetch unwraps one level, so result = {code: 0, data: {rank: [...]}}
   console.log(`GMGN raw result type: ${typeof result}, isArray: ${Array.isArray(result)}, keys: ${result ? Object.keys(result).join(',') : 'null'}`);
   if (result && typeof result === 'object') {
+    // Try result.data.rank (most common pattern)
     if (result.data && Array.isArray(result.data.rank)) {
       console.log(`GMGN found ${result.data.rank.length} tokens via result.data.rank`);
       return result.data.rank;
     }
+    // Try result.rank
     if (Array.isArray(result.rank)) {
       console.log(`GMGN found ${result.rank.length} tokens via result.rank`);
       return result.rank;
     }
+    // Try result.data (array)
     if (Array.isArray(result.data)) {
       console.log(`GMGN found ${result.data.length} tokens via result.data`);
       return result.data;
     }
+    // Try result.list
+    if (Array.isArray(result.list)) {
+      console.log(`GMGN found ${result.list.length} tokens via result.list`);
+      return result.list;
+    }
+    // Try result.tokens
+    if (Array.isArray(result.tokens)) {
+      console.log(`GMGN found ${result.tokens.length} tokens via result.tokens`);
+      return result.tokens;
+    }
+    // Dump first-level keys for debugging
+    console.log('GMGN result first-level:', JSON.stringify(Object.fromEntries(
+      Object.entries(result).map(([k, v]) => [k, Array.isArray(v) ? `Array(${v.length})` : typeof v])
+    )));
   }
   // Fallback: maybe it's a flat array
   if (Array.isArray(result)) {
