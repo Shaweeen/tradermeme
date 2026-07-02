@@ -22,8 +22,9 @@ const state = {
   maxRetries: 3,
   sortBy: 'volume',
   signalIdCounter: 0,
-  signalExpiryMs: 300000, // 5 min
-  maxPriceHistory: 30,
+  signalExpiryMs: 300000, // 5 min active signal carousel
+  trackingRetentionMs: 86400000, // 24h historical tracking retention
+  maxPriceHistory: 2880, // 24h at 30s refresh cadence
   memecoinLimit: 10,
 
   // Othercoin state
@@ -48,6 +49,8 @@ const SIGNAL_THRESHOLDS = {
   volumeSpike: 500000,
   buyPressure: 75,
 };
+
+const TRACKING_STORAGE_KEY = 'coinwatch_memecoin_signal_tracking_v1';
 
 // ===== DOM =====
 const $ = (sel) => document.querySelector(sel);
@@ -313,23 +316,83 @@ function switchPage(page) {
 // MEMECOIN PAGE
 // ====================================================================================
 
+function getTrackingKey(address, chain = '') {
+  return `${(chain || '').toLowerCase()}:${(address || '').toLowerCase()}`;
+}
+
+function pruneSignalTracking(now = Date.now()) {
+  state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
+  for (const [key, tracked] of Object.entries(state.trackedTokens)) {
+    if (!tracked || now - tracked.signalAt > state.trackingRetentionMs) {
+      delete state.trackedTokens[key];
+      continue;
+    }
+    tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
+    tracked.priceHistory = (tracked.priceHistory || [])
+      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= state.trackingRetentionMs))
+      .slice(-state.maxPriceHistory);
+    if (!tracked.priceHistory.some((p) => p.time === tracked.signalAt && p.price === tracked.priceAtSignal)) {
+      tracked.priceHistory.unshift({ time: tracked.signalAt, price: tracked.priceAtSignal, marker: 'buy' });
+    }
+  }
+}
+
+function saveSignalTracking() {
+  try {
+    pruneSignalTracking();
+    localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      signalIdCounter: state.signalIdCounter,
+      signals: state.signals,
+      trackedTokens: state.trackedTokens,
+    }));
+  } catch (e) {
+    console.warn('Failed to save signal tracking state:', e);
+  }
+}
+
+function loadSignalTracking() {
+  try {
+    const raw = localStorage.getItem(TRACKING_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    state.signalIdCounter = Math.max(state.signalIdCounter, parsed.signalIdCounter || 0);
+    state.signals = Array.isArray(parsed.signals) ? parsed.signals : [];
+    state.trackedTokens = parsed.trackedTokens && typeof parsed.trackedTokens === 'object' ? parsed.trackedTokens : {};
+    pruneSignalTracking();
+  } catch (e) {
+    console.warn('Failed to load signal tracking state:', e);
+    state.signals = [];
+    state.trackedTokens = {};
+  }
+}
+
 // --- Signal System ---
 
 function detectSignals(tokens) {
   const newSignals = [];
+  pruneSignalTracking();
   for (const token of tokens) {
-    const existingSignal = state.signals.find((s) => s.tokenAddress === token.address && s.active);
-    if (existingSignal) continue;
+    const key = getTrackingKey(token.address, token.chain || state.currentChain);
+    const existingSignal = state.signals.find((s) => s.tokenAddress === token.address && s.tokenChain === (token.chain || state.currentChain) && s.active);
+    const existingTracked = state.trackedTokens[key];
+    if (existingSignal || existingTracked) continue;
+    const triggered = [];
     if (token.priceChange1h != null && token.priceChange1h > SIGNAL_THRESHOLDS.priceSurge) {
-      newSignals.push(createSignal(token, 'price-surge', `价格 1h 暴涨 ${formatChange(token.priceChange1h)}`));
+      triggered.push({ reason: 'price-surge', text: `价格 1h 暴涨 ${formatChange(token.priceChange1h)}` });
     }
     const volume = token.volume24h || token.volume1h || 0;
     if (volume > SIGNAL_THRESHOLDS.volumeSpike) {
-      newSignals.push(createSignal(token, 'volume-spike', `24h 交易量 ${formatCompact(volume)}`));
+      triggered.push({ reason: 'volume-spike', text: `24h 交易量 ${formatCompact(volume)}` });
     }
     const buyPercent = calculateBuyPercent(token);
     if (buyPercent > SIGNAL_THRESHOLDS.buyPressure) {
-      newSignals.push(createSignal(token, 'buy-pressure', `买入占比 ${buyPercent.toFixed(0)}%`));
+      triggered.push({ reason: 'buy-pressure', text: `买入占比 ${buyPercent.toFixed(0)}%` });
+    }
+    if (triggered.length > 0) {
+      const primary = triggered[0];
+      const reasonText = triggered.map((r) => r.text).join(' · ');
+      newSignals.push(createSignal(token, primary.reason, reasonText));
     }
   }
   for (const signal of newSignals) {
@@ -339,13 +402,16 @@ function detectSignals(tokens) {
     startTrackingToken(signal);
     showToast(`🔔 信号: ${signal.tokenSymbol} - ${signal.reasonText}`, 'info');
   }
-  if (newSignals.length > 0) renderMemecoinSignals();
+  if (newSignals.length > 0) {
+    saveSignalTracking();
+    renderMemecoinSignals();
+  }
 }
 
 function createSignal(token, reason, reasonText) {
   // Use the token's actual chain from the data, NOT state.currentChain
   const actualChain = token.chain || state.currentChain;
-  return { id: 0, tokenAddress: token.address, tokenSymbol: token.symbol || 'Unknown', tokenName: token.name || '', tokenIcon: token.icon || '', tokenChain: actualChain, reason, reasonText, priceAtSignal: token.priceUsd || 0, timestamp: Date.now(), active: true };
+  return { id: 0, tokenAddress: token.address, tokenSymbol: token.symbol || 'Unknown', tokenName: token.name || '', tokenIcon: token.icon || '', tokenChain: actualChain, reason, reasonText, priceAtSignal: (token.priceUsd ?? token.price ?? 0), timestamp: Date.now(), active: true };
 }
 
 function calculateBuyPercent(token) {
@@ -357,9 +423,23 @@ function calculateBuyPercent(token) {
 }
 
 function startTrackingToken(signal) {
-  const key = signal.tokenAddress;
+  const key = getTrackingKey(signal.tokenAddress, signal.tokenChain);
   if (state.trackedTokens[key]) return;
-  state.trackedTokens[key] = { address: signal.tokenAddress, symbol: signal.tokenSymbol, name: signal.tokenName, icon: signal.tokenIcon, chain: signal.tokenChain, signalAt: signal.timestamp, signalReason: signal.reason, signalReasonText: signal.reasonText, priceAtSignal: signal.priceAtSignal, priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal }], currentPrice: signal.priceAtSignal };
+  state.trackedTokens[key] = {
+    address: signal.tokenAddress,
+    symbol: signal.tokenSymbol,
+    name: signal.tokenName,
+    icon: signal.tokenIcon,
+    chain: signal.tokenChain,
+    signalAt: signal.timestamp,
+    signalReason: signal.reason,
+    signalReasonText: signal.reasonText,
+    priceAtSignal: signal.priceAtSignal,
+    buyMarker: { time: signal.timestamp, price: signal.priceAtSignal, label: '信号买入点' },
+    priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal, marker: 'buy' }],
+    currentPrice: signal.priceAtSignal,
+    historyStatus: 'active',
+  };
 }
 
 function getChainBadgeHtml(chain) {
@@ -373,7 +453,7 @@ function getChainBadgeHtml(chain) {
 
 function renderMemecoinSignals() {
   const now = Date.now();
-  state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
+  pruneSignalTracking(now);
   
   // Filter signals by current chain if not viewing "all"
   const isAllChain = state.currentChain === 'all';
@@ -412,6 +492,7 @@ function renderMemecoinSignals() {
       const id = parseInt(e.currentTarget.dataset.signalId);
       const signal = state.signals.find((s) => s.id === id);
       if (signal) signal.active = false;
+      saveSignalTracking();
       renderMemecoinSignals();
       renderMemecoinMonitoring();
     });
@@ -476,19 +557,23 @@ function updateTrackedPrices(tokens) {
   const keys = Object.keys(state.trackedTokens);
   if (keys.length === 0) return;
   const now = Date.now();
-  for (const key of keys) {
+  pruneSignalTracking(now);
+  for (const key of Object.keys(state.trackedTokens)) {
     const tracked = state.trackedTokens[key];
-    const found = tokens.find((t) => t.address?.toLowerCase() === key.toLowerCase());
+    const found = tokens.find((t) => getTrackingKey(t.address, t.chain || state.currentChain) === key);
     if (found) {
-      const price = found.priceUsd || 0;
+      const price = found.priceUsd ?? found.price ?? 0;
       tracked.currentPrice = price;
       tracked.priceHistory.push({ time: now, price });
-      if (tracked.priceHistory.length > state.maxPriceHistory) tracked.priceHistory = tracked.priceHistory.slice(-state.maxPriceHistory);
     } else {
       tracked.priceHistory.push({ time: now, price: null });
-      if (tracked.priceHistory.length > state.maxPriceHistory) tracked.priceHistory = tracked.priceHistory.slice(-state.maxPriceHistory);
     }
+    tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
+    tracked.priceHistory = tracked.priceHistory
+      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= state.trackingRetentionMs))
+      .slice(-state.maxPriceHistory);
   }
+  saveSignalTracking();
 }
 
 // --- Token Rendering ---
@@ -603,13 +688,10 @@ function updateMemecoinStats(tokens, timestamp) {
 // --- Monitoring ---
 
 function renderMemecoinMonitoring() {
+  pruneSignalTracking();
   const keys = Object.keys(state.trackedTokens);
-  const activeAddresses = new Set(state.signals.filter((s) => s.active).map((s) => s.tokenAddress));
+  const activeAddresses = new Set(state.signals.filter((s) => s.active).map((s) => getTrackingKey(s.tokenAddress, s.tokenChain)));
   const now = Date.now();
-  for (const key of keys) {
-    const tracked = state.trackedTokens[key];
-    if (now - tracked.signalAt > state.signalExpiryMs * 2) delete state.trackedTokens[key];
-  }
   const remainingKeys = Object.keys(state.trackedTokens);
   dom.trackedCount.textContent = remainingKeys.length;
   if (remainingKeys.length === 0) { dom.monitorCards.innerHTML = ''; dom.monitorEmpty.style.display = 'flex'; return; }
@@ -622,6 +704,8 @@ function renderMemecoinMonitoring() {
     const priceChange = tracked.priceAtSignal > 0 ? ((tracked.currentPrice - tracked.priceAtSignal) / tracked.priceAtSignal) * 100 : 0;
     const elapsed = now - tracked.signalAt;
     const isActive = activeAddresses.has(key);
+    const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
+    const statusClass = isActive ? 'active' : 'history';
     const card = document.createElement('div');
     card.className = 'monitor-card';
     card.style.animationDelay = `${cardIndex * 0.05}s`;
@@ -637,10 +721,11 @@ function renderMemecoinMonitoring() {
           <span class="monitor-chain-dot ${dotClass}"></span>
         </div>
         <span class="monitor-signal-badge ${tracked.signalReason}">${badgeLabels[tracked.signalReason] || '信号'}</span>
+        <span class="monitor-status-badge ${statusClass}">${statusLabel}</span>
       </div>
       <div class="monitor-chart-area"><canvas data-tracked-key="${key}"></canvas></div>
       <div class="monitor-stats">
-        <div class="monitor-stat"><span class="monitor-stat-label">信号价格</span><span class="monitor-stat-value" style="font-size:11px;color:var(--text-secondary)">${formatPrice(tracked.priceAtSignal)}</span></div>
+        <div class="monitor-stat"><span class="monitor-stat-label">买入标注点</span><span class="monitor-stat-value" style="font-size:11px;color:var(--accent-green)">${formatPrice(tracked.priceAtSignal)}</span></div>
         <div class="monitor-stat"><span class="monitor-stat-label">当前价格</span><span class="monitor-stat-value" style="font-size:11px">${formatPrice(tracked.currentPrice)}</span></div>
         <div class="monitor-stat"><span class="monitor-stat-label">变化</span><span class="monitor-stat-value ${getChangeClass(priceChange)}">${formatChange(priceChange)}</span></div>
         <div class="monitor-stat" style="margin-left:auto"><span class="monitor-stat-label">已追踪</span><span class="monitor-stat-value" style="font-size:11px;color:var(--text-muted)">${formatDuration(elapsed)}</span></div>
@@ -648,7 +733,7 @@ function renderMemecoinMonitoring() {
       <div class="monitor-actions">
         <a href="${gmgnUrl}" target="_blank" rel="noopener" class="monitor-action-btn primary">交易</a>
         <a href="${explorerUrl}" target="_blank" rel="noopener" class="monitor-action-btn">详情</a>
-        ${isActive ? '<span class="monitor-action-btn" style="border-color:rgba(34,197,94,0.3);color:var(--accent-green);cursor:default">🟢 信号中</span>' : ''}
+        <span class="monitor-action-btn" style="border-color:${isActive ? 'rgba(34,197,94,0.3)' : 'rgba(148,163,184,0.25)'};color:${isActive ? 'var(--accent-green)' : 'var(--text-muted)'};cursor:default">${statusLabel}</span>
       </div>`;
     fragment.appendChild(card);
   }
@@ -658,15 +743,15 @@ function renderMemecoinMonitoring() {
     dom.monitorCards.querySelectorAll('canvas[data-tracked-key]').forEach((canvas) => {
       const key = canvas.dataset.trackedKey;
       const tracked = state.trackedTokens[key];
-      if (tracked) drawSparkline(canvas, tracked.priceHistory);
+      if (tracked) drawSparkline(canvas, tracked.priceHistory, tracked);
     });
   });
 }
 
 // ===== Sparkline =====
 
-function drawSparkline(canvas, priceHistory) {
-  if (!canvas || !priceHistory || priceHistory.length < 2) return;
+function drawSparkline(canvas, priceHistory, tracked = null) {
+  if (!canvas || !priceHistory || priceHistory.length === 0) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -677,32 +762,70 @@ function drawSparkline(canvas, priceHistory) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, height);
 
-  const validPoints = [];
-  let currentSegment = [];
-  for (let i = 0; i < priceHistory.length; i++) {
-    if (priceHistory[i].price != null) { currentSegment.push(priceHistory[i]); }
-    else { if (currentSegment.length > 0) { validPoints.push(currentSegment); currentSegment = []; } }
-  }
-  if (currentSegment.length > 0) validPoints.push(currentSegment);
-  if (validPoints.length === 0) return;
-
-  const allPrices = priceHistory.filter((p) => p.price != null).map((p) => p.price);
+  const validPricePoints = priceHistory.filter((p) => p.price != null);
+  if (validPricePoints.length === 0) return;
+  const buyPoint = tracked?.buyMarker || { time: tracked?.signalAt, price: tracked?.priceAtSignal, label: '信号买入点' };
+  const allPrices = validPricePoints.map((p) => p.price);
+  if (buyPoint.price != null) allPrices.push(buyPoint.price);
   const min = Math.min(...allPrices);
   const max = Math.max(...allPrices);
   const range = max - min || 1;
-  const padding = { top: 4, bottom: 4, left: 4, right: 4 };
+  const padding = { top: 6, bottom: 6, left: 6, right: 6 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const isUp = allPrices[allPrices.length - 1] >= allPrices[0];
+  const times = priceHistory.map((p) => p.time).filter(Boolean);
+  if (buyPoint.time) times.push(buyPoint.time);
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const timeRange = maxTime - minTime || 1;
+  const xFor = (time) => padding.left + ((time - minTime) / timeRange) * chartWidth;
+  const yFor = (price) => padding.top + (1 - (price - min) / range) * chartHeight;
+  const isUp = validPricePoints[validPricePoints.length - 1].price >= (tracked?.priceAtSignal ?? validPricePoints[0].price);
   const lineColor = isUp ? '#22c55e' : '#ef4444';
   const fillColor = isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
   const glowColor = isUp ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
 
-  for (const segment of validPoints) {
-    const segPoints = segment.map((p) => {
-      const globalIndex = priceHistory.indexOf(p);
-      return { x: padding.left + (globalIndex / (priceHistory.length - 1)) * chartWidth, y: padding.top + (1 - (p.price - min) / range) * chartHeight };
-    });
+  // Persistent buy marker: horizontal benchmark line at signal-trigger buy price.
+  if (buyPoint.price != null) {
+    const buyY = yFor(buyPoint.price);
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(34,197,94,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, buyY);
+    ctx.lineTo(width - padding.right, buyY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const buyX = xFor(buyPoint.time || minTime);
+    ctx.beginPath();
+    ctx.arc(buyX, buyY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#22c55e';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(11,14,20,0.95)';
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(34,197,94,0.9)';
+    ctx.font = '9px sans-serif';
+    ctx.fillText('买入', Math.min(buyX + 5, width - 28), Math.max(buyY - 4, 9));
+    ctx.restore();
+  }
+
+  const segments = [];
+  let currentSegment = [];
+  for (const point of priceHistory) {
+    if (point.price != null) currentSegment.push(point);
+    else if (currentSegment.length > 0) { segments.push(currentSegment); currentSegment = []; }
+  }
+  if (currentSegment.length > 0) segments.push(currentSegment);
+
+  for (const segment of segments) {
+    if (segment.length === 0) continue;
+    const segPoints = segment.map((p) => ({ x: xFor(p.time), y: yFor(p.price) }));
+    if (segPoints.length === 1) {
+      ctx.beginPath(); ctx.arc(segPoints[0].x, segPoints[0].y, 2.5, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
+      continue;
+    }
     ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
     for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
     ctx.strokeStyle = glowColor; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
@@ -710,14 +833,10 @@ function drawSparkline(canvas, priceHistory) {
     for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
     ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(segPoints[0].x, height - padding.bottom);
-    for (let i = 0; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
+    for (const p of segPoints) ctx.lineTo(p.x, p.y);
     ctx.lineTo(segPoints[segPoints.length - 1].x, height - padding.bottom); ctx.closePath();
     ctx.fillStyle = fillColor; ctx.fill();
-    if (segment === validPoints[0] || segment === validPoints[validPoints.length - 1]) {
-      ctx.beginPath(); ctx.arc(segPoints[0].x, segPoints[0].y, 2.5, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
-      ctx.beginPath(); ctx.arc(segPoints[segPoints.length - 1].x, segPoints[segPoints.length - 1].y, 3, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
-      ctx.beginPath(); ctx.arc(segPoints[segPoints.length - 1].x, segPoints[segPoints.length - 1].y, 5, 0, Math.PI * 2); ctx.fillStyle = isUp ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'; ctx.fill();
-    }
+    ctx.beginPath(); ctx.arc(segPoints[segPoints.length - 1].x, segPoints[segPoints.length - 1].y, 3, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
   }
 }
 
@@ -1418,6 +1537,7 @@ dom.otherRetryBtn.addEventListener('click', () => {
 // Clear signals
 dom.clearSignalsBtn.addEventListener('click', () => {
   state.signals.forEach((s) => (s.active = false));
+  saveSignalTracking();
   renderMemecoinSignals();
   renderMemecoinMonitoring();
   showToast('所有信号已清除', 'info');
@@ -1446,6 +1566,9 @@ dom.btcSourceBtns.forEach((btn) => {
 
 function init() {
   setStatus('loading', '初始化...');
+  loadSignalTracking();
+  renderMemecoinSignals();
+  renderMemecoinMonitoring();
   loadMemecoinData('solana');
   startAutoRefresh();
 }

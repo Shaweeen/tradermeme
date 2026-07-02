@@ -1903,9 +1903,44 @@ a:hover {
   background: rgba(168, 85, 247, 0.15);
 }
 
-.monitor-signal-badge.buy {
+.monitor-signal-badge.buy,
+.monitor-signal-badge.buy-pressure {
   color: var(--accent-green);
   background: rgba(34, 197, 94, 0.15);
+}
+
+.monitor-signal-badge.price-surge {
+  color: var(--accent-orange);
+  background: rgba(249, 115, 22, 0.15);
+}
+
+.monitor-signal-badge.volume-spike {
+  color: var(--accent-purple);
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.monitor-status-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.monitor-status-badge.active {
+  color: var(--accent-green);
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+}
+
+.monitor-status-badge.history {
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.monitor-card:has(.monitor-status-badge.history) {
+  opacity: 0.92;
 }
 
 .monitor-chart-area {
