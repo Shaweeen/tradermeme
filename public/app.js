@@ -377,8 +377,9 @@ function detectSignals(tokens) {
   for (const token of tokens) {
     const key = getTrackingKey(token.address, token.chain || state.currentChain);
     const existingSignal = state.signals.find((s) => s.tokenAddress === token.address && s.tokenChain === (token.chain || state.currentChain) && s.active);
-    const existingTracked = state.trackedTokens[key];
-    if (existingSignal || existingTracked) continue;
+    // Do not suppress realtime alerts just because the token is already in 24h history.
+    // History keeps the original buy marker; a fresh trigger should still appear in the 5-minute realtime signal area.
+    if (existingSignal) continue;
     const triggered = [];
     if (token.priceChange1h != null && token.priceChange1h > SIGNAL_THRESHOLDS.priceSurge) {
       triggered.push({ reason: 'price-surge', text: `价格 1h 暴涨 ${formatChange(token.priceChange1h)}` });

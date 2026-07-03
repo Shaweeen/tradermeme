@@ -34,12 +34,18 @@ Date: 2026-07-02
   - rows show `买入点 → 当前 +/-x%`
   - no browser console JS errors
 
+## Latest fix after live check
+- Checked `https://tradermeme.pages.dev/api/trending?chain=solana&limit=10`: API returned `success:true`, `count:10`, and live signal candidates existed.
+- Root cause for user seeing empty realtime signals can be browser-local history suppression: `detectSignals()` skipped any token already in the 24h tracking history, so once a signal moved from 5-minute realtime into history, the same token could not reappear in the realtime area until the 24h history expired.
+- Fixed by only suppressing currently active 5-minute realtime signals; existing 24h history no longer blocks a fresh realtime alert.
+
 ## Next recommended work
-1. Connect real GMGN token security data to Token 安全检查.
-2. Connect real GMGN smartmoney/KOL data to Smart Money 共振.
-3. Add Top100 traders real table.
-4. Add wallet profile real drawer.
-5. Only after analysis modules are stable, add strategy order quote/preview API; keep real execution behind explicit confirmation.
+1. Deploy/confirm the realtime re-trigger fix on `https://tradermeme.pages.dev/`.
+2. Connect real GMGN token security data to Token 安全检查.
+3. Connect real GMGN smartmoney/KOL data to Smart Money 共振.
+4. Add Top100 traders real table.
+5. Add wallet profile real drawer.
+6. Only after analysis modules are stable, add strategy order quote/preview API; keep real execution behind explicit confirmation.
 
 ## Important safety
 - Trading execution is not enabled. Current strategy module is preview-only.
