@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler pages dev public --binding --port 8788",
     "deploy": "wrangler pages deploy public",
-    "build": "echo 'Static site, no build step needed'"
+    "build": "echo 'Static site, no build step needed'",
+    "test": "node tests/signal-engine.test.mjs"
   },
   "keywords": ["memecoin", "solana", "base", "bsc", "gmgn", "crypto", "dashboard"],
   "license": "MIT",

@@ -411,6 +411,10 @@ function detectSignals(tokens) {
     if (buyPercent > SIGNAL_THRESHOLDS.buyPressure) {
       triggered.push({ reason: 'buy-pressure', text: `买入占比 ${buyPercent.toFixed(0)}%` });
     }
+    const scoreSnapshot = window.SignalEngine?.scoreTokenSignal(token);
+    if (scoreSnapshot && scoreSnapshot.signalScore >= 60 && !triggered.some((r) => r.reason === 'ai-score')) {
+      triggered.unshift({ reason: 'ai-score', text: `GMGN AI ${scoreSnapshot.signalLevel} ${scoreSnapshot.signalScore}/100 · 买点${scoreSnapshot.entryGrade}` });
+    }
     if (triggered.length > 0) {
       const primary = triggered[0];
       const reasonText = triggered.map((r) => r.text).join(' · ');
@@ -434,6 +438,7 @@ function createSignal(token, reason, reasonText) {
   // Use the token's actual chain from the data, NOT state.currentChain
   const actualChain = token.chain || state.currentChain;
   const buyPercent = calculateBuyPercent(token);
+  const signalScoreSnapshot = window.SignalEngine?.scoreTokenSignal(token) || null;
   return {
     id: 0,
     tokenAddress: token.address,
@@ -455,6 +460,7 @@ function createSignal(token, reason, reasonText) {
       fdv: token.fdv,
       txns24h: token.txns24h,
       buyPercent,
+      signalScoreSnapshot,
     },
   };
 }
@@ -484,6 +490,7 @@ function startTrackingToken(signal) {
     priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal, marker: 'buy' }],
     currentPrice: signal.priceAtSignal,
     signalMeta: signal.meta || {},
+    signalScoreSnapshot: signal.meta?.signalScoreSnapshot || null,
     aiNotes: null,
     historyStatus: 'active',
   };
@@ -512,7 +519,7 @@ function renderMemecoinSignals() {
   if (visibleSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
   dom.signalsEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
-  const typeLabels = { 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力' };
+  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力' };
   for (const signal of visibleSignals) {
     const card = document.createElement('div');
     card.className = `signal-card signal-${signal.reason}`;
@@ -796,32 +803,41 @@ function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
   else if (perf.currentChange >= 80) action = '等待回踩';
   else if (resonanceLevel === '强' && riskLevel !== '高') action = '重点观察';
 
-  const aiScore = clampScore(50 + Math.min(perf.currentChange, 80) * 0.25 + resonanceScore * 0.22 - riskScore * 0.25);
-  const confidence = aiScore >= 75 ? '中高' : aiScore >= 55 ? '中' : '偏低';
-  const historyStatus = perf.currentChange <= -15 ? '跌破买入点' : perf.maxGain >= 80 && perf.currentChange < perf.maxGain * 0.45 ? '疑似出货' : perf.currentChange >= 20 ? '趋势延续' : '高位观察';
-  const summary = `${tracked.symbol} 触发 ${tracked.signalReasonText || '交易信号'}。当前相对买入标注点 ${formatChange(perf.currentChange)}，${resonanceLevel !== '无' ? `共振${resonanceLevel}` : '暂无明显共振'}，风险等级${riskLevel}。`;
-  const suggestion = action === '禁止交易' ? '风险过高，仅保留观察，不建议进入策略订单。' : action === '等待回踩' ? '短线涨幅较高，不建议直接追高，等待回踩或二次放量确认。' : action === '重点观察' ? '信号质量较好，可加入重点观察，策略订单仍需二次确认。' : '继续观察价格是否守住买入标注点。';
-  return { ...perf, phase, riskScore, riskLevel, riskFlags, resonanceScore, resonanceLevel, action, aiScore, confidence, historyStatus, summary, suggestion };
+  const trackedModel = window.SignalEngine?.analyzeTrackedSignal({ ...tracked, signalScoreSnapshot: tracked.signalScoreSnapshot || meta.signalScoreSnapshot }) || {};
+  const signalSnapshot = tracked.signalScoreSnapshot || meta.signalScoreSnapshot || null;
+  const modelRiskScore = signalSnapshot?.riskScore ?? riskScore;
+  const modelRiskLevel = signalSnapshot?.riskLevel ?? riskLevel;
+  const modelRiskFlags = signalSnapshot?.riskFlags?.length ? signalSnapshot.riskFlags : riskFlags;
+  const modelAction = trackedModel.entryAction || signalSnapshot?.suggestedAction || action;
+  const entryGrade = trackedModel.entryGrade || signalSnapshot?.entryGrade || 'C';
+  const signalLevel = signalSnapshot?.signalLevel || '观察';
+  const aiScore = signalSnapshot?.signalScore ?? clampScore(50 + Math.min(perf.currentChange, 80) * 0.25 + resonanceScore * 0.22 - riskScore * 0.25);
+  const confidence = signalSnapshot?.confidence || (aiScore >= 75 ? '中高' : aiScore >= 55 ? '中' : '偏低');
+  const historyStatus = trackedModel.resultLabel || (perf.currentChange <= -15 ? '跌破买入点' : perf.maxGain >= 80 && perf.currentChange < perf.maxGain * 0.45 ? '疑似出货' : perf.currentChange >= 20 ? '趋势延续' : '高位观察');
+  const summary = `${tracked.symbol} 触发 ${tracked.signalReasonText || '交易信号'}。GMGN AI ${signalLevel} ${aiScore}/100，买点评级 ${entryGrade}，当前相对买入标注点 ${formatChange(perf.currentChange)}，风险等级${modelRiskLevel}。`;
+  const suggestion = modelAction === '禁止交易' ? '风险过高，仅保留观察，不建议进入策略订单。' : modelAction === '禁止追高' || modelAction === '等待回踩' ? '短线涨幅较高，不建议直接追高，等待回踩或二次放量确认。' : modelAction === '重点观察' ? '信号质量较好，可加入重点观察，策略订单仍需二次确认。' : '继续观察价格是否守住买入标注点。';
+  return { ...perf, ...trackedModel, phase, riskScore: modelRiskScore, riskLevel: modelRiskLevel, riskFlags: modelRiskFlags, resonanceScore, resonanceLevel, action: modelAction, entryAction: modelAction, entryGrade, signalLevel, aiScore, confidence, historyStatus, summary, suggestion, modelReasons: signalSnapshot?.reasons || [] };
 }
 
 function getLevelClass(level) {
-  if (['低', '强', '重点观察', '趋势延续', '中高'].includes(level)) return 'good';
-  if (['中', '弱', '等待回踩', '高位观察', '历史观察'].includes(level)) return 'warn';
-  if (['高', '极高', '禁止交易', '跌破买入点', '信号失效', '疑似出货'].includes(level)) return 'danger';
+  if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '有效信号'].includes(level)) return 'good';
+  if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中'].includes(level)) return 'warn';
+  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', 'D', '失败/跌破'].includes(level)) return 'danger';
   return 'neutral';
 }
 
 function renderAiDetailPanel(tracked, analysis, key, isOpen) {
   if (!isOpen) return '';
-  const canTradePreview = analysis.action !== '禁止交易';
+  const canTradePreview = !['禁止交易', '禁止追高', '信号失效'].includes(analysis.action) && analysis.entryGrade !== 'D';
   const riskFlags = analysis.riskFlags.length ? analysis.riskFlags.join(' / ') : '未发现明显硬风险（仍需接入 GMGN security 完整校验）';
   return `
     <div class="ai-detail-panel">
       <div class="ai-detail-grid">
         <div class="ai-mini-card ai-wide">
           <div class="ai-mini-title">AI 信号解释</div>
-          <div class="ai-mini-main">${analysis.phase} · 强度 ${analysis.aiScore}/100 · 置信度 ${analysis.confidence}</div>
+          <div class="ai-mini-main">${analysis.signalLevel} · 强度 ${analysis.aiScore}/100 · 置信度 ${analysis.confidence}</div>
           <p>${analysis.summary}</p>
+          <p>${analysis.modelReasons.length ? analysis.modelReasons.join(' / ') : '等待更多 GMGN 数据进入评分模型。'}</p>
           <p class="ai-suggestion">${analysis.suggestion}</p>
         </div>
         <div class="ai-mini-card">
@@ -835,9 +851,9 @@ function renderAiDetailPanel(tracked, analysis, key, isOpen) {
           <p>当前 MVP 用买压、放量、信号组合估算；下一步接入 GMGN smartmoney/KOL 实时钱包。</p>
         </div>
         <div class="ai-mini-card">
-          <div class="ai-mini-title">百强交易员分析</div>
-          <div class="ai-mini-main neutral">摘要占位</div>
-          <p>后续接入 token traders Top100：Smart/KOL/Sniper/Bundler、仍持仓、已卖出。</p>
+          <div class="ai-mini-title">买入点评估</div>
+          <div class="ai-mini-main ${getLevelClass(analysis.entryGrade)}">${analysis.entryGrade} · ${analysis.entryAction}</div>
+          <p>报警不等于买入。买点会结合风险、动量、回撤和 24h 追踪结果单独评估。</p>
         </div>
         <div class="ai-mini-card">
           <div class="ai-mini-title">钱包画像</div>
@@ -861,8 +877,8 @@ function renderAiDetailPanel(tracked, analysis, key, isOpen) {
 }
 
 function showStrategyPreview(tracked, analysis) {
-  if (analysis.action === '禁止交易') {
-    showToast('风险过高：当前仅允许观察，不生成策略订单', 'error');
+  if (['禁止交易', '禁止追高', '信号失效'].includes(analysis.action) || analysis.entryGrade === 'D') {
+    showToast(`买点评级 ${analysis.entryGrade}：${analysis.action}，当前仅允许观察，不生成策略订单`, 'error');
     return;
   }
   const entry = analysis.current > 0 ? analysis.current * 0.9 : 0;
@@ -891,7 +907,7 @@ function renderMemecoinMonitoring() {
   });
   const visibleKeys = sortedTrackingKeys.slice(0, maxVisibleTrackingCards);
   const archivedKeys = sortedTrackingKeys.slice(maxVisibleTrackingCards);
-  const badgeLabels = { 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
+  const badgeLabels = { 'ai-score': 'AI', 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
   for (const key of visibleKeys) {
     const tracked = state.trackedTokens[key];
     const elapsed = now - tracked.signalAt;
@@ -919,10 +935,10 @@ function renderMemecoinMonitoring() {
         <span class="monitor-status-badge ${statusClass}">${statusLabel}</span>
       </div>
       <div class="ai-chip-row">
-        <span class="ai-chip ${getLevelClass(analysis.phase)}">AI：${analysis.phase}</span>
+        <span class="ai-chip ${getLevelClass(analysis.signalLevel)}">AI：${analysis.signalLevel} ${analysis.aiScore}/100</span>
         <span class="ai-chip ${getLevelClass(analysis.riskLevel)}">风险：${analysis.riskLevel}</span>
         <span class="ai-chip ${getLevelClass(analysis.resonanceLevel)}">共振：${analysis.resonanceLevel}</span>
-        <span class="ai-chip ${getLevelClass(analysis.action)}">${analysis.action}</span>
+        <span class="ai-chip ${getLevelClass(analysis.entryGrade)}">买点：${analysis.entryGrade} · ${analysis.entryAction}</span>
       </div>
       <div class="monitor-chart-area"><canvas data-tracked-key="${key}"></canvas></div>
       <div class="monitor-stats">
