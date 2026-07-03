@@ -14,6 +14,7 @@ const state = {
   signals: [],
   trackedTokens: {},
   aiExpanded: {},
+  archiveExpanded: false,
   isLoading: false,
   error: null,
   lastUpdated: null,
@@ -859,11 +860,17 @@ function renderMemecoinMonitoring() {
   dom.monitorEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
   let cardIndex = 0;
+  const longHistoryMs = 8 * 60 * 60 * 1000;
+  const archivedKeys = [];
   const badgeLabels = { 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
   for (const key of remainingKeys) {
     const tracked = state.trackedTokens[key];
     const elapsed = now - tracked.signalAt;
     const isActive = activeAddresses.has(key);
+    if (!isActive && elapsed > longHistoryMs) {
+      archivedKeys.push(key);
+      continue;
+    }
     const analysis = analyzeTrackedToken(tracked, isActive, now);
     const priceChange = analysis.currentChange;
     const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
@@ -908,8 +915,35 @@ function renderMemecoinMonitoring() {
       ${renderAiDetailPanel(tracked, analysis, key, isExpanded)}`;
     fragment.appendChild(card);
   }
+  if (archivedKeys.length > 0) {
+    const archiveCard = document.createElement('div');
+    archiveCard.className = 'monitor-archive-card';
+    const archivedRows = archivedKeys.map((key) => {
+      const tracked = state.trackedTokens[key];
+      const analysis = analyzeTrackedToken(tracked, false, now);
+      return `
+        <div class="archive-token-row">
+          <span class="archive-token-symbol">${tracked.symbol}</span>
+          <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点 → 当前 ${formatChange(analysis.currentChange)}</span>
+        </div>`;
+    }).join('');
+    archiveCard.innerHTML = `
+      <button class="archive-toggle" type="button">
+        <span>📦 8小时以上历史追踪</span>
+        <strong>${archivedKeys.length}</strong>
+        <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
+      </button>
+      ${state.archiveExpanded ? `<div class="archive-token-list">${archivedRows}</div>` : ''}`;
+    fragment.appendChild(archiveCard);
+  }
   dom.monitorCards.innerHTML = '';
   dom.monitorCards.appendChild(fragment);
+  dom.monitorCards.querySelectorAll('.archive-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.archiveExpanded = !state.archiveExpanded;
+      renderMemecoinMonitoring();
+    });
+  });
   dom.monitorCards.querySelectorAll('.ai-detail-toggle').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const key = e.currentTarget.dataset.trackedKey;
