@@ -594,7 +594,10 @@ function updateTrackedPrices(tokens) {
       tracked.currentPrice = price;
       tracked.priceHistory.push({ time: now, price });
     } else {
-      tracked.priceHistory.push({ time: now, price: null });
+      // Keep the curve continuous when a tracked token drops out of the current top list.
+      // Use the last known price as a flat continuation instead of inserting null gaps.
+      const lastKnown = tracked.currentPrice || tracked.priceAtSignal || 0;
+      if (lastKnown > 0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
     }
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
     tracked.priceHistory = tracked.priceHistory
@@ -996,21 +999,11 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
   const padding = { top: 8, bottom: 8, left: 8, right: 8 };
   const chartWidth = Math.max(20, width - padding.left - padding.right);
   const chartHeight = Math.max(20, height - padding.top - padding.bottom);
-  const times = validPricePoints.map((p) => p.time).filter(Boolean);
-  if (buyPoint.time) times.push(buyPoint.time);
-  const minTime = times.length ? Math.min(...times) : Date.now();
-  const maxTime = times.length ? Math.max(...times) : minTime;
-  const timeRange = maxTime - minTime;
-  // Fresh signals often have buy/current points with the same timestamp.
-  // In that case a time-scaled sparkline collapses into a dot/short stub.
-  // Use index spacing until there is enough time history so the line fills the chart.
-  const useIndexScale = validPricePoints.length <= 3 || timeRange < 60 * 1000;
-  const xFor = (time, index = 0, total = validPricePoints.length) => {
-    if (useIndexScale) {
-      const denom = Math.max(1, total - 1);
-      return padding.left + (index / denom) * chartWidth;
-    }
-    return padding.left + ((time - minTime) / Math.max(1, timeRange)) * chartWidth;
+  // Use index-based spacing for the sparkline, matching the original complete curve behavior.
+  // Time-based spacing creates large empty gaps and compressed fragments when points are sparse.
+  const xFor = (_time, index = 0, total = validPricePoints.length) => {
+    const denom = Math.max(1, total - 1);
+    return padding.left + (index / denom) * chartWidth;
   };
   const yFor = (price) => hasPriceRange ? padding.top + (1 - (price - min) / range) * chartHeight : padding.top + chartHeight / 2;
   const isUp = validPricePoints[validPricePoints.length - 1].price >= (tracked?.priceAtSignal ?? validPricePoints[0].price);
@@ -1044,36 +1037,27 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
     ctx.restore();
   }
 
-  const segments = [];
-  let currentSegment = [];
-  for (const point of priceHistory) {
-    if (point.price != null) currentSegment.push(point);
-    else if (currentSegment.length > 0) { segments.push(currentSegment); currentSegment = []; }
+  // Draw one continuous curve over every valid point. Null / missing ticks are ignored,
+  // not treated as line breaks, so older tracked tokens keep a complete price curve.
+  let segPoints = validPricePoints.map((p, i) => ({ x: xFor(p.time, i, validPricePoints.length), y: yFor(p.price) }));
+  if (segPoints.length === 1) {
+    // Draw a full-width flat line for one-point/fresh history instead of a lone dot.
+    segPoints = [
+      { x: padding.left, y: segPoints[0].y },
+      { x: width - padding.right, y: segPoints[0].y },
+    ];
   }
-  if (currentSegment.length > 0) segments.push(currentSegment);
-
-  for (const segment of segments) {
-    if (segment.length === 0) continue;
-    let segPoints = segment.map((p, i) => ({ x: xFor(p.time, i, segment.length), y: yFor(p.price) }));
-    if (segPoints.length === 1) {
-      // Draw a full-width flat line for one-point/fresh history instead of a lone dot.
-      segPoints = [
-        { x: padding.left, y: segPoints[0].y },
-        { x: width - padding.right, y: segPoints[0].y },
-      ];
-    }
-    ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
-    for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
-    ctx.strokeStyle = glowColor; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
-    for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(segPoints[0].x, height - padding.bottom);
-    for (const p of segPoints) ctx.lineTo(p.x, p.y);
-    ctx.lineTo(segPoints[segPoints.length - 1].x, height - padding.bottom); ctx.closePath();
-    ctx.fillStyle = fillColor; ctx.fill();
-    ctx.beginPath(); ctx.arc(segPoints[segPoints.length - 1].x, segPoints[segPoints.length - 1].y, 3, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
-  }
+  ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
+  for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
+  ctx.strokeStyle = glowColor; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
+  for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(segPoints[0].x, height - padding.bottom);
+  for (const p of segPoints) ctx.lineTo(p.x, p.y);
+  ctx.lineTo(segPoints[segPoints.length - 1].x, height - padding.bottom); ctx.closePath();
+  ctx.fillStyle = fillColor; ctx.fill();
+  ctx.beginPath(); ctx.arc(segPoints[segPoints.length - 1].x, segPoints[segPoints.length - 1].y, 3, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
 }
 
 // ====================================================================================
