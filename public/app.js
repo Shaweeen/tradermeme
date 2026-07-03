@@ -230,6 +230,19 @@ function shortAddress(addr) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
 }
 
+function uniqueTokenFingerprint(addr) {
+  if (!addr) return '----';
+  let hash = 0;
+  for (let i = 0; i < addr.length; i++) hash = ((hash << 5) - hash + addr.charCodeAt(i)) | 0;
+  const checksum = Math.abs(hash).toString(36).slice(0, 4).padStart(4, '0');
+  if (addr.length <= 12) return `${addr}#${checksum}`;
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}#${checksum}`;
+}
+
+function getTokenDisplayName(token) {
+  return token?.symbol || token?.name || 'Unknown';
+}
+
 function getTokenIcon(token) {
   if (token.icon) {
     return `<img src="${token.icon}" alt="${token.symbol}" onerror="this.style.display='none'" />`;
@@ -927,28 +940,38 @@ function renderMemecoinMonitoring() {
       ${renderAiDetailPanel(tracked, analysis, key, isExpanded)}`;
     fragment.appendChild(card);
   }
-  if (archivedKeys.length > 0) {
-    const archiveCard = document.createElement('div');
-    archiveCard.className = 'monitor-archive-card';
-    const archivedRows = archivedKeys.map((key) => {
-      const tracked = state.trackedTokens[key];
-      const analysis = analyzeTrackedToken(tracked, false, now);
-      const addressTail = (tracked.address || '').slice(-4) || '----';
-      return `
-        <div class="archive-token-row" title="${tracked.address || ''}">
-          <span class="archive-address-tail">…${addressTail}</span>
-          <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点→24h PNL ${formatChange(analysis.currentChange)}</span>
-        </div>`;
-    }).join('');
-    archiveCard.innerHTML = `
-      <button class="archive-toggle" type="button">
-        <span>📦 收集页面</span>
-        <strong>${archivedKeys.length}</strong>
-        <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
-      </button>
-      ${state.archiveExpanded ? `<div class="archive-token-list simple-history-list">${archivedRows}</div>` : ''}`;
-    fragment.appendChild(archiveCard);
-  }
+  const nameCounts = sortedTrackingKeys.reduce((acc, key) => {
+    const tracked = state.trackedTokens[key];
+    const name = getTokenDisplayName(tracked).toLowerCase();
+    acc[name] = (acc[name] || 0) + 1;
+    return acc;
+  }, {});
+  const archiveCard = document.createElement('div');
+  archiveCard.className = 'monitor-archive-card';
+  const archivedRows = archivedKeys.map((key) => {
+    const tracked = state.trackedTokens[key];
+    const analysis = analyzeTrackedToken(tracked, false, now);
+    const displayName = getTokenDisplayName(tracked);
+    const isDuplicateName = nameCounts[displayName.toLowerCase()] > 1;
+    const fingerprint = uniqueTokenFingerprint(tracked.address || '');
+    return `
+      <div class="archive-token-row" title="${tracked.address || ''}">
+        <span class="archive-token-id">
+          <strong>${displayName}</strong>
+          <em>${isDuplicateName ? '同名·' : ''}${fingerprint}</em>
+        </span>
+        <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点→24h PNL ${formatChange(analysis.currentChange)}</span>
+      </div>`;
+  }).join('');
+  const emptyArchive = '<div class="archive-empty-row">当前只追踪了最新 8 个以内，暂无额外历史记录</div>';
+  archiveCard.innerHTML = `
+    <button class="archive-toggle" type="button">
+      <span>📦 已追踪历史记录</span>
+      <strong>${archivedKeys.length}</strong>
+      <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
+    </button>
+    ${state.archiveExpanded ? `<div class="archive-token-list simple-history-list">${archivedRows || emptyArchive}</div>` : ''}`;
+  fragment.appendChild(archiveCard);
   dom.monitorCards.innerHTML = '';
   dom.monitorCards.appendChild(fragment);
   dom.monitorCards.querySelectorAll('.archive-toggle').forEach((btn) => {
