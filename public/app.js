@@ -251,6 +251,12 @@ function getChainDotClass(chain) {
   return { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc' }[chain] || 'sol';
 }
 
+function getApiUrl(path) {
+  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const liveOrigin = 'https://tradermeme.pages.dev';
+  return `${isLocal ? liveOrigin : ''}${path}`;
+}
+
 function formatDuration(ms) {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -530,7 +536,7 @@ function renderMemecoinSignals() {
 // --- Data Fetching ---
 
 async function fetchMemecoinApi(chain) {
-  const response = await fetch(`/api/trending?chain=${chain}&limit=${state.memecoinLimit}`, { headers: { 'Accept': 'application/json' } });
+  const response = await fetch(getApiUrl(`/api/trending?chain=${chain}&limit=${state.memecoinLimit}`), { headers: { 'Accept': 'application/json' } });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
@@ -1071,7 +1077,7 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
 // ====================================================================================
 
 async function fetchOthercoinApi() {
-  const response = await fetch('/api/othercoin', { headers: { 'Accept': 'application/json' } });
+  const response = await fetch(getApiUrl('/api/othercoin'), { headers: { 'Accept': 'application/json' } });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
@@ -1212,8 +1218,8 @@ function updateOthercoinStats(tokens, timestamp) {
 // ====================================================================================
 
 async function fetchBitcoinApi(source = 'auto') {
-  const url = source && source !== 'auto' ? `/api/bitcoin?source=${source}` : '/api/bitcoin';
-  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  const path = source && source !== 'auto' ? `/api/bitcoin?source=${source}` : '/api/bitcoin';
+  const response = await fetch(getApiUrl(path), { headers: { 'Accept': 'application/json' } });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
