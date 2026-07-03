@@ -991,17 +991,28 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
   if (buyPoint.price != null) allPrices.push(buyPoint.price);
   const min = Math.min(...allPrices);
   const max = Math.max(...allPrices);
-  const range = max - min || 1;
-  const padding = { top: 6, bottom: 6, left: 6, right: 6 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  const times = priceHistory.map((p) => p.time).filter(Boolean);
+  const hasPriceRange = max !== min;
+  const range = hasPriceRange ? (max - min) : 1;
+  const padding = { top: 8, bottom: 8, left: 8, right: 8 };
+  const chartWidth = Math.max(20, width - padding.left - padding.right);
+  const chartHeight = Math.max(20, height - padding.top - padding.bottom);
+  const times = validPricePoints.map((p) => p.time).filter(Boolean);
   if (buyPoint.time) times.push(buyPoint.time);
-  const minTime = Math.min(...times);
-  const maxTime = Math.max(...times);
-  const timeRange = maxTime - minTime || 1;
-  const xFor = (time) => padding.left + ((time - minTime) / timeRange) * chartWidth;
-  const yFor = (price) => padding.top + (1 - (price - min) / range) * chartHeight;
+  const minTime = times.length ? Math.min(...times) : Date.now();
+  const maxTime = times.length ? Math.max(...times) : minTime;
+  const timeRange = maxTime - minTime;
+  // Fresh signals often have buy/current points with the same timestamp.
+  // In that case a time-scaled sparkline collapses into a dot/short stub.
+  // Use index spacing until there is enough time history so the line fills the chart.
+  const useIndexScale = validPricePoints.length <= 3 || timeRange < 60 * 1000;
+  const xFor = (time, index = 0, total = validPricePoints.length) => {
+    if (useIndexScale) {
+      const denom = Math.max(1, total - 1);
+      return padding.left + (index / denom) * chartWidth;
+    }
+    return padding.left + ((time - minTime) / Math.max(1, timeRange)) * chartWidth;
+  };
+  const yFor = (price) => hasPriceRange ? padding.top + (1 - (price - min) / range) * chartHeight : padding.top + chartHeight / 2;
   const isUp = validPricePoints[validPricePoints.length - 1].price >= (tracked?.priceAtSignal ?? validPricePoints[0].price);
   const lineColor = isUp ? '#22c55e' : '#ef4444';
   const fillColor = isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
@@ -1019,7 +1030,7 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
     ctx.lineTo(width - padding.right, buyY);
     ctx.stroke();
     ctx.setLineDash([]);
-    const buyX = xFor(buyPoint.time || minTime);
+    const buyX = padding.left;
     ctx.beginPath();
     ctx.arc(buyX, buyY, 4, 0, Math.PI * 2);
     ctx.fillStyle = '#22c55e';
@@ -1043,10 +1054,13 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
 
   for (const segment of segments) {
     if (segment.length === 0) continue;
-    const segPoints = segment.map((p) => ({ x: xFor(p.time), y: yFor(p.price) }));
+    let segPoints = segment.map((p, i) => ({ x: xFor(p.time, i, segment.length), y: yFor(p.price) }));
     if (segPoints.length === 1) {
-      ctx.beginPath(); ctx.arc(segPoints[0].x, segPoints[0].y, 2.5, 0, Math.PI * 2); ctx.fillStyle = lineColor; ctx.fill();
-      continue;
+      // Draw a full-width flat line for one-point/fresh history instead of a lone dot.
+      segPoints = [
+        { x: padding.left, y: segPoints[0].y },
+        { x: width - padding.right, y: segPoints[0].y },
+      ];
     }
     ctx.beginPath(); ctx.moveTo(segPoints[0].x, segPoints[0].y);
     for (let i = 1; i < segPoints.length; i++) ctx.lineTo(segPoints[i].x, segPoints[i].y);
