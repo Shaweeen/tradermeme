@@ -864,17 +864,19 @@ function renderMemecoinMonitoring() {
   dom.monitorEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
   let cardIndex = 0;
-  const longHistoryMs = 8 * 60 * 60 * 1000;
-  const archivedKeys = [];
+  const maxVisibleTrackingCards = 8;
+  const sortedTrackingKeys = remainingKeys.sort((a, b) => {
+    const aTime = state.trackedTokens[a]?.signalAt || 0;
+    const bTime = state.trackedTokens[b]?.signalAt || 0;
+    return bTime - aTime;
+  });
+  const visibleKeys = sortedTrackingKeys.slice(0, maxVisibleTrackingCards);
+  const archivedKeys = sortedTrackingKeys.slice(maxVisibleTrackingCards);
   const badgeLabels = { 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
-  for (const key of remainingKeys) {
+  for (const key of visibleKeys) {
     const tracked = state.trackedTokens[key];
     const elapsed = now - tracked.signalAt;
     const isActive = activeAddresses.has(key);
-    if (!isActive && elapsed > longHistoryMs) {
-      archivedKeys.push(key);
-      continue;
-    }
     const analysis = analyzeTrackedToken(tracked, isActive, now);
     const priceChange = analysis.currentChange;
     const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
@@ -927,17 +929,21 @@ function renderMemecoinMonitoring() {
       const analysis = analyzeTrackedToken(tracked, false, now);
       return `
         <div class="archive-token-row">
-          <span class="archive-token-symbol">${tracked.symbol}</span>
-          <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点 → 当前 ${formatChange(analysis.currentChange)}</span>
+          <span class="archive-token-name" title="${tracked.name || tracked.symbol || ''}">
+            <strong>${tracked.symbol || 'Unknown'}</strong>
+            <em>${tracked.name || ''}</em>
+          </span>
+          <span class="archive-buy-price">买入 ${formatPrice(tracked.priceAtSignal)}</span>
+          <span class="archive-return ${getChangeClass(analysis.currentChange)}">PNL ${formatChange(analysis.currentChange)}</span>
         </div>`;
     }).join('');
     archiveCard.innerHTML = `
       <button class="archive-toggle" type="button">
-        <span>📦 8小时以上历史追踪</span>
+        <span>📦 历史记录</span>
         <strong>${archivedKeys.length}</strong>
         <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
       </button>
-      ${state.archiveExpanded ? `<div class="archive-token-list">${archivedRows}</div>` : ''}`;
+      ${state.archiveExpanded ? `<div class="archive-token-list simple-history-list">${archivedRows}</div>` : ''}`;
     fragment.appendChild(archiveCard);
   }
   dom.monitorCards.innerHTML = '';

@@ -1,13 +1,14 @@
 # Work Progress
 
-Date: 2026-07-02
+Date: 2026-07-03
 
 ## Current deployed / pushed state
 - Repository: https://github.com/Shaweeen/tradermeme.git
 - Branch: main
-- Latest local work: Memecoin AI analysis panels + 8h archive for historical tracking.
+- Latest local work: Memecoin signal tracking history card simplification.
+- Live site: https://tradermeme.pages.dev/
 
-## Completed today
+## Completed previously
 - Fixed Memecoin data fallback and DexScreener fallback.
 - Added 5-minute realtime signal tracking and 24-hour historical tracking.
 - Added persistent buy marker at signal trigger price.
@@ -19,34 +20,51 @@ Date: 2026-07-02
   - wallet profile placeholder
   - AI historical tracking summary
   - strategy preview placeholder only; no real order execution
-- Added 8h historical archive behavior:
-  - historical tracking items older than 8 hours are moved into a compact archive module
-  - archive is click-to-expand
-  - expanded rows show only symbol and return from buy marker to current price
+- Added realtime re-trigger fix: 24h history no longer suppresses fresh 5-minute realtime alerts.
+- Added GMGN rank field aliases for live signal detection: `price_change_percent1h`, `price_change_percent`, `volume`, `buys`, `sells`, `smart_degen_count`.
 
-## Verification
+## Completed 2026-07-03
+- Changed Memecoin signal tracking display from time-based 8h archive to a simpler count-based layout:
+  - newest 8 tracking cards remain visible
+  - older 24h tracking items move into compact `📦 历史记录`
+  - archive rows show symbol/name, buy marker price, and current PNL
+- Kept homepage/top-level layout unchanged.
+
+## Verification 2026-07-03 16:06 CST
 - `node --check public/app.js` passed.
 - `npm run build` passed.
-- Browser smoke test passed via static local server:
-  - normal <8h card remains visible
-  - >8h historical items are grouped into archive
-  - archive expands on click
-  - rows show `买入点 → 当前 +/-x%`
-  - no browser console JS errors
+- `node --check` passed for all Pages Function JS files:
+  - `functions/api/trending.js`
+  - `functions/api/othercoin.js`
+  - `functions/api/bitcoin.js`
+  - `functions/api/_gmgn.js`
+  - `functions/api/_dexscreener.js`
+- Live API checks:
+  - `https://tradermeme.pages.dev/api/trending?chain=solana&limit=10` returned HTTP 200, `success:true`, `count:10`, source `gmgn-openapi`.
+  - `https://tradermeme.pages.dev/api/othercoin?limit=5` returned HTTP 200, `success:true`, `count:10`.
+  - `https://tradermeme.pages.dev/api/bitcoin` returned HTTP 200, `success:true`, BTC data present.
+- Local browser smoke test at `http://127.0.0.1:8788/`:
+  - page loaded with no browser console JS errors
+  - synthetic tracking render showed 8 visible tracking cards
+  - archive module appeared with 4 older rows
+  - archive expand worked and row showed symbol/name, buy price, PNL
 
-## Latest fix after live check
-- Checked `https://tradermeme.pages.dev/api/trending?chain=solana&limit=10`: API returned `success:true`, `count:10`, and live signal candidates existed.
-- Root cause for user seeing empty realtime signals can be browser-local history suppression: `detectSignals()` skipped any token already in the 24h tracking history, so once a signal moved from 5-minute realtime into history, the same token could not reappear in the realtime area until the 24h history expired.
-- Fixed by only suppressing currently active 5-minute realtime signals; existing 24h history no longer blocks a fresh realtime alert.
-- Re-approved/re-audited realtime signal data mapping: GMGN `/v1/market/rank` returns `price_change_percent1h`, `price_change_percent`, `volume`, `buys`, `sells`, and `smart_degen_count`, while the UI transformer was reading only `price_1h`, `price_24h`, `volume_24h`, `buy_count_24h`, `sell_count_24h`, and `smart_count`. This caused live GMGN rows to render as 0%/0 volume/50% buy ratio, so no realtime signals passed thresholds. Added aliases for the actual GMGN fields.
+## Deployment status
+- Cloudflare Pages deploy was attempted with:
+  - `npx wrangler pages deploy public --project-name tradermeme --branch main`
+- Deployment is blocked in this non-interactive shell because Wrangler is not authenticated and `CLOUDFLARE_API_TOKEN` is not set:
+  - `You are not authenticated. Please run wrangler login.`
+  - `it's necessary to set a CLOUDFLARE_API_TOKEN environment variable`
+- Current changes are ready to deploy once Cloudflare auth is available.
 
 ## Next recommended work
-1. Deploy/confirm the realtime re-trigger fix on `https://tradermeme.pages.dev/`.
-2. Connect real GMGN token security data to Token 安全检查.
-3. Connect real GMGN smartmoney/KOL data to Smart Money 共振.
-4. Add Top100 traders real table.
-5. Add wallet profile real drawer.
-6. Only after analysis modules are stable, add strategy order quote/preview API; keep real execution behind explicit confirmation.
+1. Authenticate Wrangler or set `CLOUDFLARE_API_TOKEN`, then deploy `public` to Pages project `tradermeme`.
+2. Confirm the live UI shows the new compact history archive behavior.
+3. Connect real GMGN token security data to Token 安全检查.
+4. Connect real GMGN smartmoney/KOL data to Smart Money 共振.
+5. Add Top100 traders real table.
+6. Add wallet profile real drawer.
+7. Only after analysis modules are stable, add strategy order quote/preview API; keep real execution behind explicit confirmation.
 
 ## Important safety
 - Trading execution is not enabled. Current strategy module is preview-only.
