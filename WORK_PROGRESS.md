@@ -38,6 +38,7 @@ Date: 2026-07-02
 - Checked `https://tradermeme.pages.dev/api/trending?chain=solana&limit=10`: API returned `success:true`, `count:10`, and live signal candidates existed.
 - Root cause for user seeing empty realtime signals can be browser-local history suppression: `detectSignals()` skipped any token already in the 24h tracking history, so once a signal moved from 5-minute realtime into history, the same token could not reappear in the realtime area until the 24h history expired.
 - Fixed by only suppressing currently active 5-minute realtime signals; existing 24h history no longer blocks a fresh realtime alert.
+- Re-approved/re-audited realtime signal data mapping: GMGN `/v1/market/rank` returns `price_change_percent1h`, `price_change_percent`, `volume`, `buys`, `sells`, and `smart_degen_count`, while the UI transformer was reading only `price_1h`, `price_24h`, `volume_24h`, `buy_count_24h`, `sell_count_24h`, and `smart_count`. This caused live GMGN rows to render as 0%/0 volume/50% buy ratio, so no realtime signals passed thresholds. Added aliases for the actual GMGN fields.
 
 ## Next recommended work
 1. Deploy/confirm the realtime re-trigger fix on `https://tradermeme.pages.dev/`.
