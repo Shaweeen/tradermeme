@@ -933,19 +933,16 @@ function renderMemecoinMonitoring() {
     const archivedRows = archivedKeys.map((key) => {
       const tracked = state.trackedTokens[key];
       const analysis = analyzeTrackedToken(tracked, false, now);
+      const addressTail = (tracked.address || '').slice(-4) || '----';
       return `
-        <div class="archive-token-row">
-          <span class="archive-token-name" title="${tracked.name || tracked.symbol || ''}">
-            <strong>${tracked.symbol || 'Unknown'}</strong>
-            <em>${tracked.name || ''}</em>
-          </span>
-          <span class="archive-buy-price">买入 ${formatPrice(tracked.priceAtSignal)}</span>
-          <span class="archive-return ${getChangeClass(analysis.currentChange)}">PNL ${formatChange(analysis.currentChange)}</span>
+        <div class="archive-token-row" title="${tracked.address || ''}">
+          <span class="archive-address-tail">…${addressTail}</span>
+          <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点→24h PNL ${formatChange(analysis.currentChange)}</span>
         </div>`;
     }).join('');
     archiveCard.innerHTML = `
       <button class="archive-toggle" type="button">
-        <span>📦 历史记录</span>
+        <span>📦 收集页面</span>
         <strong>${archivedKeys.length}</strong>
         <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
       </button>
