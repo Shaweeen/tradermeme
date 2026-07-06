@@ -63,4 +63,32 @@ assert.equal(tracked.entryGrade, 'D');
 assert.ok(tracked.maxPnl24h > 200);
 assert.ok(tracked.resultLabel.includes('高收益'));
 
+const moonshot = engine.analyzeTrackedSignal({
+  symbol: 'MOON',
+  priceAtSignal: 0.001,
+  currentPrice: 0.0105,
+  signalScoreSnapshot: strong,
+  priceHistory: [
+    { time: Date.now() - 60 * 60 * 1000, price: 0.001, marker: 'buy' },
+    { time: Date.now() - 30 * 60 * 1000, price: 0.012 },
+    { time: Date.now(), price: 0.008 },
+  ],
+});
+assert.equal(moonshot.resultLabel, '超级收益');
+assert.ok(moonshot.maxPnl24h >= 1000);
+
+const moonshotSelloff = engine.analyzeTrackedSignal({
+  symbol: 'DROP',
+  priceAtSignal: 0.001,
+  currentPrice: 0.003,
+  signalScoreSnapshot: strong,
+  priceHistory: [
+    { time: Date.now() - 60 * 60 * 1000, price: 0.001, marker: 'buy' },
+    { time: Date.now() - 30 * 60 * 1000, price: 0.012 },
+    { time: Date.now(), price: 0.003 },
+  ],
+});
+assert.equal(moonshotSelloff.resultLabel, '高收益回撤');
+assert.ok(moonshotSelloff.dropFromPeak >= 800);
+
 console.log('signal-engine tests passed');

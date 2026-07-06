@@ -2152,6 +2152,48 @@ a:hover {
 .archive-return.negative { color: var(--accent-red); }
 .archive-return.neutral { color: var(--text-muted); }
 
+/* ===== Moonshot (>500%) tracking highlights ===== */
+.monitor-card.moonshot-card {
+  border-color: rgba(234, 179, 8, 0.55);
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.12), rgba(15, 23, 42, 0.72) 38%, rgba(168, 85, 247, 0.10));
+  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.08), 0 12px 34px rgba(234, 179, 8, 0.08);
+}
+
+.monitor-card.moonshot-alert-card {
+  border-color: rgba(239, 68, 68, 0.62);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.16), 0 12px 34px rgba(239, 68, 68, 0.10);
+}
+
+.ai-chip.moonshot,
+.archive-return.moonshot {
+  color: #fde68a;
+  background: rgba(234, 179, 8, 0.14);
+  border-color: rgba(234, 179, 8, 0.35);
+}
+
+.archive-token-row.moonshot-row {
+  border-color: rgba(234, 179, 8, 0.45);
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.13), rgba(15, 23, 42, 0.5));
+}
+
+.archive-token-row.moonshot-alert-row {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.14), rgba(234, 179, 8, 0.08), rgba(15, 23, 42, 0.5));
+}
+
+.archive-token-id small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--accent-red);
+  font-weight: 700;
+}
+
+.ai-suggestion.danger {
+  color: var(--accent-red);
+}
+
 /* ===== Memecoin AI MVP Panels ===== */
 .ai-chip-row {
   display: flex;

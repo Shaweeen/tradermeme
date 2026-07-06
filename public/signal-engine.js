@@ -135,15 +135,20 @@
     else if (perf.currentChange >= 80 && entryAction !== '禁止交易') { entryGrade = 'C'; entryAction = '等待回踩'; }
     else if (perf.currentChange <= -25) { entryGrade = 'D'; entryAction = '信号失效'; }
 
-    const resultLabel = perf.currentChange <= -25
-      ? '失败/跌破'
-      : perf.maxPnl24h >= 100
-        ? '高收益验证'
-        : perf.maxPnl24h >= 35
-          ? '有效信号'
-          : '观察中';
+    const dropFromPeak = perf.maxPnl24h - perf.currentChange;
+    const resultLabel = perf.maxPnl24h >= 500 && (dropFromPeak >= 250 || perf.currentChange <= perf.maxPnl24h * 0.45)
+      ? '高收益回撤'
+      : perf.currentChange <= -25
+        ? '失败/跌破'
+        : perf.maxPnl24h >= 500
+          ? '超级收益'
+          : perf.maxPnl24h >= 100
+            ? '高收益验证'
+            : perf.maxPnl24h >= 35
+              ? '有效信号'
+              : '观察中';
 
-    return { ...perf, entryGrade, entryAction, resultLabel };
+    return { ...perf, entryGrade, entryAction, resultLabel, dropFromPeak };
   }
 
   global.SignalEngine = {

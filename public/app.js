@@ -25,8 +25,10 @@ const state = {
   sortBy: 'volume',
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
-  trackingRetentionMs: 86400000, // 24h historical tracking retention
-  maxPriceHistory: 2880, // 24h at 30s refresh cadence
+  trackingRetentionMs: 86400000, // 24h normal historical tracking retention
+  moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
+  maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
+  maxMoonshotPriceHistory: 12000, // compressed/capped 1-month moonshot history for localStorage safety
   memecoinLimit: 10,
 
   // Othercoin state
@@ -341,17 +343,38 @@ function getTrackingKey(address, chain = '') {
   return `${(chain || '').toLowerCase()}:${(address || '').toLowerCase()}`;
 }
 
+function getTrackedRetentionMs(tracked, now = Date.now()) {
+  const perf = getTrackedPerformance(tracked);
+  const moonshot = perf.maxGain >= 500 || perf.currentChange >= 500 || tracked?.moonshot?.active;
+  if (moonshot) {
+    tracked.moonshot = {
+      ...(tracked.moonshot || {}),
+      active: true,
+      firstMarkedAt: tracked.moonshot?.firstMarkedAt || now,
+      maxGain: Math.max(Number(tracked.moonshot?.maxGain || 0), perf.maxGain || 0),
+    };
+    return state.moonshotRetentionMs;
+  }
+  return state.trackingRetentionMs;
+}
+
 function pruneSignalTracking(now = Date.now()) {
   state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
   for (const [key, tracked] of Object.entries(state.trackedTokens)) {
-    if (!tracked || now - tracked.signalAt > state.trackingRetentionMs) {
+    if (!tracked) {
+      delete state.trackedTokens[key];
+      continue;
+    }
+    const retentionMs = getTrackedRetentionMs(tracked, now);
+    if (now - tracked.signalAt > retentionMs) {
       delete state.trackedTokens[key];
       continue;
     }
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
+    const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = (tracked.priceHistory || [])
-      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= state.trackingRetentionMs))
-      .slice(-state.maxPriceHistory);
+      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+      .slice(-historyLimit);
     if (!tracked.priceHistory.some((p) => p.time === tracked.signalAt && p.price === tracked.priceAtSignal)) {
       tracked.priceHistory.unshift({ time: tracked.signalAt, price: tracked.priceAtSignal, marker: 'buy' });
     }
@@ -473,6 +496,57 @@ function calculateBuyPercent(token) {
   return (buys / total) * 100;
 }
 
+function getSmartSellSnapshot(token = {}, previous = {}) {
+  const txns = token.txns1h || token.txns24h || {};
+  const buys = Number(token.smartBuys ?? token.smart_buy_count ?? token.smartBuys1h ?? txns.buys ?? 0);
+  const sells = Number(token.smartSells ?? token.smart_sell_count ?? token.smartSells1h ?? txns.sells ?? 0);
+  const total = buys + sells;
+  const sellPercent = total > 0 ? (sells / total) * 100 : Number(previous.sellPercent || 0);
+  const smartCount = Number(token.smartCount ?? token.smart_degen_count ?? previous.smartCount ?? 0);
+  const previousSmartCount = Number(previous.smartCount ?? smartCount);
+  const smartCountDrop = previousSmartCount > 0 ? ((previousSmartCount - smartCount) / previousSmartCount) * 100 : 0;
+  const majoritySelling = (total >= 6 && sellPercent >= 60) || (smartCountDrop >= 35 && sellPercent >= 50);
+  return { buys, sells, total, sellPercent, smartCount, previousSmartCount, smartCountDrop, majoritySelling, updatedAt: Date.now() };
+}
+
+function maybeRaiseMoonshotSelloffAlert(key, tracked, token, now = Date.now()) {
+  if (!tracked?.moonshot?.active || tracked.moonshot.selloffAlertedAt) return false;
+  const analysis = analyzeTrackedToken(tracked, false, now);
+  const maxGain = Math.max(Number(tracked.moonshot.maxGain || 0), analysis.maxGain || 0);
+  const dropFromPeak = maxGain > 0 ? maxGain - analysis.currentChange : 0;
+  const droppedHard = maxGain >= 500 && (dropFromPeak >= 250 || analysis.currentChange <= maxGain * 0.45);
+  const smartSell = tracked.smartSellSnapshot?.majoritySelling;
+  if (!droppedHard || !smartSell) return false;
+
+  tracked.moonshot.selloffAlertedAt = now;
+  tracked.moonshot.selloffReason = `500%+项目从最高点回撤 ${dropFromPeak.toFixed(0)}% · 聪明钱卖出占比 ${tracked.smartSellSnapshot.sellPercent.toFixed(0)}%`;
+  state.signalIdCounter++;
+  state.signals.unshift({
+    id: state.signalIdCounter,
+    tokenAddress: tracked.address,
+    tokenSymbol: tracked.symbol || 'Unknown',
+    tokenName: tracked.name || '',
+    tokenIcon: tracked.icon || '',
+    tokenChain: tracked.chain || state.currentChain,
+    reason: 'moonshot-selloff',
+    reasonText: `高收益回撤提醒：${tracked.moonshot.selloffReason}`,
+    priceAtSignal: tracked.currentPrice || tracked.priceAtSignal || 0,
+    timestamp: now,
+    active: true,
+    alertOnly: true,
+    meta: {
+      trackedKey: key,
+      alertType: 'moonshot-selloff',
+      currentChange: analysis.currentChange,
+      maxGain,
+      dropFromPeak,
+      smartSellSnapshot: tracked.smartSellSnapshot,
+    },
+  });
+  showToast(`⚠️ ${tracked.symbol} 高收益回撤：聪明钱多数卖出`, 'warning');
+  return true;
+}
+
 function startTrackingToken(signal) {
   const key = getTrackingKey(signal.tokenAddress, signal.tokenChain);
   if (state.trackedTokens[key]) return;
@@ -519,7 +593,7 @@ function renderMemecoinSignals() {
   if (visibleSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
   dom.signalsEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
-  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力' };
+  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤' };
   for (const signal of visibleSignals) {
     const card = document.createElement('div');
     card.className = `signal-card signal-${signal.reason}`;
@@ -619,6 +693,9 @@ function updateTrackedPrices(tokens) {
       const price = found.priceUsd ?? found.price ?? 0;
       tracked.currentPrice = price;
       tracked.priceHistory.push({ time: now, price });
+      tracked.smartSellSnapshot = getSmartSellSnapshot(found, tracked.smartSellSnapshot);
+      getTrackedRetentionMs(tracked, now);
+      maybeRaiseMoonshotSelloffAlert(key, tracked, found, now);
     } else {
       // Keep the curve continuous when a tracked token drops out of the current top list.
       // Use the last known price as a flat continuation instead of inserting null gaps.
@@ -626,9 +703,11 @@ function updateTrackedPrices(tokens) {
       if (lastKnown > 0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
     }
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
+    const retentionMs = getTrackedRetentionMs(tracked, now);
+    const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = tracked.priceHistory
-      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= state.trackingRetentionMs))
-      .slice(-state.maxPriceHistory);
+      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+      .slice(-historyLimit);
   }
   saveSignalTracking();
 }
@@ -820,9 +899,9 @@ function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
 }
 
 function getLevelClass(level) {
-  if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '有效信号'].includes(level)) return 'good';
+  if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '超级收益', '有效信号'].includes(level)) return 'good';
   if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中'].includes(level)) return 'warn';
-  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', 'D', '失败/跌破'].includes(level)) return 'danger';
+  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', '高收益回撤', 'D', '失败/跌破'].includes(level)) return 'danger';
   return 'neutral';
 }
 
@@ -863,7 +942,8 @@ function renderAiDetailPanel(tracked, analysis, key, isOpen) {
         <div class="ai-mini-card ai-wide">
           <div class="ai-mini-title">AI 历史追踪总结</div>
           <div class="ai-mini-main ${getLevelClass(analysis.historyStatus)}">${analysis.historyStatus}</div>
-          <p>信号后最高 ${formatChange(analysis.maxGain)}，最大回撤 ${formatChange(analysis.maxDrawdown)}，当前 ${formatChange(analysis.currentChange)}。买入标注点将持续保留 24 小时。</p>
+          <p>信号后最高 ${formatChange(analysis.maxGain)}，最大回撤 ${formatChange(analysis.maxDrawdown)}，当前 ${formatChange(analysis.currentChange)}。${tracked.moonshot?.active ? '该项目已进入 500%+ 特色观察池，买入标注点和状态保留 1 个月。' : '买入标注点将持续保留 24 小时。'}</p>
+          ${tracked.moonshot?.selloffReason ? `<p class="ai-suggestion danger">提醒原因：${tracked.moonshot.selloffReason}</p>` : ''}
         </div>
       </div>
       <div class="strategy-preview-box ${canTradePreview ? '' : 'blocked'}">
@@ -918,7 +998,7 @@ function renderMemecoinMonitoring() {
     const statusClass = isActive ? 'active' : 'history';
     const isExpanded = !!state.aiExpanded[key];
     const card = document.createElement('div');
-    card.className = 'monitor-card';
+    card.className = `monitor-card ${tracked.moonshot?.active ? 'moonshot-card' : ''} ${tracked.moonshot?.selloffAlertedAt ? 'moonshot-alert-card' : ''}`.trim();
     card.style.animationDelay = `${cardIndex * 0.05}s`;
     cardIndex++;
     const dotClass = getChainDotClass(tracked.chain);
@@ -935,6 +1015,8 @@ function renderMemecoinMonitoring() {
         <span class="monitor-status-badge ${statusClass}">${statusLabel}</span>
       </div>
       <div class="ai-chip-row">
+        ${tracked.moonshot?.active ? `<span class="ai-chip moonshot">🚀 500%+ · 保留1个月</span>` : ''}
+        ${tracked.moonshot?.selloffAlertedAt ? `<span class="ai-chip danger">⚠️ ${tracked.moonshot.selloffReason || '高收益回撤'}</span>` : ''}
         <span class="ai-chip ${getLevelClass(analysis.signalLevel)}">AI：${analysis.signalLevel} ${analysis.aiScore}/100</span>
         <span class="ai-chip ${getLevelClass(analysis.riskLevel)}">风险：${analysis.riskLevel}</span>
         <span class="ai-chip ${getLevelClass(analysis.resonanceLevel)}">共振：${analysis.resonanceLevel}</span>
@@ -970,13 +1052,16 @@ function renderMemecoinMonitoring() {
     const displayName = getTokenDisplayName(tracked);
     const isDuplicateName = nameCounts[displayName.toLowerCase()] > 1;
     const fingerprint = uniqueTokenFingerprint(tracked.address || '');
+    const moonshot = !!tracked.moonshot?.active || analysis.maxGain >= 500 || analysis.currentChange >= 500;
+    const alertReason = tracked.moonshot?.selloffReason || '';
     return `
-      <div class="archive-token-row" title="${tracked.address || ''}">
+      <div class="archive-token-row ${moonshot ? 'moonshot-row' : ''} ${alertReason ? 'moonshot-alert-row' : ''}" title="${tracked.address || ''}">
         <span class="archive-token-id">
-          <strong>${displayName}</strong>
-          <em>${isDuplicateName ? '同名·' : ''}${fingerprint}</em>
+          <strong>${moonshot ? '🚀 ' : ''}${displayName}</strong>
+          <em>${isDuplicateName ? '同名·' : ''}${fingerprint}${moonshot ? ' · 500%+保留1月' : ''}</em>
+          ${alertReason ? `<small>提醒原因：${alertReason}</small>` : ''}
         </span>
-        <span class="archive-return ${getChangeClass(analysis.currentChange)}">买入点→24h PNL ${formatChange(analysis.currentChange)}</span>
+        <span class="archive-return ${moonshot ? 'moonshot' : getChangeClass(analysis.currentChange)}">买入点→当前 PNL ${formatChange(analysis.currentChange)}</span>
       </div>`;
   }).join('');
   const emptyArchive = '<div class="archive-empty-row">当前只追踪了最新 8 个以内，暂无额外历史记录</div>';
