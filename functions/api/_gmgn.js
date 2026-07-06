@@ -21,7 +21,7 @@
  */
 
 const GMGN_HOST = 'https://openapi.gmgn.ai';
-const GMGN_TIMEOUT_MS = 4000;
+const GMGN_TIMEOUT_MS = 8000;
 
 /**
  * Build timestamp + client_id per signer.js buildAuthQuery().
@@ -243,9 +243,12 @@ async function getTokenSignalV2(apiKey, chain, groups = []) {
  */
 async function getSmartMoney(apiKey, chain = 'sol', limit = 50) {
   const result = await gmgnFetch(apiKey, 'GET', '/v1/user/smartmoney', chain ? { chain, limit } : { limit });
-  // GMGN nested response: {code:0, data: {users: [...]}}
+  // GMGN responses observed as {code:0,data:{list:[...]}} or {code:0,data:{users:[...]}}
+  if (result && Array.isArray(result.list)) return result.list;
   if (result && Array.isArray(result.users)) return result.users;
   if (result && Array.isArray(result.data)) return result.data;
+  if (result?.data && Array.isArray(result.data.list)) return result.data.list;
+  if (result?.data && Array.isArray(result.data.users)) return result.data.users;
   if (Array.isArray(result)) return result;
   return [];
 }
@@ -256,9 +259,12 @@ async function getSmartMoney(apiKey, chain = 'sol', limit = 50) {
  */
 async function getKol(apiKey, chain = 'sol', limit = 50) {
   const result = await gmgnFetch(apiKey, 'GET', '/v1/user/kol', chain ? { chain, limit } : { limit });
-  // GMGN nested response: {code:0, data: {users: [...]}}
+  // GMGN responses observed as {code:0,data:{list:[...]}} or {code:0,data:{users:[...]}}
+  if (result && Array.isArray(result.list)) return result.list;
   if (result && Array.isArray(result.users)) return result.users;
   if (result && Array.isArray(result.data)) return result.data;
+  if (result?.data && Array.isArray(result.data.list)) return result.data.list;
+  if (result?.data && Array.isArray(result.data.users)) return result.data.users;
   if (Array.isArray(result)) return result;
   return [];
 }

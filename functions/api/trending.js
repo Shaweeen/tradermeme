@@ -15,6 +15,8 @@
  */
 
 // Use dynamic import for ESM compatibility in CF Workers
+import { applyMonitorSignalEnrichment } from './_monitor_enrichment.js';
+
 let gmgn;
 let dexscreener;
 async function initGmgn() {
@@ -105,6 +107,33 @@ function transformGmgnRank(data, chain, gmgnSlug) {
   }));
 }
 
+async function enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens) {
+  if (!apiKey || !gmgnSlug || !Array.isArray(tokens) || tokens.length === 0) return tokens;
+  const withTimeout = (promise, label, ms = 3000) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+  try {
+    const [signalResult, smartResult, kolResult] = await Promise.allSettled([
+      withTimeout(gmgnMod.getTokenSignalV2(apiKey, gmgnSlug, [{ signal_type: [12] }]), 'token_signal'),
+      withTimeout(gmgnMod.getSmartMoney(apiKey, gmgnSlug, 120), 'smartmoney'),
+      withTimeout(gmgnMod.getKol(apiKey, gmgnSlug, 120), 'kol'),
+    ]);
+    const enriched = applyMonitorSignalEnrichment(tokens, {
+      tokenSignals: signalResult.status === 'fulfilled' ? signalResult.value : [],
+      smartTrades: smartResult.status === 'fulfilled' ? smartResult.value : [],
+      kolTrades: kolResult.status === 'fulfilled' ? kolResult.value : [],
+    });
+    if (signalResult.status === 'rejected') console.warn(`GMGN monitor token-signal enrichment failed: ${signalResult.reason?.message || signalResult.reason}`);
+    if (smartResult.status === 'rejected') console.warn(`GMGN smartmoney trade enrichment failed: ${smartResult.reason?.message || smartResult.reason}`);
+    if (kolResult.status === 'rejected') console.warn(`GMGN KOL trade enrichment failed: ${kolResult.reason?.message || kolResult.reason}`);
+    return enriched;
+  } catch (e) {
+    console.warn(`GMGN monitor enrichment skipped: ${e.message}`);
+    return tokens;
+  }
+}
+
 /**
  * Try GMGN first, fall back to DexScreener.
  * For chains without GMGN support (ethereum), use DexScreener directly.
@@ -129,6 +158,7 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
             const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
             if (Array.isArray(rankData) && rankData.length > 0) {
               tokens = transformGmgnRank(rankData, c, gmgnSlug);
+              tokens = await enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens);
               console.log(`GMGN returned ${tokens.length} tokens for ${c}`);
             }
           } catch (gmgnErr) {
