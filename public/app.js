@@ -509,6 +509,35 @@ function getSmartSellSnapshot(token = {}, previous = {}) {
   return { buys, sells, total, sellPercent, smartCount, previousSmartCount, smartCountDrop, majoritySelling, updatedAt: Date.now() };
 }
 
+function getTokenActivitySnapshot(token = {}) {
+  const price = Number(token.priceUsd ?? token.price ?? 0);
+  const liquidity = Number(token.liquidity ?? token.liquidityUsd ?? token.liquidUSD ?? 0);
+  const volume = Number(token.volume24h ?? token.volume1h ?? token.volume ?? 0);
+  const txns24h = token.txns24h || {};
+  const txns1h = token.txns1h || {};
+  const buys = Number(txns24h.buys ?? txns1h.buys ?? token.buys ?? 0);
+  const sells = Number(txns24h.sells ?? txns1h.sells ?? token.sells ?? 0);
+  const totalTxns = Number(txns24h.total ?? txns1h.total ?? (buys + sells));
+  return { price, liquidity, volume, buys, sells, totalTxns };
+}
+
+function getAbandonReasonForTracked(found, tracked) {
+  if (!found) return '刷新列表中已无该目标，视为无活跃资金交易';
+  const a = getTokenActivitySnapshot(found);
+  if (!Number.isFinite(a.price) || a.price <= 0) return '价格已经归零';
+  if (a.liquidity <= 0 && a.volume <= 0) return '流动性和成交额均为 0';
+  if (a.volume <= 0 && a.totalTxns <= 0) return '无成交量且无买卖交易';
+  if ((tracked?.currentPrice || tracked?.priceAtSignal || 0) > 0 && a.price <= Number.EPSILON) return '价格接近归零';
+  return '';
+}
+
+function abandonTrackedTarget(key, tracked, reason) {
+  delete state.trackedTokens[key];
+  state.signals = state.signals.filter((s) => getTrackingKey(s.tokenAddress, s.tokenChain) !== key);
+  delete state.aiExpanded[key];
+  if (tracked?.symbol) showToast(`🧹 已放弃 ${tracked.symbol}: ${reason}`, 'warning');
+}
+
 function maybeRaiseMoonshotSelloffAlert(key, tracked, token, now = Date.now()) {
   if (!tracked?.moonshot?.active || tracked.moonshot.selloffAlertedAt) return false;
   const analysis = analyzeTrackedToken(tracked, false, now);
@@ -686,28 +715,33 @@ function updateTrackedPrices(tokens) {
   if (keys.length === 0) return;
   const now = Date.now();
   pruneSignalTracking(now);
+  let abandoned = 0;
   for (const key of Object.keys(state.trackedTokens)) {
     const tracked = state.trackedTokens[key];
     const found = tokens.find((t) => getTrackingKey(t.address, t.chain || state.currentChain) === key);
-    if (found) {
-      const price = found.priceUsd ?? found.price ?? 0;
-      tracked.currentPrice = price;
-      tracked.priceHistory.push({ time: now, price });
-      tracked.smartSellSnapshot = getSmartSellSnapshot(found, tracked.smartSellSnapshot);
-      getTrackedRetentionMs(tracked, now);
-      maybeRaiseMoonshotSelloffAlert(key, tracked, found, now);
-    } else {
-      // Keep the curve continuous when a tracked token drops out of the current top list.
-      // Use the last known price as a flat continuation instead of inserting null gaps.
-      const lastKnown = tracked.currentPrice || tracked.priceAtSignal || 0;
-      if (lastKnown > 0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
+    const abandonReason = getAbandonReasonForTracked(found, tracked);
+    if (abandonReason) {
+      abandonTrackedTarget(key, tracked, abandonReason);
+      abandoned++;
+      continue;
     }
+
+    const price = found.priceUsd ?? found.price ?? 0;
+    tracked.currentPrice = price;
+    tracked.priceHistory.push({ time: now, price });
+    tracked.smartSellSnapshot = getSmartSellSnapshot(found, tracked.smartSellSnapshot);
+    getTrackedRetentionMs(tracked, now);
+    maybeRaiseMoonshotSelloffAlert(key, tracked, found, now);
+
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
     const retentionMs = getTrackedRetentionMs(tracked, now);
     const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = tracked.priceHistory
       .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
       .slice(-historyLimit);
+  }
+  if (abandoned > 0) {
+    renderMemecoinSignals();
   }
   saveSignalTracking();
 }
