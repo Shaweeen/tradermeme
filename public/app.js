@@ -30,6 +30,7 @@ const state = {
   maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
   maxMoonshotPriceHistory: 900, // compressed 1-month moonshot history for localStorage safety
   maxTrackingStorageBytes: 4_000_000, // keep below common 5MB localStorage quota
+  zeroNoInflowCleanupMs: 4 * 60 * 60 * 1000, // remove zero-price archive rows after 4h without capital inflow
   memecoinLimit: 10,
 
   // Othercoin state
@@ -362,11 +363,44 @@ function getTrackedRetentionMs(tracked, now = Date.now()) {
   return state.trackingRetentionMs;
 }
 
+function getTrackedLastPrice(tracked = {}) {
+  const points = Array.isArray(tracked.priceHistory) ? tracked.priceHistory : [];
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = Number(points[i]?.price);
+    if (Number.isFinite(p)) return p;
+  }
+  const current = Number(tracked.currentPrice ?? tracked.priceUsd ?? tracked.price ?? 0);
+  return Number.isFinite(current) ? current : 0;
+}
+
+function hasRecentCapitalInflow(token = {}) {
+  const txns24h = token.txns24h || {};
+  const txns1h = token.txns1h || {};
+  const buys = Number(txns24h.buys ?? txns1h.buys ?? token.buys ?? 0);
+  const sells = Number(txns24h.sells ?? txns1h.sells ?? token.sells ?? 0);
+  const smartNetInflow = Number(token.smartNetInflow5m ?? 0) + Number(token.smartNetInflow15m ?? 0);
+  const shortVolume = Number(token.volume5m ?? 0) + Number(token.volume15m ?? 0);
+  const buyVolume = Number(token.buyVolume5m ?? token.buy_volume_5m ?? 0) + Number(token.buyVolume15m ?? token.buy_volume_15m ?? 0);
+  return smartNetInflow > 0 || buyVolume > 0 || (shortVolume > 0 && buys > sells) || (buys > 0 && sells === 0);
+}
+
+function shouldCleanupZeroNoInflow(tracked = {}, now = Date.now()) {
+  const lastPrice = getTrackedLastPrice(tracked);
+  if (!(Number.isFinite(lastPrice) && lastPrice <= Number.EPSILON)) return false;
+  const lastInflowAt = Number(tracked.lastCapitalInflowAt || tracked.signalAt || 0);
+  return lastInflowAt > 0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs;
+}
+
 function pruneSignalTracking(now = Date.now()) {
   state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
   for (const [key, tracked] of Object.entries(state.trackedTokens)) {
     if (!tracked) {
       delete state.trackedTokens[key];
+      continue;
+    }
+    if (shouldCleanupZeroNoInflow(tracked, now)) {
+      delete state.trackedTokens[key];
+      delete state.aiExpanded[key];
       continue;
     }
     const retentionMs = getTrackedRetentionMs(tracked, now);
@@ -564,13 +598,15 @@ function getTokenActivitySnapshot(token = {}) {
   return { price, liquidity, volume, buys, sells, totalTxns };
 }
 
-function getAbandonReasonForTracked(found, tracked) {
+function getAbandonReasonForTracked(found, tracked, now = Date.now()) {
   if (!found) return '';
   const a = getTokenActivitySnapshot(found);
-  if (!Number.isFinite(a.price) || a.price <= 0) return '价格已经归零';
-  if (a.liquidity <= 0 && a.volume <= 0) return '流动性和成交额均为 0';
-  if (a.volume <= 0 && a.totalTxns <= 0) return '无成交量且无买卖交易';
-  if ((tracked?.currentPrice || tracked?.priceAtSignal || 0) > 0 && a.price <= Number.EPSILON) return '价格接近归零';
+  if (hasRecentCapitalInflow(found)) tracked.lastCapitalInflowAt = now;
+  const zeroPrice = !Number.isFinite(a.price) || a.price <= Number.EPSILON;
+  const lastInflowAt = Number(tracked.lastCapitalInflowAt || tracked.signalAt || 0);
+  if (zeroPrice && lastInflowAt > 0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs) return '价格归零且4小时无资金流入';
+  if (!zeroPrice && a.liquidity <= 0 && a.volume <= 0) return '流动性和成交额均为 0';
+  if (!zeroPrice && a.volume <= 0 && a.totalTxns <= 0) return '无成交量且无买卖交易';
   return '';
 }
 
@@ -635,6 +671,7 @@ function startTrackingToken(signal) {
     buyMarker: { time: signal.timestamp, price: signal.priceAtSignal, label: '信号买入点' },
     priceHistory: [{ time: signal.timestamp, price: signal.priceAtSignal, marker: 'buy' }],
     currentPrice: signal.priceAtSignal,
+    lastCapitalInflowAt: signal.timestamp,
     signalMeta: signal.meta || {},
     signalScoreSnapshot: signal.meta?.signalScoreSnapshot || null,
     aiNotes: null,
@@ -762,7 +799,7 @@ function updateTrackedPrices(tokens) {
   for (const key of Object.keys(state.trackedTokens)) {
     const tracked = state.trackedTokens[key];
     const found = tokens.find((t) => getTrackingKey(t.address, t.chain || state.currentChain) === key);
-    const abandonReason = getAbandonReasonForTracked(found, tracked);
+    const abandonReason = getAbandonReasonForTracked(found, tracked, now);
     if (abandonReason) {
       abandonTrackedTarget(key, tracked, abandonReason);
       abandoned++;
