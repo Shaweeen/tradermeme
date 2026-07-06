@@ -25,7 +25,7 @@ const state = {
   sortBy: 'volume',
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
-  trackingRetentionMs: 86400000, // 24h normal historical tracking retention
+  trackingRetentionMs: 9 * 60 * 60 * 1000, // 9h normal historical tracking observation window
   moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
   maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
   maxMoonshotPriceHistory: 900, // compressed 1-month moonshot history for localStorage safety
@@ -53,6 +53,9 @@ const SIGNAL_THRESHOLDS = {
   priceSurge: 15,
   volumeSpike: 500000,
   buyPressure: 75,
+  aiScore: 62,
+  maxAiRisk: 74,
+  monitorInflow: 70,
 };
 
 const TRACKING_STORAGE_KEY = 'coinwatch_memecoin_signal_tracking_v1';
@@ -462,7 +465,10 @@ function detectSignals(tokens) {
       triggered.push({ reason: 'buy-pressure', text: `买入占比 ${buyPercent.toFixed(0)}%` });
     }
     const scoreSnapshot = window.SignalEngine?.scoreTokenSignal(token);
-    if (scoreSnapshot && scoreSnapshot.signalScore >= 60 && !triggered.some((r) => r.reason === 'ai-score')) {
+    if (scoreSnapshot?.monitorInflowScore >= SIGNAL_THRESHOLDS.monitorInflow && !triggered.some((r) => r.reason === 'monitor-inflow')) {
+      triggered.unshift({ reason: 'monitor-inflow', text: `Monitor 共振 ${scoreSnapshot.monitorInflowScore}/100 · Smart Net Inflow / 新钱包 / KOL` });
+    }
+    if (scoreSnapshot && scoreSnapshot.signalScore >= SIGNAL_THRESHOLDS.aiScore && scoreSnapshot.riskScore <= SIGNAL_THRESHOLDS.maxAiRisk && !triggered.some((r) => r.reason === 'ai-score')) {
       triggered.unshift({ reason: 'ai-score', text: `GMGN AI ${scoreSnapshot.signalLevel} ${scoreSnapshot.signalScore}/100 · 买点${scoreSnapshot.entryGrade}` });
     }
     if (triggered.length > 0) {
@@ -509,6 +515,16 @@ function createSignal(token, reason, reasonText) {
       liquidity: token.liquidity,
       fdv: token.fdv,
       txns24h: token.txns24h,
+      smartNetInflow5m: token.smartNetInflow5m,
+      smartNetInflow15m: token.smartNetInflow15m,
+      volume5m: token.volume5m,
+      volume15m: token.volume15m,
+      newWallets5m: token.newWallets5m,
+      newWallets15m: token.newWallets15m,
+      smartWallets5m: token.smartWallets5m,
+      smartWallets15m: token.smartWallets15m,
+      kolWallets5m: token.kolWallets5m,
+      kolWallets15m: token.kolWallets15m,
       buyPercent,
       signalScoreSnapshot,
     },
@@ -549,7 +565,7 @@ function getTokenActivitySnapshot(token = {}) {
 }
 
 function getAbandonReasonForTracked(found, tracked) {
-  if (!found) return '刷新列表中已无该目标，视为无活跃资金交易';
+  if (!found) return '';
   const a = getTokenActivitySnapshot(found);
   if (!Number.isFinite(a.price) || a.price <= 0) return '价格已经归零';
   if (a.liquidity <= 0 && a.volume <= 0) return '流动性和成交额均为 0';
@@ -649,7 +665,7 @@ function renderMemecoinSignals() {
   if (visibleSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
   dom.signalsEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
-  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤' };
+  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'monitor-inflow': '📡 Monitor 共振', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤' };
   for (const signal of visibleSignals) {
     const card = document.createElement('div');
     card.className = `signal-card signal-${signal.reason}`;
@@ -750,6 +766,18 @@ function updateTrackedPrices(tokens) {
     if (abandonReason) {
       abandonTrackedTarget(key, tracked, abandonReason);
       abandoned++;
+      continue;
+    }
+
+    if (!found) {
+      const lastKnown = tracked.currentPrice || tracked.priceAtSignal || 0;
+      if (lastKnown > 0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
+      tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
+      const retentionMs = getTrackedRetentionMs(tracked, now);
+      const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
+      tracked.priceHistory = tracked.priceHistory
+        .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+        .slice(-historyLimit);
       continue;
     }
 
