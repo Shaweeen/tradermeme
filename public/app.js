@@ -28,7 +28,8 @@ const state = {
   trackingRetentionMs: 86400000, // 24h normal historical tracking retention
   moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
   maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
-  maxMoonshotPriceHistory: 12000, // compressed/capped 1-month moonshot history for localStorage safety
+  maxMoonshotPriceHistory: 900, // compressed 1-month moonshot history for localStorage safety
+  maxTrackingStorageBytes: 4_000_000, // keep below common 5MB localStorage quota
   memecoinLimit: 10,
 
   // Othercoin state
@@ -384,14 +385,40 @@ function pruneSignalTracking(now = Date.now()) {
 function saveSignalTracking() {
   try {
     pruneSignalTracking();
-    localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify({
+    const payload = {
       savedAt: Date.now(),
       signalIdCounter: state.signalIdCounter,
       signals: state.signals,
       trackedTokens: state.trackedTokens,
-    }));
+    };
+    const prepared = window.TrackingStorage?.prepareTrackingStateForStorage
+      ? window.TrackingStorage.prepareTrackingStateForStorage(payload, {
+          now: Date.now(),
+          maxBytes: state.maxTrackingStorageBytes,
+          normalRetentionMs: state.trackingRetentionMs,
+          moonshotRetentionMs: state.moonshotRetentionMs,
+          normalMaxPoints: state.maxPriceHistory,
+          moonshotMaxPoints: state.maxMoonshotPriceHistory,
+        })
+      : payload;
+    localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify(prepared));
+    if (prepared.trackedTokens && prepared.trackedTokens !== state.trackedTokens) {
+      state.trackedTokens = prepared.trackedTokens;
+      state.signals = prepared.signals || state.signals;
+    }
   } catch (e) {
     console.warn('Failed to save signal tracking state:', e);
+    try {
+      const fallback = window.TrackingStorage?.prepareTrackingStateForStorage?.({
+        savedAt: Date.now(),
+        signalIdCounter: state.signalIdCounter,
+        signals: state.signals.slice(0, 20),
+        trackedTokens: state.trackedTokens,
+      }, { now: Date.now(), maxBytes: 2_000_000, normalRetentionMs: state.trackingRetentionMs, moonshotRetentionMs: state.moonshotRetentionMs, normalMaxPoints: 240, moonshotMaxPoints: 240 });
+      if (fallback) localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify(fallback));
+    } catch (fallbackError) {
+      console.warn('Failed to save compact signal tracking state:', fallbackError);
+    }
   }
 }
 
@@ -1846,6 +1873,10 @@ function switchChain(chain) {
 function startAutoRefresh() {
   stopAutoRefresh();
   state.autoRefreshInterval = setInterval(() => {
+    const shouldSkip = window.TrackingStorage?.shouldSkipAutoRefresh
+      ? window.TrackingStorage.shouldSkipAutoRefresh({ hidden: document.hidden, autoRefreshEnabled: dom.autoRefreshToggle.checked })
+      : (document.hidden || !dom.autoRefreshToggle.checked);
+    if (shouldSkip) return;
     if (state.currentPage === 'memecoin' && !state.isLoading) {
       loadMemecoinData(state.currentChain);
     } else if (state.currentPage === 'othercoin' && !state.otherLoading) {
@@ -1887,6 +1918,14 @@ dom.refreshBtn.addEventListener('click', () => {
 dom.autoRefreshToggle.addEventListener('change', () => {
   if (dom.autoRefreshToggle.checked) { startAutoRefresh(); showToast('自动刷新已开启', 'success'); }
   else { stopAutoRefresh(); showToast('自动刷新已关闭', 'info'); }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && dom.autoRefreshToggle.checked) {
+    if (state.currentPage === 'memecoin' && !state.isLoading) loadMemecoinData(state.currentChain);
+    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData();
+    else if (state.currentPage === 'bitcoin' && !state.btcLoading) loadBitcoinData();
+  }
 });
 
 // Memecoin retry

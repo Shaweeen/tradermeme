@@ -7,7 +7,7 @@
     "dev": "wrangler pages dev public --binding --port 8788",
     "deploy": "wrangler pages deploy public --project-name tradermeme --branch main",
     "build": "echo 'Static site, no build step needed'",
-    "test": "node tests/signal-engine.test.mjs"
+    "test": "node tests/signal-engine.test.mjs && node tests/tracking-storage.test.mjs"
   },
   "keywords": ["memecoin", "solana", "base", "bsc", "gmgn", "crypto", "dashboard"],
   "license": "MIT",
