@@ -865,12 +865,22 @@ function copyAddress(address, event) {
   if (event) {
     event.stopPropagation();
     const btn = event.currentTarget;
-    btn.textContent = '✅';
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.textContent = '📋';
-      btn.classList.remove('copied');
-    }, 1500);
+    if (btn.classList.contains('archive-address-copy')) {
+      btn.classList.add('copied');
+      const hint = btn.querySelector('.archive-copy-hint');
+      if (hint) hint.textContent = '已复制';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        if (hint) hint.textContent = '复制';
+      }, 1500);
+    } else {
+      btn.textContent = '✅';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = '📋';
+        btn.classList.remove('copied');
+      }, 1500);
+    }
   }
   navigator.clipboard.writeText(address).then(() => {
     showToast('地址已复制: ' + shortAddress(address), 'success');
@@ -1147,7 +1157,10 @@ function renderMemecoinMonitoring() {
       <div class="archive-token-row ${moonshot ? 'moonshot-row' : ''} ${alertReason ? 'moonshot-alert-row' : ''}" title="${tracked.address || ''}">
         <span class="archive-token-id">
           <strong>${moonshot ? '🚀 ' : ''}${displayName}</strong>
-          <em>${isDuplicateName ? '同名·' : ''}${fingerprint}${moonshot ? ' · 500%+保留1月' : ''}</em>
+          <button class="archive-address-copy" type="button" data-copy-address="${tracked.address || ''}" title="左键点击复制完整合约地址">
+            ${isDuplicateName ? '同名·' : ''}${fingerprint}${moonshot ? ' · 500%+保留1月' : ''}
+            <span class="archive-copy-hint">复制</span>
+          </button>
           ${alertReason ? `<small>提醒原因：${alertReason}</small>` : ''}
         </span>
         <span class="archive-return ${moonshot ? 'moonshot' : getChangeClass(analysis.currentChange)}">买入点→当前 PNL ${formatChange(analysis.currentChange)}</span>
@@ -1169,6 +1182,9 @@ function renderMemecoinMonitoring() {
       state.archiveExpanded = !state.archiveExpanded;
       renderMemecoinMonitoring();
     });
+  });
+  dom.monitorCards.querySelectorAll('.archive-address-copy').forEach((btn) => {
+    btn.addEventListener('click', (e) => copyAddress(e.currentTarget.dataset.copyAddress, e));
   });
   dom.monitorCards.querySelectorAll('.ai-detail-toggle').forEach((btn) => {
     btn.addEventListener('click', (e) => {
