@@ -16,11 +16,15 @@ includesAll(css, [
   '--border: #1e2a3d;',
   '--surface-glass:',
   '--gradient-panel:',
+  '--terminal-green:',
+  '--surface-0:',
+  'terminal-grade dark glass',
   'body::after',
   '.dashboard-section::before',
   '.stats-item::before',
   '.token-row:nth-child(even)',
   '.table-container {\n  overflow-x: auto;',
+  'position: sticky;',
   '@media (prefers-reduced-motion: reduce)',
 ]);
 
