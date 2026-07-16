@@ -30,10 +30,11 @@ async function initDex() {
 
 const CHAIN_MAP = {
   solana: { gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '🪙' },
-  ethereum: { gmgn: null, dexscreener: 'ethereum', label: 'Ethereum', icon: '🔷' },
+  // GMGN eth slug is `eth` (not null) — multi-interval rank works for Ethereum too
+  ethereum: { gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '🔷' },
   base: { gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
   bsc: { gmgn: 'bsc', dexscreener: 'bsc', label: 'BSC', icon: '🟡' },
-  // Robinhood Chain (mainnet 4663). DexScreener: robinhood; GMGN may lag — Dex fallback always on.
+  // Robinhood Chain — GMGN rank when available; always top-up from Dex if thin
   robinhood: { gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '🟢' },
 };
 
@@ -319,11 +320,12 @@ function mergeTokenLists(primary, backup, limit) {
  * Order: DexScreener multi-query → GeckoTerminal trending pools.
  */
 async function fillFromBackupSources(chain, limit, existingTokens, quality) {
-  const sparse = (existingTokens?.length || 0) < Math.min(8, Math.ceil(limit / 2));
-  if (!sparse) return existingTokens;
+  // Always top up until we reach `limit` (not just when "very sparse")
+  const have = existingTokens?.length || 0;
+  if (have >= limit) return existingTokens;
 
   let tokens = existingTokens || [];
-  const target = Math.max(limit, 15);
+  const target = Math.max(limit, 20);
   const dexMod = await initDex();
 
   // Sequential rotation: Dex first (search-heavy), then GeckoTerminal if still sparse
@@ -425,10 +427,20 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
         let chainSmart = false;
         let chainSec = 0;
 
-        // --- Primary: GMGN ---
+        // --- Primary: GMGN multi-interval rank (all supported chains, not just sol) ---
         if (gmgnSlug && apiKey) {
           try {
-            const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
+            let rankData = [];
+            if (typeof gmgnMod.getTrendingSwapsMulti === 'function') {
+              const multi = await gmgnMod.getTrendingSwapsMulti(apiKey, gmgnSlug, Math.max(limit, 30));
+              rankData = multi.list || [];
+              if (multi.errors?.length) {
+                quality.warnings.push(`GMGN ${c} multi: ${multi.errors.slice(0, 2).join(' | ')}`);
+              }
+            } else {
+              rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit: Math.max(limit, 30) });
+            }
+
             if (Array.isArray(rankData) && rankData.length > 0) {
               tokens = transformGmgnRank(rankData, c, gmgnSlug);
               const enriched = await enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens);
@@ -442,7 +454,7 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
               quality.primarySource = 'gmgn-openapi';
               console.log(`GMGN returned ${tokens.length} tokens for ${c} (smart=${chainSmart}, sec=${chainSec})`);
             } else {
-              quality.warnings.push(`GMGN ${c}: empty rank — rotating backups`);
+              quality.warnings.push(`GMGN ${c}: empty multi-rank — rotating backups`);
             }
           } catch (gmgnErr) {
             console.error(`GMGN error for ${c}:`, gmgnErr.message);
@@ -450,17 +462,28 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
           }
         }
 
-        // --- Backup rotation: when empty OR sparse ---
+        // --- Backup: ALWAYS top-up non-solana (and any chain under limit) ---
+        // User expectation: base/bsc/rh must show full boards, not 1–2 rows.
         const beforeBackup = tokens.length;
-        const sparse = beforeBackup < Math.min(8, Math.ceil(limit / 2));
-        if (beforeBackup === 0 || sparse) {
-          tokens = await fillFromBackupSources(c, limit, tokens, quality);
+        const needFullBoard = c !== 'solana' || beforeBackup < limit;
+        const sparse = beforeBackup < limit;
+        if (beforeBackup === 0 || needFullBoard || sparse) {
+          // Force fillFromBackupSources even if slightly above "sparse" threshold
+          const forced = { ...quality };
+          // Bypass internal sparse gate by pretending list is empty of "enough" rows
+          tokens = await fillFromBackupSources(c, limit, tokens, forced);
+          // merge quality side-effects
+          quality.backupSources = forced.backupSources || quality.backupSources;
+          quality.warnings = forced.warnings || quality.warnings;
+          if (forced.primarySource && forced.primarySource !== 'none') {
+            quality.primarySource = forced.primarySource;
+          }
           if (tokens.length === 0) {
             quality.warnings.push(`${c}: all sources empty after rotation`);
           } else if (beforeBackup === 0) {
-            quality.warnings.push(`${c}: filled ${tokens.length} via public backups (no GMGN primary)`);
+            quality.warnings.push(`${c}: filled ${tokens.length} via backups (GMGN empty/missing)`);
           } else if (tokens.length > beforeBackup) {
-            quality.warnings.push(`${c}: GMGN sparse (${beforeBackup}) → backups top-up (${tokens.length})`);
+            quality.warnings.push(`${c}: GMGN ${beforeBackup} → +backups = ${tokens.length}`);
           }
         }
 

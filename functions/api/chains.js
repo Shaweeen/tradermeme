@@ -6,7 +6,6 @@ const CHAINS = [
   { id: 'ethereum', gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '⟠' },
   { id: 'base', gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
   { id: 'bsc', gmgn: 'bsc', dexscreener: 'bsc', label: 'BNB Chain', icon: '🟡' },
-  // Robinhood Chain (EVM L2, chainId 4663) — DexScreener slug: robinhood
   { id: 'robinhood', gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '🟢' },
 ];
 

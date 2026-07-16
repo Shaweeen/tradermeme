@@ -125,66 +125,104 @@ async function gmgnRequest(context, method, path, query, body) {
 // ============== Endpoint wrappers (typed, return payload.data) ==============
 
 /**
- * Get trending memecoins by swaps volume per interval.
- * Mirrors `gmgn-cli market trending --chain X --interval I`.
+ * Unwrap GMGN rank/list payloads from nested envelopes.
  */
-async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
-  const payload = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
-  // GMGN returns: {code: 0, data: {code: 0, data: {rank: [...]}}}
-  // gmgnFetch now returns raw payload (no unwrapping)
-  // Try different response structures
-  if (!payload || typeof payload !== 'object') {
-    console.log('GMGN payload not an object');
-    return [];
-  }
-
-  // Deep unwrap: payload.data.data.rank
+function unwrapRankPayload(payload) {
+  if (!payload || typeof payload !== 'object') return [];
   try {
     const inner = payload?.data?.data || payload?.data;
     if (inner) {
-      if (Array.isArray(inner.rank)) {
-        console.log(`GMGN: found ${inner.rank.length} via data.data.rank`);
-        return inner.rank;
-      }
-      if (Array.isArray(inner.list)) {
-        console.log(`GMGN: found ${inner.list.length} via data.data.list`);
-        return inner.list;
-      }
-      if (Array.isArray(inner.tokens)) {
-        console.log(`GMGN: found ${inner.tokens.length} via data.data.tokens`);
-        return inner.tokens;
-      }
+      if (Array.isArray(inner.rank)) return inner.rank;
+      if (Array.isArray(inner.list)) return inner.list;
+      if (Array.isArray(inner.tokens)) return inner.tokens;
+      if (Array.isArray(inner)) return inner;
     }
-
-    // Try payload.data directly (one level unwrap)
-    if (payload.data) {
-      const d = payload.data;
-      if (Array.isArray(d)) {
-        console.log(`GMGN: found ${d.length} via payload.data (array)`);
-        return d;
-      }
-    }
-
-    // Try payload.rank (flat structure)
-    if (Array.isArray(payload.rank)) {
-      console.log(`GMGN: found ${payload.rank.length} via payload.rank`);
-      return payload.rank;
-    }
-
-    // Debug: dump all keys
-    const keyTypes = Object.entries(payload).map(([k, v]) =>
-      `${k}: ${Array.isArray(v) ? `Array(${v.length})` : typeof v}`
-    ).join(', ');
-    console.log(`GMGN payload keys: ${keyTypes}`);
-
-    // Try any array field at any level
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload.rank)) return payload.rank;
+    if (Array.isArray(payload.list)) return payload.list;
     const found = findFirstArray(payload);
     if (found) return found;
   } catch (e) {
     console.log(`GMGN unwrap error: ${e.message}`);
   }
-
   return [];
+}
+
+/**
+ * Get trending memecoins by swaps volume per interval.
+ * Mirrors `gmgn-cli market trending --chain X --interval I`.
+ */
+async function getTrendingSwaps(apiKey, chain, interval = '5m', extra = {}) {
+  const payload = await gmgnFetch(apiKey, 'GET', '/v1/market/rank', { chain, interval, ...extra });
+  const rank = unwrapRankPayload(payload);
+  if (rank.length) console.log(`GMGN rank ${chain}/${interval}: ${rank.length}`);
+  return rank;
+}
+
+/**
+ * Multi-interval + multi-order GMGN rank for non-SOL chains that often return thin 5m lists.
+ * Merges by token address (first wins for field priority: shorter interval preferred).
+ */
+async function getTrendingSwapsMulti(apiKey, chain, limit = 30) {
+  const intervals = chain === 'sol' || chain === 'solana'
+    ? ['5m', '1h']
+    : ['5m', '1h', '6h', '24h'];
+  // orderby variants some GMGN deployments accept
+  const orderVariants = [
+    {},
+    { orderby: 'volume', direction: 'desc' },
+    { orderby: 'swaps', direction: 'desc' },
+  ];
+
+  const byAddr = new Map();
+  const errors = [];
+
+  // Parallel: interval × first order variant; then fill with extra orderbys if thin
+  const primaryJobs = intervals.map((interval) =>
+    getTrendingSwaps(apiKey, chain, interval, { limit: Math.max(limit, 50) })
+      .then((list) => ({ interval, list }))
+      .catch((e) => {
+        errors.push(`${interval}:${e.message}`);
+        return { interval, list: [] };
+      })
+  );
+  const primary = await Promise.all(primaryJobs);
+  for (const { interval, list } of primary) {
+    for (const t of list || []) {
+      const addr = String(t.address || t.token_address || t.base_address || '').toLowerCase();
+      if (!addr || byAddr.has(addr)) continue;
+      byAddr.set(addr, { ...t, _rank_interval: interval });
+    }
+  }
+
+  // If still thin (common on base/bsc), try extra orderby on 1h + 6h
+  if (byAddr.size < Math.min(limit, 15)) {
+    const extraJobs = [];
+    for (const interval of ['1h', '6h']) {
+      for (const extra of orderVariants.slice(1)) {
+        extraJobs.push(
+          getTrendingSwaps(apiKey, chain, interval, { limit: Math.max(limit, 50), ...extra })
+            .then((list) => ({ list }))
+            .catch((e) => {
+              errors.push(`${interval}/${extra.orderby}:${e.message}`);
+              return { list: [] };
+            })
+        );
+      }
+    }
+    const extraResults = await Promise.all(extraJobs);
+    for (const { list } of extraResults) {
+      for (const t of list || []) {
+        const addr = String(t.address || t.token_address || t.base_address || '').toLowerCase();
+        if (!addr || byAddr.has(addr)) continue;
+        byAddr.set(addr, t);
+      }
+    }
+  }
+
+  const merged = Array.from(byAddr.values()).slice(0, Math.max(limit, 30));
+  console.log(`GMGN multi-rank ${chain}: ${merged.length} unique (errors=${errors.length})`);
+  return { list: merged, errors };
 }
 
 /** Recursively find the first array property in an object (depth-first) */
@@ -305,8 +343,10 @@ export {
   gmgnRequest,
   gmgnFetch,
   credsFromContext,
+  unwrapRankPayload,
   // endpoint surface — keep one import per consumer
   getTrendingSwaps,
+  getTrendingSwapsMulti,
   getTrenches,
   getHotSearches,
   getTokenSignalV2,

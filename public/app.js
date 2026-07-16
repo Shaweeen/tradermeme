@@ -31,7 +31,7 @@ const state = {
   maxMoonshotPriceHistory: 900, // compressed 1-month moonshot history for localStorage safety
   maxTrackingStorageBytes: 4_000_000, // keep below common 5MB localStorage quota
   zeroNoInflowCleanupMs: 4 * 60 * 60 * 1000, // remove zero-price archive rows after 4h without capital inflow
-  memecoinLimit: 10,
+  memecoinLimit: 30,
 
   // Othercoin state
   otherTokens: [],
