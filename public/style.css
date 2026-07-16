@@ -1278,59 +1278,68 @@ a:hover {
   display: none !important;
 }
 
-/* Fixed 390×350 signal frame — bottom right */
+/* Fixed signal frame — bottom right, compact width (border transparent) */
 .signal-ticker {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 390px;
-  height: 350px;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 24px);
+  right: 14px;
+  bottom: 14px;
+  /* Proportionally narrower than 390×350 — single-line rows read better */
+  width: 248px;
+  height: 220px;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 20px);
   z-index: 10050;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: linear-gradient(160deg, rgba(22, 32, 48, 0.97), rgba(12, 18, 28, 0.99));
-  border: 1px solid rgba(75, 139, 255, 0.45);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(75, 139, 255, 0.08);
+  background: linear-gradient(160deg, rgba(18, 26, 40, 0.92), rgba(10, 14, 22, 0.94));
+  border: 1px solid transparent; /* 边框透明 */
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42);
   overflow: hidden;
   font-family: var(--font-sans);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.signal-ticker.is-hiding {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
 }
 .signal-ticker[hidden] {
   display: none !important;
 }
 .signal-ticker-header {
   flex-shrink: 0;
-  height: 36px;
+  height: 30px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 12px;
-  border-bottom: 1px solid rgba(75, 139, 255, 0.2);
-  background: rgba(75, 139, 255, 0.06);
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
 }
 .signal-ticker-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.02em;
 }
 .signal-ticker-count {
   margin-left: auto;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: rgba(75, 139, 255, 0.2);
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(75, 139, 255, 0.18);
   color: var(--accent-blue);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 16px;
   text-align: center;
 }
 .signal-ticker-list {
@@ -1338,22 +1347,22 @@ a:hover {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px;
+  padding: 4px;
   scroll-behavior: smooth;
 }
 .signal-ticker-item {
   width: 100%;
-  min-height: 32px;
-  margin: 0 0 4px;
-  padding: 6px 10px;
+  min-height: 28px;
+  margin: 0 0 3px;
+  padding: 4px 7px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.03);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: left;
@@ -1366,39 +1375,46 @@ a:hover {
 }
 .signal-ticker-item:hover {
   background: rgba(75, 139, 255, 0.12);
-  border-color: rgba(75, 139, 255, 0.25);
+  border-color: transparent;
 }
 .signal-ticker-item.is-active {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.4);
-  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.15);
+  background: rgba(34, 197, 94, 0.14);
+  border-color: transparent;
 }
 .signal-ticker-item-text {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 7.5em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .signal-ticker-item-pct {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  max-width: 4.2em;
   color: var(--accent-green);
   font-weight: 700;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .signal-ticker-item-pct.down {
   color: var(--accent-red);
 }
 .signal-ticker-item-tag {
-  flex-shrink: 0;
-  font-size: 10px;
+  flex: 0 0 auto;
+  font-size: 9px;
   font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(75, 139, 255, 0.18);
+  padding: 0 4px;
+  height: 15px;
+  line-height: 15px;
+  border-radius: 3px;
+  background: rgba(75, 139, 255, 0.16);
   color: var(--accent-cyan);
 }
 .signal-ticker-item-tag.kol {
-  background: rgba(168, 85, 247, 0.2);
+  background: rgba(168, 85, 247, 0.18);
   color: var(--accent-purple);
 }
 .signal-ticker-body {
@@ -1406,22 +1422,22 @@ a:hover {
 }
 .signal-ticker-dot {
   flex-shrink: 0;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--accent-green);
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.65);
   animation: signalTickerPulse 1.4s ease-in-out infinite;
 }
 .signal-ticker-clear {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }

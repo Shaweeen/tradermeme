@@ -26,10 +26,13 @@ const state = {
   sortBy: 'volume',
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
-  // Fixed 390×350 bottom-right signal frame
+  // Fixed compact bottom-right signal frame (auto-hide 3s idle)
   signalTickerIndex: 0,
   signalTickerTimer: null,
+  signalTickerHideTimer: null,
+  signalTickerHovering: false,
   signalTickerRotateMs: 2800,
+  signalTickerIdleHideMs: 3000,
   signalFlashMs: 1000,
   trackingRetentionMs: 9 * 60 * 60 * 1000, // 9h normal historical tracking observation window
   moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
@@ -781,13 +784,15 @@ function detectSignals(tokens) {
     signal.id = state.signalIdCounter;
     state.signals.push(signal);
     startTrackingToken(signal);
-    showToast(`🔔 信号: ${signal.tokenSymbol} - ${signal.reasonText}`, 'info');
+    // No long toast — ticker frame is the alert surface
   }
   if (newSignals.length > 0) {
     saveSignalTracking();
+    // New signals → actively show the frame
+    renderMemecoinSignals({ forceShow: true });
+  } else {
+    renderMemecoinSignals();
   }
-  // Always re-render so chain tab only shows this network's signals
-  renderMemecoinSignals();
 }
 
 function createSignal(token, reason, reasonText, scoreSnapshot = null) {
@@ -990,7 +995,7 @@ function getVisibleMemecoinSignals() {
  * Brief signal parts: name + % + SM/KOL flags (only if present)
  */
 function getBriefSignalParts(signal) {
-  const name = String(signal.tokenSymbol || signal.tokenName || '?').slice(0, 16);
+  const name = String(signal.tokenSymbol || signal.tokenName || '?').slice(0, 10);
   const meta = signal.meta || {};
   const snap = meta.signalScoreSnapshot || {};
   let pct = Number(meta.priceChange1h);
@@ -1031,6 +1036,43 @@ function stopSignalTicker() {
   }
 }
 
+function clearSignalTickerHideTimer() {
+  if (state.signalTickerHideTimer) {
+    clearTimeout(state.signalTickerHideTimer);
+    state.signalTickerHideTimer = null;
+  }
+}
+
+/** 3s no click & no hover → auto hide (signals stay in memory) */
+function resetSignalTickerIdleTimer() {
+  clearSignalTickerHideTimer();
+  if (!dom.signalTicker || dom.signalTicker.hidden) return;
+  if (state.signalTickerHovering) return;
+  state.signalTickerHideTimer = setTimeout(() => {
+    if (state.signalTickerHovering) return;
+    hideSignalTickerFrame();
+  }, state.signalTickerIdleHideMs || 3000);
+}
+
+function hideSignalTickerFrame() {
+  clearSignalTickerHideTimer();
+  if (!dom.signalTicker) return;
+  dom.signalTicker.classList.add('is-hiding');
+  setTimeout(() => {
+    if (!dom.signalTicker) return;
+    dom.signalTicker.hidden = true;
+    dom.signalTicker.classList.remove('is-hiding');
+  }, 220);
+}
+
+/** Show frame; forceShow from new signals */
+function showSignalTickerFrame() {
+  if (!dom.signalTicker) return;
+  dom.signalTicker.classList.remove('is-hiding');
+  dom.signalTicker.hidden = false;
+  resetSignalTickerIdleTimer();
+}
+
 function buildSignalTickerList(signals) {
   if (!dom.signalTickerList) return;
   const frag = document.createDocumentFragment();
@@ -1056,6 +1098,7 @@ function buildSignalTickerList(signals) {
     btn.addEventListener('click', () => {
       state.signalTickerIndex = idx;
       highlightTickerActive(signals);
+      resetSignalTickerIdleTimer(); // user click — restart 3s idle
       focusTokenFromSignal({
         tokenAddress: signal.tokenAddress,
         tokenChain: signal.tokenChain,
@@ -1118,9 +1161,11 @@ function startSignalTicker(signals) {
     const list = getVisibleMemecoinSignals();
     if (!list.length) {
       stopSignalTicker();
-      if (dom.signalTicker) dom.signalTicker.hidden = true;
+      hideSignalTickerFrame();
       return;
     }
+    // Don't rotate while hidden
+    if (dom.signalTicker?.hidden) return;
     if (dom.signalTickerCount) dom.signalTickerCount.textContent = String(list.length);
     state.signalTickerIndex = (state.signalTickerIndex + 1) % list.length;
     showSignalTickerItem(list, state.signalTickerIndex);
@@ -1199,7 +1244,11 @@ function flashTokenRow(row) {
   }, state.signalFlashMs || 1000);
 }
 
-function renderMemecoinSignals() {
+/**
+ * @param {{ forceShow?: boolean }} [opts]
+ * forceShow: new signal arrived → open frame and reset 3s idle hide
+ */
+function renderMemecoinSignals(opts = {}) {
   pruneSignalTracking();
 
   // ONLY show signals for the selected chain tab
@@ -1211,18 +1260,29 @@ function renderMemecoinSignals() {
   if (dom.signalsList) dom.signalsList.innerHTML = '';
   if (dom.signalsEmpty) dom.signalsEmpty.style.display = 'none';
 
-  // Fixed 390×350 bottom-right frame — only on Memecoin page
+  // Compact bottom-right frame — only on Memecoin page
   if (!dom.signalTicker) return;
   if (state.currentPage !== 'memecoin' || visibleSignals.length === 0) {
     stopSignalTicker();
-    dom.signalTicker.hidden = true;
+    clearSignalTickerHideTimer();
+    if (dom.signalTicker) {
+      dom.signalTicker.hidden = true;
+      dom.signalTicker.classList.remove('is-hiding');
+    }
     return;
   }
 
-  dom.signalTicker.hidden = false;
   // Keep index in range
   if (state.signalTickerIndex >= visibleSignals.length) state.signalTickerIndex = 0;
-  startSignalTicker(visibleSignals);
+
+  // New signals force show; otherwise only refresh content if already visible
+  if (opts.forceShow) {
+    showSignalTickerFrame();
+    startSignalTicker(visibleSignals);
+  } else if (!dom.signalTicker.hidden) {
+    startSignalTicker(visibleSignals);
+    resetSignalTickerIdleTimer();
+  }
 }
 
 // --- Data Fetching ---
@@ -2693,6 +2753,21 @@ if (dom.signalTickerClear) {
     clearAllMemecoinSignals();
   });
 }
+// Hover keeps frame open; leave restarts 3s idle hide
+if (dom.signalTicker) {
+  dom.signalTicker.addEventListener('mouseenter', () => {
+    state.signalTickerHovering = true;
+    clearSignalTickerHideTimer();
+  });
+  dom.signalTicker.addEventListener('mouseleave', () => {
+    state.signalTickerHovering = false;
+    resetSignalTickerIdleTimer();
+  });
+  // Any click inside resets idle countdown
+  dom.signalTicker.addEventListener('click', () => {
+    resetSignalTickerIdleTimer();
+  });
+}
 if (dom.signalTickerBody) {
   dom.signalTickerBody.addEventListener('click', () => {
     const meta = {
@@ -2704,6 +2779,7 @@ if (dom.signalTickerBody) {
       tokenSymbol: dom.signalTickerBody.dataset.symbol,
     };
     if (!meta.address && !meta.symbol) return;
+    resetSignalTickerIdleTimer();
     focusTokenFromSignal(meta);
   });
 }
