@@ -97,7 +97,34 @@ function transformGmgnRank(data, chain, gmgnSlug) {
       total: (parseInt(t.buy_count_24h ?? t.buys) || 0) + (parseInt(t.sell_count_24h ?? t.sells) || 0),
     },
     source: 'gmgn-openapi',
-    url: `https://gmgn.ai/${gmgnSlug}/token/${t.address}`,
+    // Detail policy: Solana → GMGN; all EVM → DexScreener contract chart (not gmgn.ai/base|bsc|eth)
+    url: (() => {
+      const addr = String(t.address || t.token_address || t.base_address || '').trim();
+      if (!addr) return '';
+      if (chain === 'solana' || gmgnSlug === 'sol') {
+        return `https://gmgn.ai/sol/token/${addr}`;
+      }
+      const dsChain = {
+        ethereum: 'ethereum', eth: 'ethereum',
+        base: 'base',
+        bsc: 'bsc',
+        robinhood: 'robinhood',
+      }[chain] || {
+        eth: 'ethereum', base: 'base', bsc: 'bsc', robinhood: 'robinhood',
+      }[gmgnSlug] || chain;
+      const evm = addr.startsWith('0x') ? addr.toLowerCase() : addr;
+      return `https://dexscreener.com/${dsChain}/${evm}`;
+    })(),
+    dexscreenerUrl: (() => {
+      const addr = String(t.address || t.token_address || t.base_address || '').trim();
+      if (!addr || chain === 'solana' || gmgnSlug === 'sol') return '';
+      const dsChain = {
+        ethereum: 'ethereum', eth: 'ethereum',
+        base: 'base', bsc: 'bsc', robinhood: 'robinhood',
+      }[chain] || chain;
+      const evm = addr.startsWith('0x') ? addr.toLowerCase() : addr;
+      return `https://dexscreener.com/${dsChain}/${evm}`;
+    })(),
     firstTradeTimestamp: t.first_trade_timestamp,
     firstTradePrice: parseFloat(t.first_trade_price) || 0,
     smartBalance: parseFloat(t.smart_balance) || 0,

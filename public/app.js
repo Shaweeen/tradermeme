@@ -278,64 +278,104 @@ function normalizeMarketChain(chain) {
   if (!c) return '';
   if (c === 'sol' || c === 'solana') return 'solana';
   if (c === 'eth' || c === 'ethereum') return 'ethereum';
-  if (c === 'bnb' || c === 'bsc' || c === 'bnb-chain') return 'bsc';
+  if (c === 'bnb' || c === 'bsc' || c === 'bnb-chain' || c === 'bnbchain') return 'bsc';
   if (c === 'rh' || c === 'hood' || c === 'robinhood') return 'robinhood';
   if (c === 'arb' || c === 'arbitrum') return 'arbitrum';
   if (c === 'op' || c === 'optimism') return 'optimism';
-  if (c === 'matic' || c === 'polygon') return 'polygon';
+  if (c === 'matic' || c === 'polygon' || c === 'poly') return 'polygon';
   if (c === 'avax' || c === 'avalanche') return 'avalanche';
+  if (c === 'base') return 'base';
   return c;
+}
+
+/** EVM chains that always open DexScreener (never GMGN for detail) */
+const EVM_DEXSCREENER_CHAINS = new Set([
+  'ethereum', 'base', 'bsc', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'robinhood',
+]);
+
+/** DexScreener path slug per chain (must match dexscreener.com/{slug}/…) */
+const DEXSCREENER_CHAIN_SLUG = {
+  ethereum: 'ethereum',
+  base: 'base',
+  bsc: 'bsc',
+  arbitrum: 'arbitrum',
+  optimism: 'optimism',
+  polygon: 'polygon',
+  avalanche: 'avalanche',
+  robinhood: 'robinhood',
+  solana: 'solana',
+};
+
+/**
+ * Normalize EVM address → lowercase 0x + 40 hex (DexScreener-friendly).
+ * Accepts with/without 0x, mixed case.
+ */
+function normalizeEvmAddress(addr) {
+  let a = String(addr || '').trim();
+  if (!a) return '';
+  // strip wrappers / query noise
+  a = a.split('?')[0].split('#')[0].trim();
+  if (/^0x[a-fA-F0-9]{40}$/i.test(a)) return a.toLowerCase();
+  // bare 40 hex without 0x
+  if (/^[a-fA-F0-9]{40}$/i.test(a)) return `0x${a.toLowerCase()}`;
+  return '';
 }
 
 function looksLikeContractAddress(addr) {
   const a = String(addr || '').trim();
   if (!a) return false;
-  if (/^0x[a-fA-F0-9]{40}$/i.test(a)) return true;
+  if (normalizeEvmAddress(a)) return true;
   // Solana mint / base58 (not a short CEX ticker like FLOCK)
-  if (a.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(a)) return true;
+  if (a.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(a) && !a.startsWith('0x')) return true;
   return false;
 }
 
 /**
- * DexScreener token/pair chart page for non-Solana chains.
+ * Build a guaranteed DexScreener chart URL for a chain + contract/pair.
+ * Prefer token contract; fall back to pair address.
  * e.g. https://dexscreener.com/base/0x7af45d…
  */
 function getDexScreenerTokenUrl(chain, address, pairAddress = '') {
   const c = normalizeMarketChain(chain);
-  const tokenAddr = String(address || '').trim();
-  const pairAddr = String(pairAddress || '').trim();
-  // Prefer token contract; pair also opens a valid chart page
-  const pathAddr = looksLikeContractAddress(tokenAddr)
-    ? tokenAddr
-    : looksLikeContractAddress(pairAddr)
-      ? pairAddr
-      : '';
+  const slug = DEXSCREENER_CHAIN_SLUG[c];
+  if (!slug || slug === 'solana') return ''; // Solana detail uses GMGN
 
-  const dexSlug = {
-    ethereum: 'ethereum',
-    base: 'base',
-    bsc: 'bsc',
-    arbitrum: 'arbitrum',
-    optimism: 'optimism',
-    polygon: 'polygon',
-    avalanche: 'avalanche',
-    robinhood: 'robinhood',
-    solana: 'solana',
-  }[c];
+  const tokenNorm = normalizeEvmAddress(address);
+  const pairNorm = normalizeEvmAddress(pairAddress);
+  // Non-EVM style addresses (rare on RH etc.)
+  const rawToken = String(address || '').trim();
+  const rawPair = String(pairAddress || '').trim();
 
-  if (dexSlug && pathAddr) {
-    return `https://dexscreener.com/${dexSlug}/${pathAddr}`;
+  let pathAddr = tokenNorm || pairNorm;
+  if (!pathAddr && looksLikeContractAddress(rawToken) && !rawToken.startsWith('0x')) {
+    pathAddr = rawToken;
   }
-  return '';
+  if (!pathAddr && looksLikeContractAddress(rawPair) && !rawPair.startsWith('0x')) {
+    pathAddr = rawPair;
+  }
+
+  if (!pathAddr) return '';
+  return `https://dexscreener.com/${slug}/${pathAddr}`;
 }
 
 /**
- * GMGN Solana token market page.
+ * Parse a dexscreener.com URL → { chain, address } if valid chart path.
+ */
+function parseDexScreenerUrl(url) {
+  const m = String(url || '').match(
+    /dexscreener\.com\/([a-z0-9-]+)\/(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,})/i
+  );
+  if (!m) return null;
+  return { chain: m[1].toLowerCase(), address: m[2] };
+}
+
+/**
+ * GMGN Solana token market page only.
  * e.g. https://gmgn.ai/sol/token/{mint}
  */
 function getGmgnSolanaUrl(address) {
   const addr = String(address || '').trim();
-  if (!looksLikeContractAddress(addr)) return '';
+  if (!looksLikeContractAddress(addr) || addr.startsWith('0x')) return '';
   return `https://gmgn.ai/sol/token/${addr}`;
 }
 
@@ -347,53 +387,87 @@ function getGmgnUrl(chain, address) {
 }
 
 /**
- * Memecoin + Othercoin 详情点击统一路由：
+ * Memecoin + Othercoin 详情点击统一路由（强制有效链接）：
  *   - Solana  → GMGN 该合约行情页
- *   - 其余链  → DexScreener 该合约/交易对行情页
- * Accepts token object or (chain, address).
+ *   - 所有 EVM / 非 Sol  → DexScreener 该合约行情页
+ *                绝不落到 gmgn.ai/base|bsc|eth（那是数据源 url，不是详情策略）
+ * Accepts token object or (chain, address[, pairAddress]).
+ * Optional 3rd arg: boardChain (selected tab) when token.chain missing.
  */
-function getTokenMarketDetailUrl(tokenOrChain, addressMaybe) {
+function getTokenMarketDetailUrl(tokenOrChain, addressMaybe, pairOrBoardMaybe) {
   let chain = '';
   let address = '';
   let pairAddress = '';
   let symbol = '';
   let existingUrl = '';
+  let boardChain = '';
 
   if (tokenOrChain && typeof tokenOrChain === 'object') {
     const t = tokenOrChain;
     chain = normalizeMarketChain(t.chain);
-    address = String(t.address || '').trim();
-    pairAddress = String(t.pairAddress || '').trim();
+    address = String(t.address || t.tokenAddress || t.baseAddress || '').trim();
+    pairAddress = String(t.pairAddress || t.poolAddress || '').trim();
     symbol = String(t.symbol || t.name || '').replace(/USDT$/i, '').trim();
-    existingUrl = String(t.url || '').trim();
+    existingUrl = String(t.url || t.dexscreenerUrl || t.marketUrl || '').trim();
+    // Prefer selected board when token.chain empty/wrong
+    boardChain = normalizeMarketChain(
+      typeof addressMaybe === 'string' && !addressMaybe.startsWith('0x')
+        ? addressMaybe
+        : (typeof state !== 'undefined' ? state.currentChain : '')
+    );
   } else {
     chain = normalizeMarketChain(tokenOrChain);
     address = String(addressMaybe || '').trim();
+    pairAddress = String(pairOrBoardMaybe || '').trim();
   }
 
-  // --- Solana → GMGN ---
+  if (!chain && boardChain) chain = boardChain;
+  // If still empty but board is EVM, use board (fixes Base tab tokens missing chain stamp)
+  if (!chain && typeof state !== 'undefined') {
+    chain = normalizeMarketChain(state.currentChain);
+  }
+
+  // --- Solana → GMGN only ---
   if (chain === 'solana') {
-    const gmgn = getGmgnSolanaUrl(address) || getGmgnSolanaUrl(pairAddress);
+    const mint = looksLikeContractAddress(address) && !normalizeEvmAddress(address)
+      ? address
+      : looksLikeContractAddress(pairAddress) && !normalizeEvmAddress(pairAddress)
+        ? pairAddress
+        : '';
+    const gmgn = getGmgnSolanaUrl(mint || address);
     if (gmgn) return gmgn;
   }
 
-  // --- Other networks → DexScreener ---
-  // Reuse backend-resolved DS chart URL when already on the right chain (non-sol)
-  if (
-    chain !== 'solana' &&
-    existingUrl &&
-    /dexscreener\.com\/[a-z0-9-]+\/(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,})/i.test(existingUrl) &&
-    !/dexscreener\.com\/solana\//i.test(existingUrl)
-  ) {
-    return existingUrl;
+  // --- EVM / non-Solana → ALWAYS DexScreener (ignore gmgn.ai urls from API) ---
+  const isEvm = EVM_DEXSCREENER_CHAINS.has(chain) || chain === 'base' || chain === 'bsc' || chain === 'ethereum';
+
+  // Only reuse existing URL if it is already a valid DexScreener chart for this chain
+  if (isEvm || (chain && chain !== 'solana')) {
+    const parsed = parseDexScreenerUrl(existingUrl);
+    if (parsed) {
+      const parsedChain = normalizeMarketChain(parsed.chain);
+      // Accept if same chain family, or existing DS url when chain unknown
+      if (!chain || parsedChain === chain || DEXSCREENER_CHAIN_SLUG[parsedChain] === DEXSCREENER_CHAIN_SLUG[chain]) {
+        const rebuilt = getDexScreenerTokenUrl(parsedChain || chain, parsed.address, '');
+        if (rebuilt) return rebuilt;
+      }
+    }
+
+    // Build from contract — force DexScreener, never GMGN for Base/ETH/BSC/…
+    const ds = getDexScreenerTokenUrl(chain, address, pairAddress);
+    if (ds) return ds;
+
+    // Try extract 0x from any url field (including gmgn.ai/base/token/0x…)
+    const fromGmgnPath = String(existingUrl).match(/0x[a-fA-F0-9]{40}/i);
+    if (fromGmgnPath && chain) {
+      const ds2 = getDexScreenerTokenUrl(chain, fromGmgnPath[0], '');
+      if (ds2) return ds2;
+    }
   }
 
-  const ds = getDexScreenerTokenUrl(chain, address, pairAddress);
-  if (ds) return ds;
-
-  // multi / CEX stub without on-chain address
-  if (existingUrl && existingUrl.includes('dexscreener.com')) return existingUrl;
-  const q = symbol || address || pairAddress || '';
+  // multi / CEX stub without on-chain address → search (last resort)
+  if (existingUrl && /dexscreener\.com\/search/i.test(existingUrl)) return existingUrl;
+  const q = symbol || normalizeEvmAddress(address) || address || pairAddress || '';
   return q
     ? `https://dexscreener.com/search?q=${encodeURIComponent(q)}`
     : 'https://dexscreener.com/';
@@ -401,7 +475,7 @@ function getTokenMarketDetailUrl(tokenOrChain, addressMaybe) {
 
 /** Button label for market detail link */
 function getMarketDetailLabel(chain) {
-  return normalizeMarketChain(chain) === 'solana' ? 'GMGN' : '图表';
+  return normalizeMarketChain(chain) === 'solana' ? 'GMGN' : 'DexScreener';
 }
 
 /**
@@ -1143,11 +1217,12 @@ function renderMemecoinTokenRows(tokens) {
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1;
     const iconHtml = getTokenIcon(token);
-    // Use token's actual chain for URLs, NOT state.currentChain
-    const tokenChain = token.chain || state.currentChain;
+    // Prefer token.chain; fall back to selected board so Base tab never loses chain stamp
+    const tokenChain = normalizeMarketChain(token.chain || state.currentChain) || state.currentChain;
+    const tokenForLink = { ...token, chain: tokenChain };
     const explorerUrl = getExplorerUrl(tokenChain, token.address);
-    // 详情/行情：Solana→GMGN，其余链→DexScreener
-    const marketUrl = getTokenMarketDetailUrl(token);
+    // 详情/行情：Solana→GMGN，所有 EVM（含 Base）→ DexScreener 合约页
+    const marketUrl = getTokenMarketDetailUrl(tokenForLink);
     const marketLabel = getMarketDetailLabel(tokenChain);
     const buyPercent = calculateBuyPercent(token);
     const chainBadge = getChainBadgeHtml(tokenChain);
@@ -1166,7 +1241,7 @@ function renderMemecoinTokenRows(tokens) {
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
           <span class="token-name">${token.name || shortAddress(token.address)} ${qualityHtml}</span>
-          <div class="token-links"><a href="${marketUrl}" target="_blank" rel="noopener" class="token-link" title="${tokenChain === 'solana' || tokenChain === 'sol' ? 'GMGN 行情' : 'DexScreener 行情'}">${marketLabel}</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">📋</button></div>
+          <div class="token-links"><a href="${marketUrl}" target="_blank" rel="noopener" class="token-link" title="${marketUrl}">${marketLabel}</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">📋</button></div>
         </div>
         ${chainBadge}
       </div>
@@ -1178,7 +1253,7 @@ function renderMemecoinTokenRows(tokens) {
       <div class="td fdv-cell">${formatCompact(token.fdv)}</div>
       <div class="td txns-cell">${token.txns24h?.total != null ? formatTxns(token.txns24h.total) : '--'}</div>
       <div class="td trades-cell"><div class="buy-sell-bar"><div class="buys" style="width:${buyPercent}%"></div></div><span class="buy-sell-ratio">${buyPercent.toFixed(0)}%</span></div>
-      <div class="td actions-cell"><a href="${marketUrl}" target="_blank" rel="noopener" class="action-btn primary" title="行情详情">${marketLabel === 'GMGN' ? '行情' : '详情'}</a><a href="${explorerUrl}" target="_blank" rel="noopener" class="action-btn">链上</a></div>`;
+      <div class="td actions-cell"><a href="${marketUrl}" target="_blank" rel="noopener" class="action-btn primary" title="${marketUrl}">详情</a><a href="${explorerUrl}" target="_blank" rel="noopener" class="action-btn">链上</a></div>`;
     fragment.appendChild(row);
   });
   dom.tokenList.innerHTML = '';
@@ -1426,14 +1501,17 @@ function renderMemecoinMonitoring() {
     card.style.animationDelay = `${cardIndex * 0.05}s`;
     cardIndex++;
     const dotClass = getChainDotClass(tracked.chain);
-    const explorerUrl = getExplorerUrl(tracked.chain, tracked.address);
+    const trackedChain = normalizeMarketChain(tracked.chain || state.currentChain) || tracked.chain;
+    const explorerUrl = getExplorerUrl(trackedChain, tracked.address);
     const marketUrl = getTokenMarketDetailUrl({
-      chain: tracked.chain,
+      chain: trackedChain,
       address: tracked.address,
       pairAddress: tracked.pairAddress,
       symbol: tracked.symbol,
+      url: tracked.url,
+      dexscreenerUrl: tracked.dexscreenerUrl,
     });
-    const marketLabel = getMarketDetailLabel(tracked.chain);
+    const marketLabel = getMarketDetailLabel(trackedChain);
     card.innerHTML = `
       <div class="monitor-card-top">
         <div class="monitor-token-group">
@@ -1709,11 +1787,12 @@ function renderOthercoinTokenRows(tokens) {
     const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
     const iconHtml = getTokenIcon(token);
     const chainBadge = getChainBadgeHtml(token.chain || 'multi');
-    // 详情：Solana→GMGN，其余→DexScreener（与 Memecoin 同一规则）
-    const marketUrl = getTokenMarketDetailUrl(token);
-    const marketLabel = getMarketDetailLabel(token.chain);
+    // 详情：Solana→GMGN，其余 EVM→DexScreener（与 Memecoin 同一规则）
+    const otherChain = normalizeMarketChain(token.chain || 'multi') || token.chain;
+    const marketUrl = getTokenMarketDetailUrl({ ...token, chain: otherChain });
+    const marketLabel = getMarketDetailLabel(otherChain);
     const pairHint =
-      normalizeMarketChain(token.chain) === 'solana'
+      otherChain === 'solana'
         ? 'GMGN Solana 合约行情'
         : token.pairLabel || token.dexId
           ? `${token.dexId || 'DEX'}${token.pairLabel ? ' · ' + token.pairLabel : ''}`
