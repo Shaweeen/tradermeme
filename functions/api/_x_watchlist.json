@@ -1,7 +1,7 @@
 {
-  "version": 3,
-  "name": "memecoin-signal-x-reference-pool",
-  "role": "When Memecoin emits a signal, search/check only against this unique X handle pool (one username per account).",
+  "version": 4,
+  "name": "shared-x-reference-pool",
+  "role": "Shared unique X username pool: Memecoin signal checks + Othercoin social/reference conditions. One handle per account.",
   "maxHandles": 500,
   "updatedAt": "2026-07-16",
   "count": 266,
@@ -272,5 +272,9 @@
     "JoepegNFT",
     "SynapseProtocol",
     "StargateFinance"
+  ],
+  "sharedWith": [
+    "memecoin",
+    "othercoin"
   ]
 }

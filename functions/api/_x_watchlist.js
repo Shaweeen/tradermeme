@@ -1,8 +1,16 @@
 /**
- * Memecoin signal X reference pool — unique usernames only (max 500).
- * No duplicate accounts. Matching is case-insensitive.
- * Used when Memecoin emits a signal: search/check against this pool only.
+ * Shared X reference pool — unique usernames only (max 500).
+ *
+ * One account → one handle (case-insensitive, no duplicates).
+ * SHARED by:
+ *   - Memecoin: when emitting realtime signals, search/check this pool
+ *   - Othercoin: same pool as optional community / social reference conditions
+ *
+ * Import: `import { matchWatchlist, getWatchlistSet, getWatchlistMeta } from './_x_watchlist.js'`
  */
+
+/** Modules that may use this pool as shared reference conditions */
+const SHARED_WITH = ['memecoin', 'othercoin'];
 
 const MAX_HANDLES = 500;
 
@@ -326,13 +334,23 @@ function matchWatchlist(candidates = []) {
 
 function getWatchlistMeta() {
   return {
-    version: 3,
-    name: 'memecoin-signal-x-reference-pool',
+    version: 4,
+    name: 'shared-x-reference-pool',
     count: getWatchlistHandles().length,
     maxHandles: MAX_HANDLES,
-    role: 'memecoin-signal-reference-pool',
+    /** Shared reference conditions — memecoin signals + othercoin social checks */
+    role: 'shared-signal-reference-pool',
+    sharedWith: [...SHARED_WITH],
     updatedAt: '2026-07-16',
   };
+}
+
+/**
+ * Whether a product module may use this pool.
+ * @param {'memecoin'|'othercoin'|string} moduleId
+ */
+function isSharedFor(moduleId) {
+  return SHARED_WITH.includes(String(moduleId || '').toLowerCase());
 }
 
 // Back-compat alias: HANDLES as objects if something expected rank rows
@@ -342,9 +360,11 @@ export {
   HANDLES,
   HANDLE_ROWS,
   MAX_HANDLES,
+  SHARED_WITH,
   getWatchlistHandles,
   getWatchlistSet,
   matchWatchlist,
   normalizeHandle,
   getWatchlistMeta,
+  isSharedFor,
 };

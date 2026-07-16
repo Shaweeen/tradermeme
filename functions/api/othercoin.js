@@ -11,6 +11,10 @@
  *   - CoinGecko API: Metadata (name, logo, market cap) for discovered coins
  *   - DexScreener: Robinhood Chain (and optional other L2) on-chain pairs
  *
+ * Shared reference (with Memecoin):
+ *   - `./_x_watchlist.js` — unique X username pool for social/reference checks
+ *     (import matchWatchlist / getWatchlistSet when wiring community conditions)
+ *
  * Endpoints:
  *   GET /api/othercoin                - CEX futures signals + Robinhood chain
  *   GET /api/othercoin?chain=multi    - CEX futures only
