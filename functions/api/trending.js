@@ -547,14 +547,15 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
 
   const merged = Array.from(mergedMap.values())
     .sort((a, b) => {
-      // Prefer real 24h USD volume, then liquidity, then smart money
-      const bVol = Number(b.volume24h || b.volume1h || 0);
-      const aVol = Number(a.volume24h || a.volume1h || 0);
-      if (bVol !== aVol) return bVol - aVol;
-      const bLiq = Number(b.liquidity || 0);
-      const aLiq = Number(a.liquidity || 0);
-      if (bLiq !== aLiq) return bLiq - aLiq;
-      return (Number(b.smartCount) || 0) - (Number(a.smartCount) || 0);
+      // Prefer GMGN rows, then 24h volume / liquidity / smart count
+      const rankScore = (t) => {
+        const gmgn = t.source === 'gmgn-openapi' ? 1e15 : 0;
+        const vol = Number(t.volume24h || t.volume1h || 0);
+        const liq = Number(t.liquidity || 0);
+        const smart = Number(t.smartCount || 0) * 1e3;
+        return gmgn + vol + liq * 0.1 + smart;
+      };
+      return rankScore(b) - rankScore(a);
     })
     .slice(0, limit);
 
