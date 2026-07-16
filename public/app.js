@@ -285,9 +285,11 @@ function getChainDotClass(chain) {
 }
 
 function getApiUrl(path) {
-  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-  const liveOrigin = 'https://tradermeme.pages.dev';
-  return `${isLocal ? liveOrigin : ''}${path}`;
+  // Always same-origin so local (127.0.0.1:8788) hits local API with Robinhood support.
+  // Old logic forced local UI → tradermeme.pages.dev (stale production without robinhood).
+  // Optional override: window.MEMECOIN_API_ORIGIN = 'https://tradermeme.pages.dev'
+  const origin = (typeof window !== 'undefined' && window.MEMECOIN_API_ORIGIN) || '';
+  return `${origin}${path}`;
 }
 
 function formatDuration(ms) {
