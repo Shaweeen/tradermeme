@@ -5,14 +5,24 @@
   "main": "functions/api/trending.js",
   "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev public --binding --port 8788",
+    "dev": "node scripts/local-dev.mjs",
+    "dev:wrangler": "wrangler pages dev public --port 8788 --ip 127.0.0.1",
     "deploy": "wrangler pages deploy public --project-name tradermeme --branch main",
     "build": "echo 'Static site, no build step needed'",
     "test": "node tests/signal-engine.test.mjs && node tests/tracking-storage.test.mjs && node tests/monitor-enrichment.test.mjs && node tests/archive-copy-static.test.mjs && node tests/visual-polish-static.test.mjs"
   },
-  "keywords": ["memecoin", "solana", "base", "bsc", "gmgn", "crypto", "dashboard"],
+  "keywords": [
+    "memecoin",
+    "solana",
+    "base",
+    "bsc",
+    "gmgn",
+    "crypto",
+    "dashboard"
+  ],
   "license": "MIT",
   "devDependencies": {
+    "undici": "^8.7.0",
     "wrangler": "^4.0.0"
   }
 }

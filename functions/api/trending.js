@@ -297,35 +297,135 @@ async function mergeDiscoveryChannels(gmgnMod, apiKey, gmgnSlug, chain, tokens, 
 }
 
 /**
- * Try GMGN first, fall back to DexScreener.
+ * Merge backup tokens into existing list by address (keep GMGN rows on conflict).
+ */
+function mergeTokenLists(primary, backup, limit) {
+  const map = new Map();
+  for (const t of primary || []) {
+    const k = String(t.address || '').toLowerCase();
+    if (k) map.set(k, t);
+  }
+  for (const t of backup || []) {
+    const k = String(t.address || '').toLowerCase();
+    if (!k || map.has(k)) continue;
+    map.set(k, t);
+    if (map.size >= limit + 10) break;
+  }
+  return Array.from(map.values()).slice(0, Math.max(limit, map.size));
+}
+
+/**
+ * Rotating public backups when GMGN is empty/thin.
+ * Order: DexScreener multi-query → GeckoTerminal trending pools.
+ */
+async function fillFromBackupSources(chain, limit, existingTokens, quality) {
+  const sparse = (existingTokens?.length || 0) < Math.min(8, Math.ceil(limit / 2));
+  if (!sparse) return existingTokens;
+
+  let tokens = existingTokens || [];
+  const target = Math.max(limit, 15);
+  const dexMod = await initDex();
+
+  // Sequential rotation: Dex first (search-heavy), then GeckoTerminal if still sparse
+  try {
+    const dexData = await dexMod.getTrendingPairs(chain, target);
+    if (dexData.sourcesUsed?.length) {
+      quality.backupSources = quality.backupSources || [];
+      quality.backupSources.push(...dexData.sourcesUsed.map((s) => `${chain}:${s}`));
+    }
+    if (dexData.errors?.length) {
+      quality.warnings.push(`Dex ${chain}: ${dexData.errors.slice(0, 3).join(' | ')}`);
+    }
+    if (Array.isArray(dexData.tokens) && dexData.tokens.length) {
+      const transformed = dexMod.transformDexScreenerPairs(dexData.tokens, chain);
+      const before = tokens.length;
+      tokens = mergeTokenLists(tokens, transformed, target);
+      if (tokens.length > before) {
+        quality.primarySource = quality.primarySource === 'gmgn-openapi' || quality.primarySource === 'gmgn+dex'
+          ? 'gmgn+dex'
+          : quality.primarySource === 'none'
+            ? 'dexscreener'
+            : quality.primarySource;
+        console.log(`Backup Dex filled ${chain}: ${before} → ${tokens.length} via ${dexData.sourcesUsed?.join(',')}`);
+      }
+    }
+  } catch (e) {
+    quality.warnings.push(`Dex ${chain} rotate fail: ${e.message}`);
+  }
+
+  if (tokens.length < Math.min(8, limit) && chain !== 'robinhood') {
+    try {
+      const gt = await import('./_geckoterminal.js');
+      const gtData = await gt.getTrendingPools(chain, target);
+      if (gtData.error) quality.warnings.push(`GeckoTerminal ${chain}: ${gtData.error}`);
+      if (Array.isArray(gtData.tokens) && gtData.tokens.length) {
+        const transformed = dexMod.transformDexScreenerPairs(
+          gtData.tokens.map((p) => ({ ...p, _source: 'geckoterminal' })),
+          chain
+        ).map((t) => ({
+          ...t,
+          source: 'geckoterminal',
+          dataQuality: 'gt-fallback',
+          discoverySources: ['geckoterminal'],
+        }));
+        const before = tokens.length;
+        tokens = mergeTokenLists(tokens, transformed, target);
+        if (tokens.length > before) {
+          quality.backupSources = quality.backupSources || [];
+          quality.backupSources.push(`${chain}:geckoterminal`);
+          if (quality.primarySource === 'none') quality.primarySource = 'geckoterminal';
+          else if (!String(quality.primarySource).includes('gt')) {
+            quality.primarySource = `${quality.primarySource}+gt`;
+          }
+          console.log(`Backup GT filled ${chain}: ${before} → ${tokens.length}`);
+        }
+      }
+    } catch (e) {
+      quality.warnings.push(`GeckoTerminal ${chain} fail: ${e.message}`);
+    }
+  }
+
+  return tokens.map((t) => {
+    if (t.source === 'gmgn-openapi' || t.dataQuality === 'gmgn-enriched') return t;
+    return {
+      ...t,
+      hasSmartMoneyData: t.hasSmartMoneyData === true,
+      securityChecked: !!t.securityChecked,
+      dataQuality: t.dataQuality || 'backup',
+    };
+  });
+}
+
+/**
+ * GMGN primary → if empty/sparse, rotate DexScreener → GeckoTerminal.
  * Returns { tokens, quality } for frontend signal gating.
  */
 async function getTrendingMemecoins(context, chain, limit = 30) {
   const chainsToFetch = chain === 'all' ? Object.keys(CHAIN_MAP) : [chain];
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnMod = await initGmgn();
-  const dexMod = await initDex();
   const quality = {
     primarySource: 'none',
     hasApiKey: !!apiKey,
     hasSmartMoneyData: false,
     securityChecked: 0,
     discovery: {},
+    backupSources: [],
     warnings: [],
   };
 
-  if (!apiKey) quality.warnings.push('GMGN_API_KEY missing — using public fallback only');
+  if (!apiKey) quality.warnings.push('GMGN_API_KEY missing — using public backup rotation only');
 
   const allResults = await Promise.allSettled(
     chainsToFetch.map(async (c) => {
       const gmgnSlug = CHAIN_MAP[c]?.gmgn;
-      const dexSlug = CHAIN_MAP[c]?.dexscreener;
 
       try {
         let tokens = [];
         let chainSmart = false;
         let chainSec = 0;
 
+        // --- Primary: GMGN ---
         if (gmgnSlug && apiKey) {
           try {
             const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
@@ -341,6 +441,8 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
               quality.discovery[c] = disc.discoveryMeta;
               quality.primarySource = 'gmgn-openapi';
               console.log(`GMGN returned ${tokens.length} tokens for ${c} (smart=${chainSmart}, sec=${chainSec})`);
+            } else {
+              quality.warnings.push(`GMGN ${c}: empty rank — rotating backups`);
             }
           } catch (gmgnErr) {
             console.error(`GMGN error for ${c}:`, gmgnErr.message);
@@ -348,25 +450,17 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
           }
         }
 
-        if (tokens.length === 0 && dexSlug) {
-          try {
-            const dexData = await dexMod.getTrendingPairs(c, limit);
-            if (dexData && Array.isArray(dexData.tokens) && dexData.tokens.length > 0) {
-              tokens = dexMod.transformDexScreenerPairs(dexData.tokens, c).map((t) => ({
-                ...t,
-                hasSmartMoneyData: false,
-                securityChecked: false,
-                dataQuality: 'dex-fallback',
-                discoverySources: ['dexscreener'],
-              }));
-              if (quality.primarySource === 'none') quality.primarySource = 'dexscreener';
-              else if (quality.primarySource === 'gmgn-openapi') quality.primarySource = 'gmgn+dex';
-              quality.warnings.push(`${c}: DexScreener fallback (no smart-money enrichment)`);
-              console.log(`DexScreener returned ${tokens.length} tokens for ${c}`);
-            }
-          } catch (dexErr) {
-            console.error(`DexScreener error for ${c}:`, dexErr.message);
-            quality.warnings.push(`Dex ${c}: ${dexErr.message}`);
+        // --- Backup rotation: when empty OR sparse ---
+        const beforeBackup = tokens.length;
+        const sparse = beforeBackup < Math.min(8, Math.ceil(limit / 2));
+        if (beforeBackup === 0 || sparse) {
+          tokens = await fillFromBackupSources(c, limit, tokens, quality);
+          if (tokens.length === 0) {
+            quality.warnings.push(`${c}: all sources empty after rotation`);
+          } else if (beforeBackup === 0) {
+            quality.warnings.push(`${c}: filled ${tokens.length} via public backups (no GMGN primary)`);
+          } else if (tokens.length > beforeBackup) {
+            quality.warnings.push(`${c}: GMGN sparse (${beforeBackup}) → backups top-up (${tokens.length})`);
           }
         }
 
