@@ -33,6 +33,8 @@ const CHAIN_MAP = {
   ethereum: { gmgn: null, dexscreener: 'ethereum', label: 'Ethereum', icon: '🔷' },
   base: { gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
   bsc: { gmgn: 'bsc', dexscreener: 'bsc', label: 'BSC', icon: '🟡' },
+  // Robinhood Chain (mainnet 4663). DexScreener: robinhood; GMGN may lag — Dex fallback always on.
+  robinhood: { gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '🟢' },
 };
 
 const CACHE_SHORT = 30;
@@ -104,45 +106,215 @@ function transformGmgnRank(data, chain, gmgnSlug) {
     isBan: t.is_ban || false,
     isRug: t.is_rug || false,
     isHoneypot: t.is_honeypot || false,
+    securityChecked: false,
+    hasSmartMoneyData: false,
+    dataQuality: 'rank-only',
+    discoverySources: ['rank'],
   }));
 }
 
-async function enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens) {
-  if (!apiKey || !gmgnSlug || !Array.isArray(tokens) || tokens.length === 0) return tokens;
-  const withTimeout = (promise, label, ms = 3000) => Promise.race([
+function withTimeout(promise, label, ms = 3500) {
+  return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
   ]);
+}
+
+/** Normalize GMGN security payload into token risk flags. */
+function applySecurityPayload(token, payload) {
+  if (!payload || typeof payload !== 'object') return token;
+  const sec = payload.data?.data || payload.data || payload.security || payload;
+  const isHoneypot = !!(sec.is_honeypot ?? sec.isHoneypot ?? sec.honeypot ?? token.isHoneypot);
+  const isRug = !!(sec.is_rug ?? sec.isRug ?? sec.rug ?? token.isRug);
+  const isBan = !!(sec.is_ban ?? sec.isBan ?? token.isBan);
+  const top10 = parseFloat(sec.top_10_holder_rate ?? sec.top10 ?? sec.top_10 ?? token.top10Holders) || 0;
+  const renounced = sec.renounced ?? sec.is_renounced;
+  const canSell = sec.can_sell ?? sec.sellable;
+  return {
+    ...token,
+    isHoneypot,
+    isRug,
+    isBan,
+    top10Holders: top10 || token.top10Holders || 0,
+    securityChecked: true,
+    security: {
+      renounced: renounced == null ? null : !!renounced,
+      canSell: canSell == null ? null : !!canSell,
+      rawFlags: {
+        isHoneypot,
+        isRug,
+        isBan,
+      },
+    },
+  };
+}
+
+/**
+ * Enrich rank tokens with multi-group token_signal + smartmoney + kol.
+ * Phase A: signal groups 12 (smart money) + 14/16 (large buys / related).
+ */
+async function enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens) {
+  const meta = {
+    signalOk: false,
+    smartOk: false,
+    kolOk: false,
+    securityChecked: 0,
+    hasSmartMoneyData: false,
+  };
+  if (!apiKey || !gmgnSlug || !Array.isArray(tokens) || tokens.length === 0) {
+    return { tokens, meta };
+  }
+
+  // Official multi-group pattern: smart money OR large-buy style signals
+  const signalGroups = [
+    { signal_type: [12] },
+    { signal_type: [14, 16] },
+  ];
+
   try {
     const [signalResult, smartResult, kolResult] = await Promise.allSettled([
-      withTimeout(gmgnMod.getTokenSignalV2(apiKey, gmgnSlug, [{ signal_type: [12] }]), 'token_signal'),
-      withTimeout(gmgnMod.getSmartMoney(apiKey, gmgnSlug, 120), 'smartmoney'),
-      withTimeout(gmgnMod.getKol(apiKey, gmgnSlug, 120), 'kol'),
+      withTimeout(gmgnMod.getTokenSignalV2(apiKey, gmgnSlug, signalGroups), 'token_signal', 4000),
+      withTimeout(gmgnMod.getSmartMoney(apiKey, gmgnSlug, 120), 'smartmoney', 4000),
+      withTimeout(gmgnMod.getKol(apiKey, gmgnSlug, 120), 'kol', 4000),
     ]);
-    const enriched = applyMonitorSignalEnrichment(tokens, {
-      tokenSignals: signalResult.status === 'fulfilled' ? signalResult.value : [],
-      smartTrades: smartResult.status === 'fulfilled' ? smartResult.value : [],
-      kolTrades: kolResult.status === 'fulfilled' ? kolResult.value : [],
+
+    meta.signalOk = signalResult.status === 'fulfilled';
+    meta.smartOk = smartResult.status === 'fulfilled';
+    meta.kolOk = kolResult.status === 'fulfilled';
+    if (!meta.signalOk) console.warn(`GMGN token_signal failed: ${signalResult.reason?.message || signalResult.reason}`);
+    if (!meta.smartOk) console.warn(`GMGN smartmoney failed: ${smartResult.reason?.message || smartResult.reason}`);
+    if (!meta.kolOk) console.warn(`GMGN kol failed: ${kolResult.reason?.message || kolResult.reason}`);
+
+    let enriched = applyMonitorSignalEnrichment(tokens, {
+      tokenSignals: meta.signalOk ? signalResult.value : [],
+      smartTrades: meta.smartOk ? smartResult.value : [],
+      kolTrades: meta.kolOk ? kolResult.value : [],
     });
-    if (signalResult.status === 'rejected') console.warn(`GMGN monitor token-signal enrichment failed: ${signalResult.reason?.message || signalResult.reason}`);
-    if (smartResult.status === 'rejected') console.warn(`GMGN smartmoney trade enrichment failed: ${smartResult.reason?.message || smartResult.reason}`);
-    if (kolResult.status === 'rejected') console.warn(`GMGN KOL trade enrichment failed: ${kolResult.reason?.message || kolResult.reason}`);
-    return enriched;
+
+    meta.hasSmartMoneyData = meta.signalOk || meta.smartOk || meta.kolOk;
+    enriched = enriched.map((t) => ({
+      ...t,
+      hasSmartMoneyData: meta.hasSmartMoneyData,
+      dataQuality: meta.hasSmartMoneyData ? 'gmgn-enriched' : 'rank-only',
+    }));
+
+    // Security for top N only (latency budget)
+    const securityN = Math.min(12, enriched.length);
+    const secResults = await Promise.allSettled(
+      enriched.slice(0, securityN).map((t) =>
+        withTimeout(gmgnMod.getTokenSecurity(apiKey, gmgnSlug, t.address), `security:${t.symbol}`, 2800)
+      )
+    );
+    enriched = enriched.map((t, i) => {
+      if (i >= securityN) return t;
+      if (secResults[i].status !== 'fulfilled') return t;
+      meta.securityChecked += 1;
+      return applySecurityPayload(t, secResults[i].value);
+    });
+
+    return { tokens: enriched, meta };
   } catch (e) {
     console.warn(`GMGN monitor enrichment skipped: ${e.message}`);
-    return tokens;
+    return {
+      tokens: tokens.map((t) => ({ ...t, hasSmartMoneyData: false, dataQuality: 'rank-only' })),
+      meta,
+    };
   }
+}
+
+/** Merge trenches + hot_searches discovery addresses into rank list tags / append. */
+async function mergeDiscoveryChannels(gmgnMod, apiKey, gmgnSlug, chain, tokens, limit) {
+  const discoveryMeta = { trenches: 0, hotSearches: 0 };
+  if (!apiKey || !gmgnSlug) return { tokens, discoveryMeta };
+
+  const [trenchRes, hotRes] = await Promise.allSettled([
+    withTimeout(gmgnMod.getTrenches(apiKey, gmgnSlug, { limit: 20 }), 'trenches', 4000),
+    withTimeout(gmgnMod.getHotSearches(apiKey, { chain: gmgnSlug, interval: '1h', limit: 20 }), 'hot_searches', 4000),
+  ]);
+
+  const byAddr = new Map(tokens.map((t) => [String(t.address || '').toLowerCase(), t]));
+
+  function pickList(payload) {
+    if (!payload) return [];
+    if (Array.isArray(payload)) return payload;
+    const d = payload.data?.data || payload.data || payload;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.list)) return d.list;
+    if (Array.isArray(d?.rank)) return d.rank;
+    if (Array.isArray(d?.tokens)) return d.tokens;
+    return [];
+  }
+
+  if (trenchRes.status === 'fulfilled') {
+    const list = pickList(trenchRes.value);
+    discoveryMeta.trenches = list.length;
+    for (const raw of list) {
+      const addr = String(raw.address || raw.token_address || raw.base_address || '').toLowerCase();
+      if (!addr) continue;
+      const existing = byAddr.get(addr);
+      if (existing) {
+        existing.discoverySources = [...new Set([...(existing.discoverySources || []), 'trenches'])];
+        existing.fromTrenches = true;
+      } else if (byAddr.size < limit + 15) {
+        const row = transformGmgnRank([raw], chain, gmgnSlug)[0];
+        if (row) {
+          row.discoverySources = ['trenches'];
+          row.fromTrenches = true;
+          row.dataQuality = 'discovery';
+          byAddr.set(addr, row);
+        }
+      }
+    }
+  } else {
+    console.warn(`GMGN trenches failed: ${trenchRes.reason?.message || trenchRes.reason}`);
+  }
+
+  if (hotRes.status === 'fulfilled') {
+    const list = pickList(hotRes.value);
+    discoveryMeta.hotSearches = list.length;
+    for (const raw of list) {
+      const addr = String(raw.address || raw.token_address || raw.base_address || '').toLowerCase();
+      if (!addr) continue;
+      const existing = byAddr.get(addr);
+      if (existing) {
+        existing.discoverySources = [...new Set([...(existing.discoverySources || []), 'hot_search'])];
+        existing.fromHotSearch = true;
+      } else if (byAddr.size < limit + 20) {
+        const row = transformGmgnRank([raw], chain, gmgnSlug)[0];
+        if (row) {
+          row.discoverySources = ['hot_search'];
+          row.fromHotSearch = true;
+          row.dataQuality = 'discovery';
+          byAddr.set(addr, row);
+        }
+      }
+    }
+  } else {
+    console.warn(`GMGN hot_searches failed: ${hotRes.reason?.message || hotRes.reason}`);
+  }
+
+  return { tokens: Array.from(byAddr.values()), discoveryMeta };
 }
 
 /**
  * Try GMGN first, fall back to DexScreener.
- * For chains without GMGN support (ethereum), use DexScreener directly.
+ * Returns { tokens, quality } for frontend signal gating.
  */
 async function getTrendingMemecoins(context, chain, limit = 30) {
   const chainsToFetch = chain === 'all' ? Object.keys(CHAIN_MAP) : [chain];
   const apiKey = context?.env?.GMGN_API_KEY || '';
   const gmgnMod = await initGmgn();
   const dexMod = await initDex();
+  const quality = {
+    primarySource: 'none',
+    hasApiKey: !!apiKey,
+    hasSmartMoneyData: false,
+    securityChecked: 0,
+    discovery: {},
+    warnings: [],
+  };
+
+  if (!apiKey) quality.warnings.push('GMGN_API_KEY missing — using public fallback only');
 
   const allResults = await Promise.allSettled(
     chainsToFetch.map(async (c) => {
@@ -151,38 +323,57 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
 
       try {
         let tokens = [];
+        let chainSmart = false;
+        let chainSec = 0;
 
-        // Try GMGN first (authenticated, richer data)
         if (gmgnSlug && apiKey) {
           try {
             const rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit });
             if (Array.isArray(rankData) && rankData.length > 0) {
               tokens = transformGmgnRank(rankData, c, gmgnSlug);
-              tokens = await enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens);
-              console.log(`GMGN returned ${tokens.length} tokens for ${c}`);
+              const enriched = await enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens);
+              tokens = enriched.tokens;
+              chainSmart = enriched.meta.hasSmartMoneyData;
+              chainSec = enriched.meta.securityChecked || 0;
+
+              const disc = await mergeDiscoveryChannels(gmgnMod, apiKey, gmgnSlug, c, tokens, limit);
+              tokens = disc.tokens;
+              quality.discovery[c] = disc.discoveryMeta;
+              quality.primarySource = 'gmgn-openapi';
+              console.log(`GMGN returned ${tokens.length} tokens for ${c} (smart=${chainSmart}, sec=${chainSec})`);
             }
           } catch (gmgnErr) {
             console.error(`GMGN error for ${c}:`, gmgnErr.message);
+            quality.warnings.push(`GMGN ${c}: ${gmgnErr.message}`);
           }
         }
 
-        // If GMGN returned nothing, try DexScreener as fallback
         if (tokens.length === 0 && dexSlug) {
           try {
             const dexData = await dexMod.getTrendingPairs(c, limit);
             if (dexData && Array.isArray(dexData.tokens) && dexData.tokens.length > 0) {
-              tokens = dexMod.transformDexScreenerPairs(dexData.tokens, c);
+              tokens = dexMod.transformDexScreenerPairs(dexData.tokens, c).map((t) => ({
+                ...t,
+                hasSmartMoneyData: false,
+                securityChecked: false,
+                dataQuality: 'dex-fallback',
+                discoverySources: ['dexscreener'],
+              }));
+              if (quality.primarySource === 'none') quality.primarySource = 'dexscreener';
+              else if (quality.primarySource === 'gmgn-openapi') quality.primarySource = 'gmgn+dex';
+              quality.warnings.push(`${c}: DexScreener fallback (no smart-money enrichment)`);
               console.log(`DexScreener returned ${tokens.length} tokens for ${c}`);
             }
           } catch (dexErr) {
             console.error(`DexScreener error for ${c}:`, dexErr.message);
+            quality.warnings.push(`Dex ${c}: ${dexErr.message}`);
           }
         }
 
-        return { chain: c, tokens };
+        return { chain: c, tokens, chainSmart, chainSec };
       } catch (e) {
         console.error(`Fetch error for ${c}:`, e.message);
-        return { chain: c, tokens: [] };
+        return { chain: c, tokens: [], chainSmart: false, chainSec: 0 };
       }
     })
   );
@@ -190,9 +381,11 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
   const mergedMap = new Map();
   for (const result of allResults) {
     if (result.status !== 'fulfilled') continue;
+    if (result.value.chainSmart) quality.hasSmartMoneyData = true;
+    quality.securityChecked += result.value.chainSec || 0;
     for (const token of result.value.tokens) {
-      const key = token.address.toLowerCase() + ':' + token.chain;
-      mergedMap.set(key, token);
+      const key = String(token.address || '').toLowerCase() + ':' + token.chain;
+      if (!key.startsWith(':')) mergedMap.set(key, token);
     }
   }
 
@@ -201,16 +394,22 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
       const bScore = (b.holders || 0) * 100 +
                      (b.liquidity || 0) +
                      ((b.txns24h?.total || 0) * 10) +
-                     (b.smartCount || 0) * 1000;
+                     (b.smartCount || 0) * 1000 +
+                     ((b.fromTrenches || b.fromHotSearch) ? 5000 : 0);
       const aScore = (a.holders || 0) * 100 +
                      (a.liquidity || 0) +
                      ((a.txns24h?.total || 0) * 10) +
-                     (a.smartCount || 0) * 1000;
+                     (a.smartCount || 0) * 1000 +
+                     ((a.fromTrenches || a.fromHotSearch) ? 5000 : 0);
       return bScore - aScore;
     })
     .slice(0, limit);
 
-  return merged;
+  if (!quality.hasSmartMoneyData) {
+    quality.warnings.push('No smart-money enrichment available — signal engine will require stronger confirmation or skip weak fires');
+  }
+
+  return { tokens: merged, quality };
 }
 
 async function getSmartMoneyActivity(context, chain, limit = 50) {
@@ -338,13 +537,15 @@ export async function onRequest(context) {
     }
 
     try {
-      const tokens = await getTrendingMemecoins(context, chain, limit);
+      const { tokens, quality } = await getTrendingMemecoins(context, chain, limit);
+      const source = quality?.primarySource || (tokens.some((t) => t.source === 'dexscreener') ? 'dexscreener' : 'gmgn-openapi');
       return jsonResponse({
         success: true,
         chain,
         count: tokens.length,
         timestamp: Date.now(),
-        source: tokens.some(t => t.source === 'dexscreener') ? 'dexscreener+gmgn' : 'gmgn-openapi',
+        source,
+        quality: quality || {},
         data: tokens,
       }, 200, { 'Cache-Control': `public, s-maxage=${CACHE_SHORT}` });
     } catch (e) {

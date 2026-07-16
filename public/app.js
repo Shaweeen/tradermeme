@@ -49,14 +49,16 @@ const state = {
   btcSourceMaxRetries: 2,
 };
 
-// ===== Signal Thresholds =====
+// ===== Signal Thresholds (prefer SignalEngine.thresholds when loaded) =====
 const SIGNAL_THRESHOLDS = {
   priceSurge: 15,
-  volumeSpike: 500000,
+  volumeSpike: 500000, // legacy UI only — alerts no longer fire on volume alone
+  volume1hMin: 80000,
   buyPressure: 75,
   aiScore: 62,
   maxAiRisk: 74,
   monitorInflow: 70,
+  monitorMaxRisk: 60,
 };
 
 const TRACKING_STORAGE_KEY = 'coinwatch_memecoin_signal_tracking_v1';
@@ -258,17 +260,27 @@ function getTokenIcon(token) {
 }
 
 function getExplorerUrl(chain, address) {
-  const explorers = { solana: `https://solscan.io/token/${address}`, ethereum: `https://etherscan.io/token/${address}`, base: `https://basescan.org/token/${address}`, bsc: `https://bscscan.com/token/${address}` };
+  const explorers = {
+    solana: `https://solscan.io/token/${address}`,
+    ethereum: `https://etherscan.io/token/${address}`,
+    base: `https://basescan.org/token/${address}`,
+    bsc: `https://bscscan.com/token/${address}`,
+    robinhood: `https://robinhoodchain.blockscout.com/token/${address}`,
+  };
   return explorers[chain] || `https://solscan.io/token/${address}`;
 }
 
 function getGmgnUrl(chain, address) {
-  const slugs = { solana: 'sol', base: 'base', bsc: 'bsc', ethereum: 'eth' };
+  const slugs = { solana: 'sol', base: 'base', bsc: 'bsc', ethereum: 'eth', robinhood: 'robinhood' };
+  if (chain === 'robinhood') {
+    // Prefer DexScreener until GMGN fully indexes Robinhood Chain
+    return `https://dexscreener.com/robinhood/${address}`;
+  }
   return `https://gmgn.ai/${slugs[chain] || 'sol'}/token/${address}`;
 }
 
 function getChainDotClass(chain) {
-  return { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc' }[chain] || 'sol';
+  return { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc', robinhood: 'robinhood', multi: 'multi' }[chain] || 'sol';
 }
 
 function getApiUrl(path) {
@@ -324,16 +336,26 @@ function switchPage(page) {
   });
 
   // Update header
-  const labels = { memecoin: 'Meme 代币监控 · 信号预警', othercoin: 'Coinglass 信号扫描 · 动态收录', bitcoin: 'BTC 市场数据 · Coinglass' };
+  const labels = {
+    memecoin: 'Meme 代币监控 · 含 Robinhood 链',
+    othercoin: '信号扫描 · CEX + Robinhood 链',
+    bitcoin: 'BTC 市场数据 · Coinglass',
+  };
   dom.logoSubtitle.textContent = labels[page] || labels.memecoin;
+
+  // Chain tabs apply to memecoin + othercoin
+  if (dom.chainTabs?.length) {
+    const showChains = page === 'memecoin' || page === 'othercoin';
+    const chainNav = document.getElementById('chainTabs');
+    if (chainNav) chainNav.style.display = showChains ? '' : 'none';
+  }
 
   // Load data for the page
   if (page === 'memecoin') {
-    if (state.tokens.length === 0) loadMemecoinData();
+    if (state.tokens.length === 0) loadMemecoinData(state.currentChain);
     else { renderMemecoinSignals(); renderMemecoinTokens(); renderMemecoinMonitoring(); }
   } else if (page === 'othercoin') {
-    if (state.otherTokens.length === 0) loadOthercoinData();
-    else renderOthercoinTokens();
+    loadOthercoinData(state.currentChain);
   } else if (page === 'bitcoin') {
     if (state.btcData) renderBitcoinData();
     else loadBitcoinData();
@@ -480,36 +502,30 @@ function loadSignalTracking() {
 function detectSignals(tokens) {
   const newSignals = [];
   pruneSignalTracking();
+  const engine = window.SignalEngine;
   for (const token of tokens) {
-    const key = getTrackingKey(token.address, token.chain || state.currentChain);
     const existingSignal = state.signals.find((s) => s.tokenAddress === token.address && s.tokenChain === (token.chain || state.currentChain) && s.active);
-    // Do not suppress realtime alerts just because the token is already in 24h history.
-    // History keeps the original buy marker; a fresh trigger should still appear in the 5-minute realtime signal area.
+    // Active 5-minute carousel: skip duplicates while still active
     if (existingSignal) continue;
-    const triggered = [];
-    if (token.priceChange1h != null && token.priceChange1h > SIGNAL_THRESHOLDS.priceSurge) {
-      triggered.push({ reason: 'price-surge', text: `价格 1h 暴涨 ${formatChange(token.priceChange1h)}` });
+
+    // Phase A: layered gates via SignalEngine.shouldEmitAlert (no volume-only / risk veto)
+    let decision;
+    if (engine?.shouldEmitAlert) {
+      decision = engine.shouldEmitAlert(token);
+    } else {
+      // Fallback if engine script missing: score only, no pure volume
+      const scoreSnapshot = engine?.scoreTokenSignal?.(token);
+      const ok = scoreSnapshot
+        && scoreSnapshot.signalScore >= SIGNAL_THRESHOLDS.aiScore
+        && scoreSnapshot.riskScore <= SIGNAL_THRESHOLDS.maxAiRisk
+        && !scoreSnapshot.hardVeto;
+      decision = ok
+        ? { fire: true, reason: 'rules-score', text: `规则分 ${scoreSnapshot.signalScore}`, score: scoreSnapshot }
+        : { fire: false, reason: 'no-engine', text: '', score: scoreSnapshot };
     }
-    const volume = token.volume24h || token.volume1h || 0;
-    if (volume > SIGNAL_THRESHOLDS.volumeSpike) {
-      triggered.push({ reason: 'volume-spike', text: `24h 交易量 ${formatCompact(volume)}` });
-    }
-    const buyPercent = calculateBuyPercent(token);
-    if (buyPercent > SIGNAL_THRESHOLDS.buyPressure) {
-      triggered.push({ reason: 'buy-pressure', text: `买入占比 ${buyPercent.toFixed(0)}%` });
-    }
-    const scoreSnapshot = window.SignalEngine?.scoreTokenSignal(token);
-    if (scoreSnapshot?.monitorInflowScore >= SIGNAL_THRESHOLDS.monitorInflow && !triggered.some((r) => r.reason === 'monitor-inflow')) {
-      triggered.unshift({ reason: 'monitor-inflow', text: `Monitor 共振 ${scoreSnapshot.monitorInflowScore}/100 · Smart Net Inflow / 新钱包 / KOL` });
-    }
-    if (scoreSnapshot && scoreSnapshot.signalScore >= SIGNAL_THRESHOLDS.aiScore && scoreSnapshot.riskScore <= SIGNAL_THRESHOLDS.maxAiRisk && !triggered.some((r) => r.reason === 'ai-score')) {
-      triggered.unshift({ reason: 'ai-score', text: `GMGN AI ${scoreSnapshot.signalLevel} ${scoreSnapshot.signalScore}/100 · 买点${scoreSnapshot.entryGrade}` });
-    }
-    if (triggered.length > 0) {
-      const primary = triggered[0];
-      const reasonText = triggered.map((r) => r.text).join(' · ');
-      newSignals.push(createSignal(token, primary.reason, reasonText));
-    }
+
+    if (!decision.fire) continue;
+    newSignals.push(createSignal(token, decision.reason, decision.text, decision.score));
   }
   for (const signal of newSignals) {
     state.signalIdCounter++;
@@ -524,11 +540,11 @@ function detectSignals(tokens) {
   }
 }
 
-function createSignal(token, reason, reasonText) {
+function createSignal(token, reason, reasonText, scoreSnapshot = null) {
   // Use the token's actual chain from the data, NOT state.currentChain
   const actualChain = token.chain || state.currentChain;
   const buyPercent = calculateBuyPercent(token);
-  const signalScoreSnapshot = window.SignalEngine?.scoreTokenSignal(token) || null;
+  const signalScoreSnapshot = scoreSnapshot || window.SignalEngine?.scoreTokenSignal(token) || null;
   return {
     id: 0,
     tokenAddress: token.address,
@@ -560,16 +576,24 @@ function createSignal(token, reason, reasonText) {
       kolWallets5m: token.kolWallets5m,
       kolWallets15m: token.kolWallets15m,
       buyPercent,
+      dataQuality: token.dataQuality,
+      hasSmartMoneyData: token.hasSmartMoneyData,
+      securityChecked: token.securityChecked,
+      discoverySources: token.discoverySources,
       signalScoreSnapshot,
     },
   };
 }
 
 function calculateBuyPercent(token) {
-  const buys = (token.txns24h?.buys != null ? token.txns24h.buys : (token.txns1h?.buys ?? 0));
-  const sells = (token.txns24h?.sells != null ? token.txns24h.sells : (token.txns1h?.sells ?? 0));
+  if (window.SignalEngine?.calculateBuyPercent) {
+    const v = window.SignalEngine.calculateBuyPercent(token);
+    return v == null ? 0 : v; // UI display: treat unknown as 0, not fake 50%
+  }
+  const buys = (token.txns1h?.buys != null ? token.txns1h.buys : (token.txns24h?.buys ?? 0));
+  const sells = (token.txns1h?.sells != null ? token.txns1h.sells : (token.txns24h?.sells ?? 0));
   const total = buys + sells;
-  if (total === 0) return 50;
+  if (total === 0) return 0;
   return (buys / total) * 100;
 }
 
@@ -682,8 +706,11 @@ function startTrackingToken(signal) {
 function getChainBadgeHtml(chain) {
   const chainBadges = {
     solana: '<span class="chain-badge sol" title="Solana">Sol</span>',
+    ethereum: '<span class="chain-badge eth" title="Ethereum">ETH</span>',
     base: '<span class="chain-badge base" title="Base">Base</span>',
     bsc: '<span class="chain-badge bsc" title="BSC">BSC</span>',
+    robinhood: '<span class="chain-badge robinhood" title="Robinhood Chain">RH</span>',
+    multi: '<span class="chain-badge multi" title="CEX / 多市场">CEX</span>',
   };
   return chainBadges[chain] || '';
 }
@@ -758,6 +785,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     const data = await fetchMemecoinApi(chain);
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.tokens = data.data;
+    state.dataQuality = data.quality || {};
     state.lastUpdated = data.timestamp || Date.now();
     state.retryCount = 0;
     detectSignals(data.data);
@@ -765,7 +793,14 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     renderMemecoinSortedTokens(data.data);
     updateMemecoinStats(data.data, data.timestamp);
     renderMemecoinMonitoring();
-    setStatus('', `${data.data.length} 个代币 · ${formatTime(data.timestamp)}`);
+    const q = data.quality || {};
+    const qualityBits = [];
+    if (data.source) qualityBits.push(data.source);
+    if (q.hasSmartMoneyData) qualityBits.push('聪明钱✓');
+    else qualityBits.push('无聪明钱富化');
+    if (q.securityChecked > 0) qualityBits.push(`安全抽检${q.securityChecked}`);
+    if (q.warnings?.length) qualityBits.push(`⚠${q.warnings.length}`);
+    setStatus('', `${data.data.length} 币 · ${qualityBits.join(' · ')} · ${formatTime(data.timestamp)}`);
     dom.loadingState.style.display = 'none';
   } catch (err) {
     console.error('Memecoin load error:', err);
@@ -871,13 +906,21 @@ function renderMemecoinTokenRows(tokens) {
     const gmgnUrl = getGmgnUrl(tokenChain, token.address);
     const buyPercent = calculateBuyPercent(token);
     const chainBadge = getChainBadgeHtml(tokenChain);
+    const qualityBits = [];
+    if (token.isHoneypot || token.isRug) qualityBits.push('<span class="chain-badge multi" title="高风险">⚠风险</span>');
+    else if (token.securityChecked) qualityBits.push('<span class="chain-badge base" title="已抽检 security">SEC</span>');
+    if (token.hasSmartMoneyData) qualityBits.push('<span class="chain-badge sol" title="含聪明钱富化">SM</span>');
+    else qualityBits.push('<span class="chain-badge multi" title="无聪明钱富化">无SM</span>');
+    if (token.fromTrenches) qualityBits.push('<span class="chain-badge bsc" title="Trenches 新盘">新</span>');
+    if (token.fromHotSearch) qualityBits.push('<span class="chain-badge robinhood" title="Hot Search">热搜</span>');
+    const qualityHtml = qualityBits.join('');
     row.innerHTML = `
       <div class="td ${index < 3 ? 'rank-cell top-3' : 'rank-cell'}">${rankEmoji}</div>
       <div class="td token-cell">
         <div class="token-icon">${iconHtml}</div>
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
-          <span class="token-name">${token.name || shortAddress(token.address)}</span>
+          <span class="token-name">${token.name || shortAddress(token.address)} ${qualityHtml}</span>
           <div class="token-links"><a href="${gmgnUrl}" target="_blank" rel="noopener" class="token-link">GMGN</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">📋</button></div>
         </div>
         ${chainBadge}
@@ -1339,27 +1382,37 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
 // OTHERCOIN PAGE — Signal-Based Scanner
 // ====================================================================================
 
-async function fetchOthercoinApi() {
-  const response = await fetch(getApiUrl('/api/othercoin'), { headers: { 'Accept': 'application/json' } });
+async function fetchOthercoinApi(chain = state.currentChain) {
+  // Memecoin-style tabs: robinhood → RH only; all → CEX+RH; others → CEX multi
+  let chainParam = 'all';
+  if (chain === 'robinhood') chainParam = 'robinhood';
+  else if (chain === 'all') chainParam = 'all';
+  else chainParam = 'multi';
+  const response = await fetch(getApiUrl(`/api/othercoin?chain=${encodeURIComponent(chainParam)}`), {
+    headers: { 'Accept': 'application/json' },
+  });
   if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
   return response.json();
 }
 
-async function loadOthercoinData() {
+async function loadOthercoinData(chain = state.currentChain) {
   if (state.otherLoading) return;
   state.otherLoading = true;
   state.otherError = null;
   dom.otherErrorState.style.display = 'none';
   dom.otherLoadingState.style.display = 'flex';
   dom.otherTokenList.innerHTML = '';
-  setStatus('loading', '扫描信号...');
+  const statusHint = chain === 'robinhood' ? '扫描 Robinhood 链...' : '扫描信号...';
+  setStatus('loading', statusHint);
   try {
-    const data = await fetchOthercoinApi();
+    const data = await fetchOthercoinApi(chain);
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.otherTokens = data.data;
     renderOthercoinSortedTokens(data.data);
     updateOthercoinStats(data.data, data.timestamp);
-    setStatus('', `${data.data.length} 个信号币 · ${formatTime(data.timestamp)}`);
+    const rhCount = data.data.filter((t) => t.chain === 'robinhood').length;
+    const suffix = rhCount ? ` · RH ${rhCount}` : '';
+    setStatus('', `${data.data.length} 个信号币${suffix} · ${formatTime(data.timestamp)}`);
     dom.otherLoadingState.style.display = 'none';
   } catch (err) {
     console.error('Othercoin load error:', err);
@@ -1407,6 +1460,7 @@ function renderOthercoinTokenRows(tokens) {
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
     const iconHtml = getTokenIcon(token);
+    const chainBadge = getChainBadgeHtml(token.chain || 'multi');
     const coinGeckoUrl = token.url || (token.id ? `https://www.coingecko.com/en/coins/${token.id}` : `https://www.coingecko.com/en/search?query=${encodeURIComponent(token.symbol || '')}`);
 
     // Build signal badges
@@ -1441,7 +1495,7 @@ function renderOthercoinTokenRows(tokens) {
       <div class="td token-cell">
         <div class="token-icon">${iconHtml}</div>
         <div class="token-info">
-          <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
+          <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}${chainBadge}</span>
           <span class="token-name">${token.name || ''}</span>
         </div>
       </div>
@@ -1939,12 +1993,18 @@ function drawFundingSparkline(canvas, history) {
 // ====================================================================================
 
 function switchChain(chain) {
-  if (chain === state.currentChain || state.currentPage !== 'memecoin') return;
+  if (chain === state.currentChain && state.currentPage !== 'othercoin') return;
+  // Chain tabs drive Memecoin + Othercoin monitoring ports
+  if (state.currentPage !== 'memecoin' && state.currentPage !== 'othercoin') return;
   state.currentChain = chain;
   dom.chainTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.chain === chain));
-  dom.tokenList.innerHTML = '';
-  dom.loadingState.style.display = 'flex';
-  loadMemecoinData(chain);
+  if (state.currentPage === 'memecoin') {
+    dom.tokenList.innerHTML = '';
+    dom.loadingState.style.display = 'flex';
+    loadMemecoinData(chain);
+  } else if (state.currentPage === 'othercoin') {
+    loadOthercoinData(chain);
+  }
 }
 
 // ====================================================================================
@@ -1961,7 +2021,7 @@ function startAutoRefresh() {
     if (state.currentPage === 'memecoin' && !state.isLoading) {
       loadMemecoinData(state.currentChain);
     } else if (state.currentPage === 'othercoin' && !state.otherLoading) {
-      loadOthercoinData();
+      loadOthercoinData(state.currentChain);
     } else if (state.currentPage === 'bitcoin' && !state.btcLoading) {
       loadBitcoinData();
     }
@@ -1990,7 +2050,7 @@ dom.chainTabs.forEach((tab) => {
 dom.refreshBtn.addEventListener('click', () => {
   dom.refreshBtn.classList.add('spinning');
   if (state.currentPage === 'memecoin') loadMemecoinData(state.currentChain);
-  else if (state.currentPage === 'othercoin') loadOthercoinData();
+  else if (state.currentPage === 'othercoin') loadOthercoinData(state.currentChain);
   else if (state.currentPage === 'bitcoin') loadBitcoinData();
   showToast('正在刷新...', 'info');
 });
@@ -2004,7 +2064,7 @@ dom.autoRefreshToggle.addEventListener('change', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && dom.autoRefreshToggle.checked) {
     if (state.currentPage === 'memecoin' && !state.isLoading) loadMemecoinData(state.currentChain);
-    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData();
+    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData(state.currentChain);
     else if (state.currentPage === 'bitcoin' && !state.btcLoading) loadBitcoinData();
   }
 });

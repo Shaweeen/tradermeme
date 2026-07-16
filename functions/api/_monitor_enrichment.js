@@ -35,6 +35,17 @@ function tradeAmountUsd(trade = {}) {
   return Math.max(0, num(trade.amount_usd ?? trade.buy_amount ?? trade.usd_amount ?? trade.value_usd));
 }
 
+/** Normalize sec/ms timestamps to seconds. */
+function toUnixSec(ts, nowSec) {
+  let t = num(ts);
+  if (!(t > 0)) return 0;
+  // ms epoch (~1e12+) → seconds
+  if (t > 1e12) t = Math.floor(t / 1000);
+  // reject absurd future/past relative to now
+  if (nowSec > 0 && (t > nowSec + 3600 || nowSec - t > 7 * 24 * 3600)) return 0;
+  return t;
+}
+
 function addNet(bucket, windowName, amount, wallet, isKol = false) {
   bucket[`smartNetInflow${windowName}`] += amount;
   if (wallet) bucket[`smartWalletSet${windowName}`].add(wallet);
@@ -74,7 +85,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
     const bucket = buckets.get(key);
     if (!bucket) continue;
     const data = event.data || {};
-    const eventTs = num(event.trigger_at || data.trigger_at || data.created_timestamp || data.open_timestamp);
+    const eventTs = toUnixSec(event.trigger_at || data.trigger_at || data.created_timestamp || data.open_timestamp, nowSec);
     const age = nowSec - eventTs;
     const in5m = eventTs > 0 && age >= 0 && age <= 5 * 60;
     const in15m = eventTs > 0 && age >= 0 && age <= 15 * 60;
@@ -95,7 +106,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       if (in15m) bucket.kolWalletBase15m = Math.max(bucket.kolWalletBase15m, renownedCount);
     }
     for (const buy of (Array.isArray(data.smart_degen_wallets) ? data.smart_degen_wallets : [])) {
-      const ts = num(buy.buy_timestamp || buy.timestamp);
+      const ts = toUnixSec(buy.buy_timestamp || buy.timestamp, nowSec);
       const amount = Math.max(0, num(buy.buy_amount || buy.amount_usd));
       const wallet = String(buy.address || buy.wallet || buy.maker || '');
       const buyAge = nowSec - ts;
@@ -109,7 +120,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       const key = tradeTokenAddress(trade);
       const bucket = buckets.get(key);
       if (!bucket) continue;
-      const ts = num(trade.timestamp || trade.time || trade.created_at);
+      const ts = toUnixSec(trade.timestamp || trade.time || trade.created_at, nowSec);
       const age = nowSec - ts;
       if (!(ts > 0 && age >= 0 && age <= 15 * 60)) continue;
       const side = String(trade.side || '').toLowerCase();

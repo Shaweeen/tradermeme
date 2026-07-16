@@ -9,9 +9,13 @@
  *   - Bybit API: Funding rates, OI, mark prices for all USDT perpetuals
  *   - Binance API: 24hr ticker data for volume/price verification
  *   - CoinGecko API: Metadata (name, logo, market cap) for discovered coins
+ *   - DexScreener: Robinhood Chain (and optional other L2) on-chain pairs
  *
  * Endpoints:
- *   GET /api/othercoin    - Top 10 signal-ranked coins
+ *   GET /api/othercoin                - CEX futures signals + Robinhood chain
+ *   GET /api/othercoin?chain=multi    - CEX futures only
+ *   GET /api/othercoin?chain=robinhood - Robinhood Chain only
+ *   GET /api/othercoin?chain=all      - same as default (multi + robinhood)
  */
 
 const BYBIT_BASE = 'https://api.bybit.com';
@@ -246,56 +250,210 @@ function formatCompact(num) {
 }
 
 /**
- * Main scanner: discover coins with strongest signals
+ * Score Robinhood Chain (DexScreener) pairs for Othercoin monitoring.
+ * Uses volume + 24h price move + liquidity — no CEX funding on this L2 yet.
  */
-async function scanSignals() {
-  // 1. Fetch all data sources in parallel
-  const [bybitTickers, binanceMap, geckoMeta] = await Promise.all([
-    getBybitTickers(),
-    getBinanceTickers(),
-    getCoinGeckoTop(SIGNAL_CONFIG.scanDepth),
-  ]);
+function scoreRobinhoodPair(pair, index = 0) {
+  const symbol = (pair.baseToken?.symbol || '').toUpperCase();
+  const name = pair.baseToken?.name || symbol;
+  const address = pair.baseToken?.address || pair.pairAddress || '';
+  if (!symbol || !address) return null;
+  if (FILTER_OUT.has(symbol.toLowerCase())) return null;
 
-  // 2. Score each coin
-  const scored = [];
-  for (const ticker of bybitTickers) {
-    const result = calculateSignalScore(ticker, binanceMap, geckoMeta);
-    if (result) scored.push(result);
+  const price = parseFloat(pair.priceUsd) || 0;
+  const priceChange24h = parseFloat(pair.priceChange?.h24) || 0;
+  const volume24h = parseFloat(pair.volume?.h24) || 0;
+  const liquidity = parseFloat(pair.liquidity?.usd) || 0;
+  const fdv = parseFloat(pair.fdv) || 0;
+  const buys = parseInt(pair.txns?.h24?.buys) || 0;
+  const sells = parseInt(pair.txns?.h24?.sells) || 0;
+
+  if (volume24h < 5000 && liquidity < 3000) return null;
+
+  const signals = [];
+  let score = 0;
+
+  const absPct = Math.abs(priceChange24h);
+  if (absPct >= 5) {
+    const sev = Math.min(absPct / 20, 5);
+    score += sev * 14;
+    signals.push({
+      type: 'price',
+      label: '价格异动',
+      detail: `${priceChange24h > 0 ? '+' : ''}${priceChange24h.toFixed(2)}% · Robinhood 链`,
+      severity: Math.min(sev, 5),
+    });
+  }
+  if (volume24h >= 20000) {
+    const sev = Math.min(volume24h / 500000, 5);
+    score += sev * 12;
+    signals.push({
+      type: 'volume',
+      label: '链上成交',
+      detail: formatCompact(volume24h),
+      severity: Math.min(sev, 5),
+    });
+  }
+  if (liquidity >= 10000) {
+    const sev = Math.min(liquidity / 200000, 4);
+    score += sev * 8;
+    signals.push({
+      type: 'oi',
+      label: '流动性',
+      detail: formatCompact(liquidity),
+      severity: Math.min(sev, 4),
+    });
+  }
+  if (buys + sells >= 50) {
+    score += Math.min((buys + sells) / 100, 3) * 6;
+    signals.push({
+      type: 'funding',
+      label: '交易活跃',
+      detail: `${buys + sells} tx / 24h`,
+      severity: 2,
+    });
   }
 
-  // 3. Sort by signal score descending, take top N
-  const top = scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, SIGNAL_CONFIG.maxResults);
+  if (signals.length === 0) {
+    // Still surface nascent RH tokens with any liquidity
+    score = 5 + Math.min(volume24h / 10000, 10);
+    signals.push({
+      type: 'volume',
+      label: 'Robinhood 新池',
+      detail: formatCompact(volume24h || liquidity),
+      severity: 1,
+    });
+  }
 
-  // 4. Enrich with Coinglass-style data where available
-  return top.map((coin, i) => ({
-    rank: i + 1,
-    address: `${coin.symbol}`,
-    symbol: coin.symbol,
-    name: coin.name,
-    icon: coin.icon,
-    chain: 'multi',
-    priceUsd: coin.price,
-    priceChange24h: coin.priceChange24h,
-    volume24h: coin.volume24h,
-    liquidity: coin.marketCap || coin.volume24h,
-    fdv: coin.marketCap || 0,
-    marketCap: coin.marketCap,
-    marketCapRank: coin.marketCapRank,
-    signalScore: coin.score,
-    signalCount: coin.signalCount,
-    signals: coin.signals,
-    strongestSignal: coin.strongestSignal,
-    strongestLabel: coin.strongestLabel,
-    strongestDetail: coin.strongestDetail,
-    fundingRate: coin.fundingRate,
-    openInterest: coin.openInterest,
-    source: 'signal-scan',
-    txns1h: { buys: 0, sells: 0, total: 0 },
-    txns24h: { buys: 0, sells: 0, total: 0 },
-    url: `https://www.coingecko.com/en/coins/${coin.symbol.toLowerCase()}`,
-  }));
+  if (signals.length >= 3) score *= 1.15;
+
+  return {
+    rank: index + 1,
+    address,
+    symbol,
+    name,
+    icon: `https://dd.dexscreener.com/ds-data/tokens/robinhood/${address}.png`,
+    chain: 'robinhood',
+    priceUsd: price,
+    priceChange24h,
+    volume24h,
+    liquidity,
+    fdv,
+    marketCap: fdv,
+    marketCapRank: 999,
+    signalScore: Math.round(score * 10) / 10,
+    signalCount: signals.length,
+    signals,
+    strongestSignal: signals[0]?.type || 'volume',
+    strongestLabel: signals[0]?.label || 'Robinhood',
+    strongestDetail: signals[0]?.detail || '',
+    fundingRate: 0,
+    openInterest: 0,
+    source: 'dexscreener-robinhood',
+    txns1h: {
+      buys: parseInt(pair.txns?.h1?.buys) || 0,
+      sells: parseInt(pair.txns?.h1?.sells) || 0,
+      total: (parseInt(pair.txns?.h1?.buys) || 0) + (parseInt(pair.txns?.h1?.sells) || 0),
+    },
+    txns24h: { buys, sells, total: buys + sells },
+    url: pair.url || `https://dexscreener.com/robinhood/${address}`,
+    pairAddress: pair.pairAddress || '',
+    dexId: pair.dexId || '',
+  };
+}
+
+async function scanRobinhoodChainSignals(limit = SIGNAL_CONFIG.maxResults) {
+  try {
+    const dex = await import('./_dexscreener.js');
+    const { tokens } = await dex.getTrendingPairs('robinhood', Math.max(limit * 2, 30));
+    if (!Array.isArray(tokens) || tokens.length === 0) return [];
+
+    const scored = [];
+    for (const pair of tokens) {
+      const row = scoreRobinhoodPair(pair);
+      if (row) scored.push(row);
+    }
+    return scored
+      .sort((a, b) => (b.signalScore || 0) - (a.signalScore || 0))
+      .slice(0, limit)
+      .map((row, i) => ({ ...row, rank: i + 1 }));
+  } catch (e) {
+    console.error('Robinhood chain scan error:', e.message || e);
+    return [];
+  }
+}
+
+/**
+ * Main scanner: discover coins with strongest signals
+ * @param {string} chainFilter - multi | robinhood | all
+ */
+async function scanSignals(chainFilter = 'all') {
+  const wantCex = chainFilter === 'all' || chainFilter === 'multi' || !chainFilter;
+  const wantRh = chainFilter === 'all' || chainFilter === 'robinhood' || !chainFilter;
+
+  const tasks = [];
+  if (wantCex) {
+    tasks.push(
+      (async () => {
+        const [bybitTickers, binanceMap, geckoMeta] = await Promise.all([
+          getBybitTickers(),
+          getBinanceTickers(),
+          getCoinGeckoTop(SIGNAL_CONFIG.scanDepth),
+        ]);
+        const scored = [];
+        for (const ticker of bybitTickers) {
+          const result = calculateSignalScore(ticker, binanceMap, geckoMeta);
+          if (result) scored.push(result);
+        }
+        return scored
+          .sort((a, b) => b.score - a.score)
+          .slice(0, SIGNAL_CONFIG.maxResults)
+          .map((coin, i) => ({
+            rank: i + 1,
+            address: `${coin.symbol}`,
+            symbol: coin.symbol,
+            name: coin.name,
+            icon: coin.icon,
+            chain: 'multi',
+            priceUsd: coin.price,
+            priceChange24h: coin.priceChange24h,
+            volume24h: coin.volume24h,
+            liquidity: coin.marketCap || coin.volume24h,
+            fdv: coin.marketCap || 0,
+            marketCap: coin.marketCap,
+            marketCapRank: coin.marketCapRank,
+            signalScore: coin.score,
+            signalCount: coin.signalCount,
+            signals: coin.signals,
+            strongestSignal: coin.strongestSignal,
+            strongestLabel: coin.strongestLabel,
+            strongestDetail: coin.strongestDetail,
+            fundingRate: coin.fundingRate,
+            openInterest: coin.openInterest,
+            source: 'signal-scan',
+            txns1h: { buys: 0, sells: 0, total: 0 },
+            txns24h: { buys: 0, sells: 0, total: 0 },
+            url: `https://www.coingecko.com/en/coins/${coin.symbol.toLowerCase()}`,
+          }));
+      })()
+    );
+  } else {
+    tasks.push(Promise.resolve([]));
+  }
+
+  if (wantRh) {
+    tasks.push(scanRobinhoodChainSignals(SIGNAL_CONFIG.maxResults));
+  } else {
+    tasks.push(Promise.resolve([]));
+  }
+
+  const [cexRows, rhRows] = await Promise.all(tasks);
+  const merged = [...cexRows, ...rhRows]
+    .sort((a, b) => (b.signalScore ?? 0) - (a.signalScore ?? 0))
+    .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
+    .map((row, i) => ({ ...row, rank: i + 1 }));
+
+  return merged;
 }
 
 /**
@@ -317,11 +475,21 @@ export async function onRequest(context) {
 
   if (url.pathname === '/api/othercoin' && request.method === 'GET') {
     try {
-      const results = await scanSignals();
+      const rawChain = (url.searchParams.get('chain') || 'all').toLowerCase();
+      // Map memecoin-style chain tabs: non-RH chains → CEX multi; RH → robinhood; all → both
+      let chainFilter = 'all';
+      if (rawChain === 'robinhood') chainFilter = 'robinhood';
+      else if (rawChain === 'multi' || rawChain === 'futures' || rawChain === 'cex') chainFilter = 'multi';
+      else if (rawChain === 'all') chainFilter = 'all';
+      else if (['solana', 'ethereum', 'base', 'bsc'].includes(rawChain)) chainFilter = 'multi';
+
+      const results = await scanSignals(chainFilter);
+      const sources = [...new Set(results.map((r) => r.source).filter(Boolean))];
       return new Response(
         JSON.stringify({
           success: true,
-          source: 'signal-scan',
+          source: sources.join('+') || 'signal-scan',
+          chain: chainFilter,
           count: results.length,
           timestamp: Date.now(),
           data: results,

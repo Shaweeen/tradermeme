@@ -10,10 +10,11 @@
  *   - GET /token/{chain}/{address}       — Token pairs by chain + address
  *
  * DexScreener chain slugs:
- *   solana  → solana
- *   ethereum → ethereum
- *   base    → base
- *   bsc     → bsc
+ *   solana    → solana
+ *   ethereum  → ethereum
+ *   base      → base
+ *   bsc       → bsc
+ *   robinhood → robinhood  (Robinhood Chain L2)
  */
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
@@ -42,6 +43,7 @@ const CHAIN_SLUG = {
   ethereum: 'ethereum',
   base: 'base',
   bsc: 'bsc',
+  robinhood: 'robinhood',
 };
 
 /**
@@ -49,7 +51,7 @@ const CHAIN_SLUG = {
  * Returns the most recently created pairs with some metadata.
  */
 async function getLatestTokenProfiles(limit = 50) {
-  const result = await safeFetch(`${DEXSCREENER_BASE}/token-profiles/latest/v1`, 5000);
+  const result = await safeFetch(`${DEXSCREENER_BASE}/token-profiles/latest/v1`, 12000);
   if (result.error || !Array.isArray(result.data)) {
     return { error: result.error || 'Invalid response', tokens: [] };
   }
@@ -66,7 +68,7 @@ async function getPairsByTokenAddresses(chain, addresses, limit = 30) {
   const unique = [...new Set((addresses || []).filter(Boolean))].slice(0, Math.min(limit, 30));
   if (!slug || unique.length === 0) return { tokens: [] };
 
-  const result = await safeFetch(`${DEXSCREENER_BASE}/tokens/v1/${slug}/${unique.join(',')}`, 5000);
+  const result = await safeFetch(`${DEXSCREENER_BASE}/tokens/v1/${slug}/${unique.join(',')}`, 12000);
   if (result.error || !Array.isArray(result.data)) {
     return { error: result.error || 'Invalid response', tokens: [] };
   }
@@ -77,7 +79,7 @@ async function getPairsByTokenAddresses(chain, addresses, limit = 30) {
  * Search tokens by symbol on DexScreener.
  */
 async function searchTokens(query, limit = 30) {
-  const result = await safeFetch(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(query)}`, 5000);
+  const result = await safeFetch(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(query)}`, 12000);
   if (result.error || !result.data?.pairs) {
     return { error: result.error || 'Invalid response', tokens: [] };
   }
@@ -93,40 +95,43 @@ async function getTrendingPairs(chain, limit = 30) {
   const slug = CHAIN_SLUG[chain];
   if (!slug) return { tokens: [] };
 
-  const { tokens, error } = await getLatestTokenProfiles(100);
+  const deduped = new Map();
+  const pushPairs = (pairs) => {
+    for (const pair of pairs || []) {
+      if ((pair.chainId || '').toLowerCase() !== slug) continue;
+      const key = pair.pairAddress || `${pair.baseToken?.address}:${pair.dexId}`;
+      if (key) deduped.set(key, pair);
+    }
+  };
 
+  // 1) Latest profiles → hydrate by token address (batched)
+  const { tokens, error } = await getLatestTokenProfiles(100);
   if (!error && tokens.length) {
     const addresses = tokens
       .filter((t) => (t.chainId || '').toLowerCase() === slug)
       .map((t) => t.tokenAddress)
       .filter(Boolean);
-    const hydrated = await getPairsByTokenAddresses(chain, addresses, limit * 2);
-    if (hydrated.tokens.length) {
-      const chainPairs = hydrated.tokens
-        .filter((p) => (p.chainId || '').toLowerCase() === slug)
-        .sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0));
-      if (chainPairs.length) return { tokens: chainPairs.slice(0, limit) };
+    // DexScreener tokens endpoint is happier with small batches
+    for (let i = 0; i < addresses.length; i += 10) {
+      const batch = addresses.slice(i, i + 10);
+      const hydrated = await getPairsByTokenAddresses(chain, batch, batch.length * 3);
+      if (hydrated.tokens?.length) pushPairs(hydrated.tokens);
     }
   }
 
-  // Fallback: search broad chain/meme terms and keep real pair rows for this chain.
+  // 2) Always also search (critical for newer chains like Robinhood)
   const terms = chain === 'solana' ? ['pump', 'solana meme', 'SOL']
     : chain === 'ethereum' ? ['ethereum meme', 'ETH']
     : chain === 'base' ? ['base meme', 'BASE']
+    : chain === 'robinhood' ? ['robinhood', 'ROBINHOOD', 'hood']
     : ['bsc meme', 'BNB'];
-  const searchResults = await Promise.allSettled(terms.map((term) => searchTokens(term, limit * 3)));
-  const allPairs = [];
+  const searchResults = await Promise.allSettled(terms.map((term) => searchTokens(term, Math.max(limit * 3, 30))));
   for (const result of searchResults) {
     if (result.status !== 'fulfilled') continue;
     const searchResult = result.value;
-    if (!searchResult.error && Array.isArray(searchResult.tokens)) allPairs.push(...searchResult.tokens);
+    if (!searchResult.error && Array.isArray(searchResult.tokens)) pushPairs(searchResult.tokens);
   }
-  const deduped = new Map();
-  for (const pair of allPairs) {
-    if ((pair.chainId || '').toLowerCase() !== slug) continue;
-    const key = pair.pairAddress || `${pair.baseToken?.address}:${pair.dexId}`;
-    if (key) deduped.set(key, pair);
-  }
+
   return {
     tokens: [...deduped.values()]
       .sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0))
