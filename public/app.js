@@ -315,11 +315,19 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// ===== Status =====
-function setStatus(type, text) {
+// ===== Status (signal-detect lights only: green=ok, yellow=loading/warn) =====
+// No descriptive copy in the header — user wants lights only, not "N 币 · 链=… · 无聪明钱…"
+function setStatus(type, _text) {
   dom.statusDot.className = 'status-dot';
-  if (type) dom.statusDot.classList.add(type);
-  dom.statusText.textContent = text;
+  // green = default/success; yellow = loading or soft warn; never show long 说明 text
+  if (type === 'loading' || type === 'error') {
+    dom.statusDot.classList.add('loading'); // yellow
+  }
+  // keep status text node empty/hidden (lights-only module)
+  if (dom.statusText) {
+    dom.statusText.textContent = '';
+    dom.statusText.setAttribute('aria-hidden', 'true');
+  }
 }
 
 // ====================================================================================
@@ -822,9 +830,9 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     dom.errorState.style.display = 'none';
     dom.loadingState.style.display = 'flex';
     dom.tokenList.innerHTML = '';
-    setStatus('loading', `${requestChain.toUpperCase()} 加载中...`);
+    setStatus('loading');
   } else {
-    setStatus('loading', `${requestChain.toUpperCase()} 重试中...`);
+    setStatus('loading');
   }
 
   try {
@@ -849,14 +857,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     updateMemecoinStats(stamped, data.timestamp);
     renderMemecoinMonitoring();
 
-    const q = data.quality || {};
-    const qualityBits = [`链=${requestChain}`];
-    if (data.source) qualityBits.push(data.source);
-    if (q.hasSmartMoneyData) qualityBits.push('聪明钱✓');
-    else qualityBits.push('无聪明钱');
-    if (q.securityChecked > 0) qualityBits.push(`SEC${q.securityChecked}`);
-    if (q.backupSources?.length) qualityBits.push(`备用${q.backupSources.length}`);
-    setStatus('', `${stamped.length} 币 · ${qualityBits.join(' · ')} · ${formatTime(data.timestamp)}`);
+    setStatus(''); // green light only — no quality 说明
     dom.loadingState.style.display = 'none';
     if (stamped.length === 0) {
       dom.tokenList.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>${requestChain} 暂无合格代币（已过滤低质/错链）</p></div>`;
@@ -867,7 +868,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     state.error = err.message;
     if (state.retryCount < state.maxRetries && !isRetry) {
       state.retryCount++;
-      setStatus('loading', `${requestChain} 重试 (${state.retryCount}/${state.maxRetries})...`);
+      setStatus('loading');
       setTimeout(() => loadMemecoinData(requestChain, true), 1500);
       return;
     }
@@ -876,7 +877,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     dom.tokenList.innerHTML = '';
     dom.errorState.style.display = 'flex';
     dom.errorMessage.textContent = err.message;
-    setStatus('error', '连接失败');
+    setStatus('error');
   } finally {
     if (loadId === state.memecoinLoadId) {
       state.isLoading = false;
@@ -1464,14 +1465,14 @@ async function loadOthercoinData() {
   dom.otherErrorState.style.display = 'none';
   dom.otherLoadingState.style.display = 'flex';
   dom.otherTokenList.innerHTML = '';
-  setStatus('loading', '扫描 CEX 信号...');
+  setStatus('loading');
   try {
     const data = await fetchOthercoinApi();
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.otherTokens = data.data;
     renderOthercoinSortedTokens(data.data);
     updateOthercoinStats(data.data, data.timestamp);
-    setStatus('', `Othercoin ${data.data.length} 个 CEX 信号 · ${formatTime(data.timestamp)}`);
+    setStatus('');
     dom.otherLoadingState.style.display = 'none';
   } catch (err) {
     console.error('Othercoin load error:', err);
@@ -1481,7 +1482,7 @@ async function loadOthercoinData() {
     dom.otherTokenList.innerHTML = '';
     dom.otherErrorState.style.display = 'flex';
     dom.otherErrorMessage.textContent = err.message;
-    setStatus('error', '扫描失败');
+    setStatus('error');
   } finally {
     state.otherLoading = false;
   }
@@ -1605,7 +1606,7 @@ async function loadBitcoinData() {
   state.btcError = null;
   dom.btcHeroLoading.style.display = 'flex';
   dom.btcHeroContent.style.display = 'none';
-  setStatus('loading', '加载 BTC 数据...');
+  setStatus('loading');
   updateSourceStatus('loading', '连接中...');
   try {
     const result = await fetchBitcoinApi(state.btcPreferredSource);
@@ -1620,7 +1621,7 @@ async function loadBitcoinData() {
       if (state.btcPriceHistory.length > 50) state.btcPriceHistory = state.btcPriceHistory.slice(-50);
     }
     renderBitcoinData();
-    setStatus('', `BTC $${price.toLocaleString()} · ${formatTime(result.timestamp)}`);
+    setStatus('');
     dom.btcHeroLoading.style.display = 'none';
     dom.btcHeroContent.style.display = 'block';
     state.btcSourceRetryCount = 0;
@@ -1645,7 +1646,7 @@ async function loadBitcoinData() {
     showToast(`BTC数据加载失败: ${err.message}`, 'error');
     dom.btcHeroLoading.innerHTML = `<div class="error-icon">⚠️</div><p style="color:var(--accent-red)">BTC 数据加载失败</p><button class="retry-btn" onclick="loadBitcoinData()" style="margin-top:12px">重试</button>`;
     updateSourceStatus('error', '所有数据源不可用');
-    setStatus('error', 'BTC 连接失败');
+    setStatus('error');
   } finally {
     state.btcLoading = false;
   }
@@ -2213,7 +2214,7 @@ dom.btcSourceBtns.forEach((btn) => {
 // ====================================================================================
 
 function init() {
-  setStatus('loading', '初始化...');
+  setStatus('loading');
   loadSignalTracking();
   renderMemecoinSignals();
   renderMemecoinMonitoring();

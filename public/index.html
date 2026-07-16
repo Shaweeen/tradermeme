@@ -35,9 +35,9 @@
         </button>
       </nav>
       <div class="header-controls">
-        <div class="status-indicator" id="statusIndicator">
-          <span class="status-dot"></span>
-          <span class="status-text" id="statusText">连接中...</span>
+        <div class="status-indicator" id="statusIndicator" title="信号检测状态 · 绿=正常 · 黄=加载/异常">
+          <span class="status-dot" aria-label="signal status"></span>
+          <span class="status-text status-text-hidden" id="statusText" aria-hidden="true"></span>
         </div>
         <div class="auto-refresh-toggle">
           <label class="toggle">
