@@ -280,6 +280,40 @@ function getGmgnUrl(chain, address) {
   return `https://gmgn.ai/${slugs[chain] || 'sol'}/token/${address}`;
 }
 
+/**
+ * Othercoin「查看」→ 统一 DexScreener 价格曲线（不用 CoinGecko，避免 inactive/deactivated 页）
+ * - 有链上地址 → 直接进对应链 token/pair 页（含 K 线）
+ * - CEX 信号仅有 symbol → search，落地后选池看曲线
+ */
+function getOthercoinDexScreenerUrl(token) {
+  const existing = String(token?.url || '');
+  if (existing.includes('dexscreener.com')) return existing;
+
+  const chain = String(token?.chain || '').toLowerCase();
+  const addr = String(token?.address || token?.pairAddress || '').trim();
+  const symbol = String(token?.symbol || '').replace(/USDT$/i, '').trim();
+  const looksLikeAddress =
+    /^0x[a-fA-F0-9]{40}$/i.test(addr) ||
+    (addr.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(addr));
+
+  const dexChain = {
+    solana: 'solana',
+    ethereum: 'ethereum',
+    base: 'base',
+    bsc: 'bsc',
+    robinhood: 'robinhood',
+  }[chain];
+
+  if (dexChain && looksLikeAddress) {
+    // pairAddress preferred when present (better chart page)
+    const pathAddr = String(token?.pairAddress || addr).trim();
+    return `https://dexscreener.com/${dexChain}/${pathAddr}`;
+  }
+
+  const q = symbol || token?.name || addr || '';
+  return `https://dexscreener.com/search?q=${encodeURIComponent(q)}`;
+}
+
 function getChainDotClass(chain) {
   return { solana: 'sol', ethereum: 'eth', base: 'base', bsc: 'bsc', robinhood: 'robinhood', multi: 'multi' }[chain] || 'sol';
 }
@@ -1521,7 +1555,7 @@ function renderOthercoinTokenRows(tokens) {
     const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
     const iconHtml = getTokenIcon(token);
     const chainBadge = getChainBadgeHtml(token.chain || 'multi');
-    const coinGeckoUrl = token.url || (token.id ? `https://www.coingecko.com/en/coins/${token.id}` : `https://www.coingecko.com/en/search?query=${encodeURIComponent(token.symbol || '')}`);
+    const dexChartUrl = getOthercoinDexScreenerUrl(token);
 
     // Build signal badges
     let badgesHtml = '';
@@ -1571,7 +1605,7 @@ function renderOthercoinTokenRows(tokens) {
       </div>
       <div class="td signal-detail"><span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span></div>
       <div class="td actions-cell">
-        <a href="${coinGeckoUrl}" target="_blank" rel="noopener" class="action-btn primary">查看</a>
+        <a href="${dexChartUrl}" target="_blank" rel="noopener" class="action-btn primary" title="DexScreener 价格曲线">查看</a>
       </div>`;
     fragment.appendChild(row);
   });

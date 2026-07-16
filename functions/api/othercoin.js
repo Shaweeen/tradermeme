@@ -222,6 +222,7 @@ function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
     symbol: bybitTicker.symbol,
     name: meta?.name || bybitTicker.symbol,
     icon: meta?.image || '',
+    geckoId: meta?.id || null,
     marketCap: meta?.marketCap || 0,
     marketCapRank: meta?.marketCapRank || 999,
     price: bybitTicker.markPrice || bybitTicker.price || 0,
@@ -433,7 +434,9 @@ async function scanSignals(chainFilter = 'all') {
             source: 'signal-scan',
             txns1h: { buys: 0, sells: 0, total: 0 },
             txns24h: { buys: 0, sells: 0, total: 0 },
-            url: `https://www.coingecko.com/en/coins/${coin.symbol.toLowerCase()}`,
+            // View button → DexScreener price chart (not CoinGecko; CG pages often inactive)
+            url: `https://dexscreener.com/search?q=${encodeURIComponent(coin.symbol)}`,
+            geckoId: coin.geckoId || null,
           }));
       })()
     );
