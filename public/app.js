@@ -2127,6 +2127,29 @@ dom.retryBtn.addEventListener('click', () => {
   loadMemecoinData(state.currentChain);
 });
 
+// Detect old production API (no robinhood) so users don't think local code is broken
+(async function detectApiBuild() {
+  try {
+    const host = location.host || '';
+    const res = await fetch(getApiUrl('/api/chains'), { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    const ids = (data.data || data.chains || []).map((c) => c.id || c).filter(Boolean);
+    const badge = document.getElementById('buildBadge');
+    if (badge) {
+      badge.textContent = `API host: ${host || 'local'} · chains: ${ids.join(', ') || 'unknown'}`;
+    }
+    if (ids.length && !ids.includes('robinhood')) {
+      showToast('当前 API 是旧版（无 Robinhood）。请打开 http://127.0.0.1:8788 并用 npm run dev', 'error');
+      // Hide Robinhood tab on stale backends
+      document.querySelectorAll('.chain-tab[data-chain="robinhood"]').forEach((el) => {
+        el.style.display = 'none';
+      });
+    }
+  } catch (e) {
+    console.warn('detectApiBuild failed', e);
+  }
+})();
+
 // Memecoin sort
 dom.sortBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
