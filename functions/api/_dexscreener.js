@@ -151,7 +151,20 @@ async function getTrendingPairs(chain, limit = 30) {
     }
   }
 
-  const tokens = [...deduped.values()]
+  let list = [...deduped.values()];
+  // Robinhood search is noisy (many pairs literally named ROBINHOOD) — keep real memes
+  if (chain === 'robinhood') {
+    list = list.filter((p) => {
+      const sym = String(p.baseToken?.symbol || '').toUpperCase();
+      if (['ROBINHOOD', 'HOOD', 'RH', 'RHC'].includes(sym)) {
+        // keep only if meaningful liquidity/volume
+        return (parseFloat(p.liquidity?.usd) || 0) >= 50_000 || (parseFloat(p.volume?.h24) || 0) >= 100_000;
+      }
+      return true;
+    });
+  }
+
+  const tokens = list
     .sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0))
     .slice(0, limit);
 

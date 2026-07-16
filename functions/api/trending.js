@@ -56,21 +56,32 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
 }
 
 // Transform GMGN rank response to internal format
+/** Prefer first finite number among candidates */
+function pickNum(...vals) {
+  for (const v of vals) {
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
 function transformGmgnRank(data, chain, gmgnSlug) {
   if (!Array.isArray(data)) return [];
   return data.map((t, idx) => ({
     rank: idx + 1,
-    address: t.address || '',
+    address: t.address || t.token_address || t.base_address || '',
     symbol: t.symbol || '',
     name: t.name || '',
     chain: chain,
     icon: t.icon_url || t.logo || '',
-    priceUsd: parseFloat(t.price) || 0,
-    priceChange1h: parseFloat(t.price_1h ?? t.price_change_percent1h ?? t.price_change_percent_1h ?? t.price_change_1h) || 0,
-    priceChange24h: parseFloat(t.price_24h ?? t.price_change_percent24h ?? t.price_change_percent ?? t.price_change_24h) || 0,
-    volume1h: parseFloat(t.volume_1h ?? t.volume) || 0,
-    volume24h: parseFloat(t.volume_24h ?? t.volume) || 0,
-    liquidity: parseFloat(t.liquidity) || 0,
+    priceUsd: pickNum(t.price, t.price_usd, t.usd_price),
+    priceChange1h: pickNum(t.price_change_percent1h, t.price_change_percent_1h, t.price_change_1h, t.price_1h),
+    priceChange24h: pickNum(t.price_change_percent24h, t.price_change_percent, t.price_change_24h, t.price_24h),
+    // Prefer explicit window volumes; do not collapse 24h into 1h-only `volume`
+    volume1h: pickNum(t.volume_1h, t.volume1h, t.buys_volume_1h),
+    volume24h: pickNum(t.volume_24h, t.volume24h, t.volume_usd_24h, t.volume_u_24h, t.volume),
+    liquidity: pickNum(t.liquidity, t.liquidity_usd, t.liquid),
     fdv: parseFloat(t.fdv) || 0,
     marketCap: parseFloat(t.market_cap) || 0,
     holders: t.holder_count || 0,
@@ -319,16 +330,46 @@ function mergeTokenLists(primary, backup, limit) {
  * Rotating public backups when GMGN is empty/thin.
  * Order: DexScreener multi-query → GeckoTerminal trending pools.
  */
-async function fillFromBackupSources(chain, limit, existingTokens, quality) {
-  // Always top up until we reach `limit` (not just when "very sparse")
+async function fillFromBackupSources(chain, limit, existingTokens, quality, opts = {}) {
+  // force=true: always pull public DEX even if GMGN already filled the board (BSC/RH)
+  const force = !!opts.force;
   const have = existingTokens?.length || 0;
-  if (have >= limit) return existingTokens;
+  if (!force && have >= limit) return existingTokens;
 
   let tokens = existingTokens || [];
-  const target = Math.max(limit, 20);
+  const target = Math.max(limit, 30);
   const dexMod = await initDex();
 
-  // Sequential rotation: Dex first (search-heavy), then GeckoTerminal if still sparse
+  // BSC: PancakeSwap (Binance-ecosystem public DEX) + Binance spot movers first
+  if (chain === 'bsc') {
+    try {
+      const bscPub = await import('./_bsc_public.js');
+      const board = await bscPub.getBscPublicBoard(target);
+      if (board.sourcesUsed?.length) {
+        quality.backupSources = quality.backupSources || [];
+        quality.backupSources.push(...board.sourcesUsed.map((s) => `bsc:${s}`));
+      }
+      if (board.errors?.length) quality.warnings.push(`BSC public: ${board.errors.slice(0, 2).join(' | ')}`);
+      if (board.pairs?.length) {
+        const transformed = dexMod.transformDexScreenerPairs(board.pairs, 'bsc').map((t) => ({
+          ...t,
+          source: t.source || 'bsc-public',
+          dataQuality: t.source === 'binance-spot' ? 'binance-spot' : 'pancake-public',
+          discoverySources: [t.source || 'bsc-public'],
+        }));
+        const before = tokens.length;
+        tokens = mergeTokenLists(tokens, transformed, target);
+        if (tokens.length > before) {
+          quality.primarySource = quality.primarySource === 'gmgn-openapi' ? 'gmgn+bsc-public' : quality.primarySource === 'none' ? 'bsc-public' : quality.primarySource;
+          console.log(`BSC public filled: ${before} → ${tokens.length}`);
+        }
+      }
+    } catch (e) {
+      quality.warnings.push(`BSC public fail: ${e.message}`);
+    }
+  }
+
+  // DexScreener search/boosts (all chains including robinhood)
   try {
     const dexData = await dexMod.getTrendingPairs(chain, target);
     if (dexData.sourcesUsed?.length) {
@@ -462,17 +503,15 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
           }
         }
 
-        // --- Backup: ALWAYS top-up non-solana (and any chain under limit) ---
-        // User expectation: base/bsc/rh must show full boards, not 1–2 rows.
+        // --- Backup public DEX ---
+        // BSC / Robinhood: ALWAYS merge public DEX (Pancake/Binance or DexScreener)
+        // even when GMGN already returned rows — GMGN 5m windows can look "dead".
+        // Other chains: top-up when under limit.
         const beforeBackup = tokens.length;
-        const needFullBoard = c !== 'solana' || beforeBackup < limit;
-        const sparse = beforeBackup < limit;
-        if (beforeBackup === 0 || needFullBoard || sparse) {
-          // Force fillFromBackupSources even if slightly above "sparse" threshold
+        const forcePublic = c === 'bsc' || c === 'robinhood' || c === 'ethereum';
+        if (beforeBackup === 0 || beforeBackup < limit || forcePublic) {
           const forced = { ...quality };
-          // Bypass internal sparse gate by pretending list is empty of "enough" rows
-          tokens = await fillFromBackupSources(c, limit, tokens, forced);
-          // merge quality side-effects
+          tokens = await fillFromBackupSources(c, Math.max(limit, 30), tokens, forced, { force: forcePublic });
           quality.backupSources = forced.backupSources || quality.backupSources;
           quality.warnings = forced.warnings || quality.warnings;
           if (forced.primarySource && forced.primarySource !== 'none') {
@@ -481,9 +520,9 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
           if (tokens.length === 0) {
             quality.warnings.push(`${c}: all sources empty after rotation`);
           } else if (beforeBackup === 0) {
-            quality.warnings.push(`${c}: filled ${tokens.length} via backups (GMGN empty/missing)`);
+            quality.warnings.push(`${c}: filled ${tokens.length} via public DEX backups`);
           } else if (tokens.length > beforeBackup) {
-            quality.warnings.push(`${c}: GMGN ${beforeBackup} → +backups = ${tokens.length}`);
+            quality.warnings.push(`${c}: GMGN ${beforeBackup} + public DEX → ${tokens.length}`);
           }
         }
 
@@ -508,17 +547,14 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
 
   const merged = Array.from(mergedMap.values())
     .sort((a, b) => {
-      const bScore = (b.holders || 0) * 100 +
-                     (b.liquidity || 0) +
-                     ((b.txns24h?.total || 0) * 10) +
-                     (b.smartCount || 0) * 1000 +
-                     ((b.fromTrenches || b.fromHotSearch) ? 5000 : 0);
-      const aScore = (a.holders || 0) * 100 +
-                     (a.liquidity || 0) +
-                     ((a.txns24h?.total || 0) * 10) +
-                     (a.smartCount || 0) * 1000 +
-                     ((a.fromTrenches || a.fromHotSearch) ? 5000 : 0);
-      return bScore - aScore;
+      // Prefer real 24h USD volume, then liquidity, then smart money
+      const bVol = Number(b.volume24h || b.volume1h || 0);
+      const aVol = Number(a.volume24h || a.volume1h || 0);
+      if (bVol !== aVol) return bVol - aVol;
+      const bLiq = Number(b.liquidity || 0);
+      const aLiq = Number(a.liquidity || 0);
+      if (bLiq !== aLiq) return bLiq - aLiq;
+      return (Number(b.smartCount) || 0) - (Number(a.smartCount) || 0);
     })
     .slice(0, limit);
 

@@ -177,8 +177,48 @@ async function getTrendingSwapsMulti(apiKey, chain, limit = 30) {
   const byAddr = new Map();
   const errors = [];
 
-  // Parallel: interval × first order variant; then fill with extra orderbys if thin
-  const primaryJobs = intervals.map((interval) =>
+  function vol24(t = {}) {
+    return Math.max(
+      0,
+      Number(t.volume_24h) || 0,
+      Number(t.volume24h) || 0,
+      Number(t.volume_usd_24h) || 0,
+      Number(t.volume) || 0
+    );
+  }
+
+  /** Merge rows: keep best volume/liquidity/smart fields across intervals */
+  function upsert(interval, t) {
+    const addr = String(t.address || t.token_address || t.base_address || '').toLowerCase();
+    if (!addr) return;
+    const prev = byAddr.get(addr);
+    if (!prev) {
+      byAddr.set(addr, { ...t, _rank_interval: interval });
+      return;
+    }
+    const next = { ...prev };
+    // Prefer non-zero longer-window volumes
+    if (vol24(t) > vol24(prev)) {
+      Object.assign(next, t, { _rank_interval: interval });
+    } else {
+      // still fill missing numeric fields from later intervals
+      for (const k of Object.keys(t)) {
+        const pv = prev[k];
+        const nv = t[k];
+        if ((pv == null || pv === '' || pv === 0) && nv != null && nv !== '' && nv !== 0) next[k] = nv;
+      }
+    }
+    // Keep strongest smart_count / holder_count
+    next.smart_count = Math.max(Number(prev.smart_count) || 0, Number(t.smart_count) || 0, Number(prev.smart_degen_count) || 0, Number(t.smart_degen_count) || 0);
+    next.smart_degen_count = next.smart_count;
+    next.holder_count = Math.max(Number(prev.holder_count) || 0, Number(t.holder_count) || 0);
+    next.liquidity = Math.max(Number(prev.liquidity) || 0, Number(t.liquidity) || 0);
+    byAddr.set(addr, next);
+  }
+
+  // Prefer longer windows first so 24h volume is not overwritten by thin 5m rows
+  const orderedIntervals = [...intervals].reverse(); // 24h → 5m
+  const primaryJobs = orderedIntervals.map((interval) =>
     getTrendingSwaps(apiKey, chain, interval, { limit: Math.max(limit, 50) })
       .then((list) => ({ interval, list }))
       .catch((e) => {
@@ -187,40 +227,35 @@ async function getTrendingSwapsMulti(apiKey, chain, limit = 30) {
       })
   );
   const primary = await Promise.all(primaryJobs);
+  // apply shorter windows last so they can fill missing short-term fields but volume merge prefers higher vol24
   for (const { interval, list } of primary) {
-    for (const t of list || []) {
-      const addr = String(t.address || t.token_address || t.base_address || '').toLowerCase();
-      if (!addr || byAddr.has(addr)) continue;
-      byAddr.set(addr, { ...t, _rank_interval: interval });
-    }
+    for (const t of list || []) upsert(interval, t);
   }
 
-  // If still thin (common on base/bsc), try extra orderby on 1h + 6h
+  // Extra orderby if still thin
   if (byAddr.size < Math.min(limit, 15)) {
     const extraJobs = [];
-    for (const interval of ['1h', '6h']) {
+    for (const interval of ['1h', '6h', '24h']) {
       for (const extra of orderVariants.slice(1)) {
         extraJobs.push(
           getTrendingSwaps(apiKey, chain, interval, { limit: Math.max(limit, 50), ...extra })
-            .then((list) => ({ list }))
+            .then((list) => ({ interval, list }))
             .catch((e) => {
               errors.push(`${interval}/${extra.orderby}:${e.message}`);
-              return { list: [] };
+              return { interval, list: [] };
             })
         );
       }
     }
     const extraResults = await Promise.all(extraJobs);
-    for (const { list } of extraResults) {
-      for (const t of list || []) {
-        const addr = String(t.address || t.token_address || t.base_address || '').toLowerCase();
-        if (!addr || byAddr.has(addr)) continue;
-        byAddr.set(addr, t);
-      }
+    for (const { interval, list } of extraResults) {
+      for (const t of list || []) upsert(interval, t);
     }
   }
 
-  const merged = Array.from(byAddr.values()).slice(0, Math.max(limit, 30));
+  const merged = Array.from(byAddr.values())
+    .sort((a, b) => vol24(b) - vol24(a))
+    .slice(0, Math.max(limit, 30));
   console.log(`GMGN multi-rank ${chain}: ${merged.length} unique (errors=${errors.length})`);
   return { list: merged, errors };
 }
