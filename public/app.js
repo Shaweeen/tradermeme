@@ -281,36 +281,43 @@ function getGmgnUrl(chain, address) {
 }
 
 /**
- * Othercoin「查看」→ 统一 DexScreener 价格曲线（不用 CoinGecko，避免 inactive/deactivated 页）
- * - 有链上地址 → 直接进对应链 token/pair 页（含 K 线）
- * - CEX 信号仅有 symbol → search，落地后选池看曲线
+ * Othercoin「查看」→ DexScreener 代币/交易对页
+ * 目标形态：https://dexscreener.com/base/0x7af45d…（图标、市值、Uniswap 对、实时成交）
+ * 优先 pairAddress；绝不走 CoinGecko。
  */
 function getOthercoinDexScreenerUrl(token) {
   const existing = String(token?.url || '');
-  if (existing.includes('dexscreener.com')) return existing;
+  // Accept only real chart paths: /{chain}/{0x… or solana mint}
+  if (
+    /dexscreener\.com\/[a-z0-9-]+\/0x[a-fA-F0-9]{40}/i.test(existing) ||
+    /dexscreener\.com\/[a-z0-9-]+\/[1-9A-HJ-NP-Za-km-z]{32,}/.test(existing)
+  ) {
+    return existing;
+  }
 
   const chain = String(token?.chain || '').toLowerCase();
-  const addr = String(token?.address || token?.pairAddress || '').trim();
-  const symbol = String(token?.symbol || '').replace(/USDT$/i, '').trim();
+  const pairOrToken = String(token?.pairAddress || token?.address || '').trim();
   const looksLikeAddress =
-    /^0x[a-fA-F0-9]{40}$/i.test(addr) ||
-    (addr.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(addr));
+    /^0x[a-fA-F0-9]{40}$/i.test(pairOrToken) ||
+    (pairOrToken.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(pairOrToken));
 
   const dexChain = {
     solana: 'solana',
     ethereum: 'ethereum',
     base: 'base',
     bsc: 'bsc',
+    arbitrum: 'arbitrum',
+    optimism: 'optimism',
+    polygon: 'polygon',
     robinhood: 'robinhood',
   }[chain];
 
   if (dexChain && looksLikeAddress) {
-    // pairAddress preferred when present (better chart page)
-    const pathAddr = String(token?.pairAddress || addr).trim();
-    return `https://dexscreener.com/${dexChain}/${pathAddr}`;
+    return `https://dexscreener.com/${dexChain}/${pairOrToken}`;
   }
 
-  const q = symbol || token?.name || addr || '';
+  // Last resort search (backend should already resolve most rows)
+  const q = String(token?.symbol || token?.name || '').replace(/USDT$/i, '').trim();
   return `https://dexscreener.com/search?q=${encodeURIComponent(q)}`;
 }
 
@@ -1556,13 +1563,19 @@ function renderOthercoinTokenRows(tokens) {
     const iconHtml = getTokenIcon(token);
     const chainBadge = getChainBadgeHtml(token.chain || 'multi');
     const dexChartUrl = getOthercoinDexScreenerUrl(token);
+    const pairHint = token.pairLabel || token.dexId
+      ? `${token.dexId || 'DEX'}${token.pairLabel ? ' · ' + token.pairLabel : ''}`
+      : 'DexScreener 代币页 · 市值 / 交易对 / 实时成交';
+    const mcapHint = token.marketCap
+      ? `市值 ${formatCompact(token.marketCap)}`
+      : (token.fdv ? `FDV ${formatCompact(token.fdv)}` : '');
+    const nameLine = [token.name || '', mcapHint, pairHint].filter(Boolean).join(' · ');
 
     // Build signal badges
     let badgesHtml = '';
     const signals = token.signals || [];
     if (signals.length > 0) {
       badgesHtml = '<div class="signal-badge-row">';
-      const badgeType = signals.length >= 3 ? 'multi' : '';
       if (signals.length >= 3) {
         badgesHtml += `<span class="signal-badge multi">+${signals.length} 信号</span>`;
       } else {
@@ -1590,7 +1603,7 @@ function renderOthercoinTokenRows(tokens) {
         <div class="token-icon">${iconHtml}</div>
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}${chainBadge}</span>
-          <span class="token-name">${token.name || ''}</span>
+          <span class="token-name" title="${nameLine}">${token.name || token.pairLabel || ''}</span>
         </div>
       </div>
       <div class="td price-cell">${formatPrice(token.priceUsd ?? token.price)}</div>
@@ -1605,7 +1618,7 @@ function renderOthercoinTokenRows(tokens) {
       </div>
       <div class="td signal-detail"><span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span></div>
       <div class="td actions-cell">
-        <a href="${dexChartUrl}" target="_blank" rel="noopener" class="action-btn primary" title="DexScreener 价格曲线">查看</a>
+        <a href="${dexChartUrl}" target="_blank" rel="noopener" class="action-btn primary" title="${pairHint}">查看</a>
       </div>`;
     fragment.appendChild(row);
   });

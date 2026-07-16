@@ -384,6 +384,250 @@ async function scanRobinhoodChainSignals(limit = SIGNAL_CONFIG.maxResults) {
   }
 }
 
+// Prefer major L1/L2 + liquid DEXes for user-facing chart pages
+const DEX_CHAIN_PREF = {
+  ethereum: 100,
+  base: 95,
+  bsc: 90,
+  solana: 88,
+  arbitrum: 70,
+  optimism: 65,
+  polygon: 55,
+  avalanche: 50,
+  robinhood: 80,
+};
+const DEX_ID_PREF = {
+  uniswap: 30,
+  'uniswap v3': 32,
+  'uniswap v2': 28,
+  pancakeswap: 28,
+  'pancakeswap v3': 30,
+  'pancakeswap v2': 26,
+  raydium: 28,
+  orca: 22,
+  aerodrome: 24,
+  sushiswap: 18,
+  camelot: 16,
+};
+
+function isQuoteLikeSymbol(sym) {
+  const s = String(sym || '').toUpperCase();
+  // Pure stables / gas wrappers as quote — but allow as base when user searches majors
+  return [
+    'USDT', 'USDC', 'USD', 'DAI', 'BUSD', 'FDUSD', 'STETH', 'WSTETH',
+  ].includes(s);
+}
+
+/**
+ * Pick best DexScreener pair for a ticker — page like:
+ *   https://dexscreener.com/base/0x7af45d...
+ * Shows icon, token info, mcap, Uniswap pair, live trades.
+ */
+function pickBestDexPair(pairs, symbol) {
+  const want = String(symbol || '').toUpperCase().replace(/USDT$/i, '');
+  if (!Array.isArray(pairs) || !want) return null;
+
+  const candidates = pairs.filter((p) => {
+    const baseSym = String(p.baseToken?.symbol || '').toUpperCase();
+    const quoteSym = String(p.quoteToken?.symbol || '').toUpperCase();
+    if (isQuoteLikeSymbol(baseSym)) return false;
+    // exact or close symbol match on base
+    if (baseSym !== want && baseSym !== `${want}X` && !baseSym.startsWith(want)) return false;
+    if (baseSym.length > want.length + 4) return false;
+    // prefer stable/native quotes
+    const okQuote = isQuoteLikeSymbol(quoteSym) || ['ETH', 'WETH', 'BNB', 'SOL', 'USDC', 'USDT'].includes(quoteSym);
+    return okQuote || (parseFloat(p.liquidity?.usd) || 0) > 50_000;
+  });
+
+  const pool = candidates.length ? candidates : pairs.filter((p) => {
+    const baseSym = String(p.baseToken?.symbol || '').toUpperCase();
+    return baseSym === want && !isQuoteLikeSymbol(baseSym);
+  });
+
+  if (!pool.length) return null;
+
+  pool.sort((a, b) => {
+    const score = (p) => {
+      const liq = parseFloat(p.liquidity?.usd) || 0;
+      const vol = parseFloat(p.volume?.h24) || 0;
+      const chainBoost = DEX_CHAIN_PREF[String(p.chainId || '').toLowerCase()] || 10;
+      const dexKey = String(p.dexId || '').toLowerCase();
+      let dexBoost = 0;
+      for (const [k, v] of Object.entries(DEX_ID_PREF)) {
+        if (dexKey.includes(k)) { dexBoost = Math.max(dexBoost, v); }
+      }
+      // Strongly prefer ethereum/base/bsc/solana so Uniswap-style pages surface first
+      return liq + vol * 0.5 + chainBoost * 5e6 + dexBoost * 2e5;
+    };
+    return score(b) - score(a);
+  });
+
+  return pool[0];
+}
+
+/** Major CEX tickers → search term that lands a real Uniswap/DEX pair page */
+const MAJOR_DEX_QUERY = {
+  BTC: 'WBTC USDC',
+  ETH: 'WETH USDC',
+  SOL: 'SOL USDC',
+  XRP: 'XRP USDC',
+  BNB: 'WBNB USDT',
+  DOGE: 'DOGE USDC',
+  ADA: 'ADA USDC',
+  AVAX: 'AVAX USDC',
+  LINK: 'LINK USDC',
+  DOT: 'DOT USDC',
+  MATIC: 'POL USDC',
+  POL: 'POL USDC',
+  ARB: 'ARB USDC',
+  OP: 'OP USDC',
+  PEPE: 'PEPE USDC',
+  WIF: 'WIF USDC',
+  BONK: 'BONK USDC',
+};
+
+/**
+ * Resolve symbol → DexScreener token/pair chart URL + on-chain fields.
+ * Target UX: https://dexscreener.com/{chain}/{pairOrToken}
+ * Example: https://dexscreener.com/base/0x7af45dfaf2fdea139b2295f37ffea2e16e6fd8ba
+ */
+async function resolveDexScreenerChart(symbol) {
+  const q = String(symbol || '').replace(/USDT$/i, '').trim();
+  if (!q) return null;
+  const pickSym = {
+    BTC: 'WBTC', ETH: 'WETH', BNB: 'WBNB', SOL: 'SOL',
+  }[q.toUpperCase()] || q;
+
+  // At most 2 searches per symbol (latency budget for 10 parallel rows)
+  const queries = [
+    MAJOR_DEX_QUERY[q.toUpperCase()] || q,
+    MAJOR_DEX_QUERY[q.toUpperCase()] ? null : `${q} USDC`,
+  ].filter(Boolean);
+
+  let best = null;
+  for (const searchQ of queries) {
+    const data = await safeFetch(
+      `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(searchQ)}`,
+      10000
+    );
+    const pairs = data?.pairs || [];
+    best = pickBestDexPair(pairs, pickSym) || pickBestDexPair(pairs, q);
+    if (best) break;
+  }
+  if (!best) return null;
+
+  const chainId = String(best.chainId || '').toLowerCase();
+  const pairAddress = best.pairAddress || '';
+  const tokenAddress = best.baseToken?.address || '';
+  // Prefer pair page (Uniswap pool + live trades). Fallback: token page.
+  const pathAddr = pairAddress || tokenAddress;
+  if (!chainId || !pathAddr) return null;
+
+  const chartUrl = best.url || `https://dexscreener.com/${chainId}/${pathAddr}`;
+  const buys = parseInt(best.txns?.h24?.buys) || 0;
+  const sells = parseInt(best.txns?.h24?.sells) || 0;
+  const h1Buys = parseInt(best.txns?.h1?.buys) || 0;
+  const h1Sells = parseInt(best.txns?.h1?.sells) || 0;
+
+  return {
+    chartUrl,
+    chainId,
+    pairAddress,
+    tokenAddress,
+    dexId: best.dexId || '',
+    pairLabel: `${best.baseToken?.symbol || q}/${best.quoteToken?.symbol || ''}`.replace(/\/$/, ''),
+    icon: best.info?.imageUrl || best.baseToken?.icon || '',
+    name: best.baseToken?.name || '',
+    priceUsd: parseFloat(best.priceUsd) || 0,
+    priceChange24h: parseFloat(best.priceChange?.h24) || 0,
+    volume24h: parseFloat(best.volume?.h24) || 0,
+    liquidity: parseFloat(best.liquidity?.usd) || 0,
+    fdv: parseFloat(best.fdv) || 0,
+    marketCap: parseFloat(best.marketCap) || parseFloat(best.fdv) || 0,
+    txns24h: { buys, sells, total: buys + sells },
+    txns1h: { buys: h1Buys, sells: h1Sells, total: h1Buys + h1Sells },
+  };
+}
+
+/**
+ * Attach DexScreener chart pages to every captured row so「查看」opens
+ * token icon / mcap / Uniswap pair / live trades — not search or CoinGecko.
+ */
+async function enrichRowsWithDexCharts(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      // Already a proper chain chart URL (e.g. Robinhood pair)
+      const existing = String(row.url || '');
+      const hasChartPath =
+        /dexscreener\.com\/[a-z0-9-]+\/0x[a-fA-F0-9]{40}/i.test(existing) ||
+        /dexscreener\.com\/[a-z0-9-]+\/[1-9A-HJ-NP-Za-km-z]{32,}/.test(existing);
+      if (hasChartPath && row.pairAddress) return row;
+
+      // On-chain rows with pair/token address → normalize URL
+      const chain = String(row.chain || '').toLowerCase();
+      const pairOrToken = row.pairAddress || row.address || '';
+      const looksOnChain =
+        /^0x[a-fA-F0-9]{40}$/i.test(pairOrToken) ||
+        (pairOrToken.length >= 32 && !/^[A-Z0-9]{2,20}$/.test(pairOrToken));
+      if (looksOnChain && chain && chain !== 'multi') {
+        return {
+          ...row,
+          address: row.address && row.address.startsWith('0x') ? row.address : pairOrToken,
+          pairAddress: row.pairAddress || pairOrToken,
+          url: existing.includes('dexscreener.com')
+            ? existing
+            : `https://dexscreener.com/${chain}/${row.pairAddress || pairOrToken}`,
+          chartReady: true,
+        };
+      }
+
+      // CEX symbol → resolve best Uniswap/DEX pair chart
+      try {
+        const dex = await resolveDexScreenerChart(row.symbol);
+        if (!dex) {
+          return {
+            ...row,
+            url: `https://dexscreener.com/search?q=${encodeURIComponent(row.symbol || '')}`,
+            chartReady: false,
+          };
+        }
+        return {
+          ...row,
+          // Keep CEX signal price if present; fill gaps from DEX
+          address: dex.tokenAddress || row.address,
+          pairAddress: dex.pairAddress,
+          chain: dex.chainId || row.chain,
+          name: row.name && row.name !== row.symbol ? row.name : (dex.name || row.name),
+          icon: row.icon || dex.icon,
+          url: dex.chartUrl,
+          dexId: dex.dexId,
+          pairLabel: dex.pairLabel,
+          liquidity: dex.liquidity || row.liquidity,
+          fdv: dex.fdv || row.fdv,
+          marketCap: dex.marketCap || row.marketCap,
+          // Prefer live DEX volume/txns for chart context when strong
+          volume24h: Math.max(row.volume24h || 0, dex.volume24h || 0),
+          txns24h: dex.txns24h?.total ? dex.txns24h : row.txns24h,
+          txns1h: dex.txns1h?.total ? dex.txns1h : row.txns1h,
+          chartReady: true,
+          source: row.source ? `${row.source}+dex-chart` : 'dex-chart',
+        };
+      } catch (e) {
+        console.warn('Dex chart resolve fail', row.symbol, e.message || e);
+        return {
+          ...row,
+          url: `https://dexscreener.com/search?q=${encodeURIComponent(row.symbol || '')}`,
+          chartReady: false,
+        };
+      }
+    })
+  );
+
+  return enriched;
+}
+
 /**
  * Main scanner: discover coins with strongest signals
  * @param {string} chainFilter - multi | robinhood | all
@@ -434,8 +678,8 @@ async function scanSignals(chainFilter = 'all') {
             source: 'signal-scan',
             txns1h: { buys: 0, sells: 0, total: 0 },
             txns24h: { buys: 0, sells: 0, total: 0 },
-            // View button → DexScreener price chart (not CoinGecko; CG pages often inactive)
-            url: `https://dexscreener.com/search?q=${encodeURIComponent(coin.symbol)}`,
+            // Placeholder — enrichRowsWithDexCharts replaces with pair chart URL
+            url: '',
             geckoId: coin.geckoId || null,
           }));
       })()
@@ -456,7 +700,8 @@ async function scanSignals(chainFilter = 'all') {
     .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
     .map((row, i) => ({ ...row, rank: i + 1 }));
 
-  return merged;
+  // Every captured token → DexScreener pair chart page (icon / mcap / Uniswap / live trades)
+  return enrichRowsWithDexCharts(merged);
 }
 
 /**
