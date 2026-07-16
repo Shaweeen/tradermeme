@@ -1,27 +1,1874 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "personal-x-alpha-watchlist",
   "maxHandles": 500,
   "updatedAt": "2026-07-16",
-  "count": 17,
-  "note": "Canonical runtime list is functions/api/_x_watchlist.js (HANDLES). This JSON mirrors handles for easy paste/export. User asked for up to 500; only first batch received so far.",
+  "count": 266,
+  "note": "Merged personal seed + industry/protocol/NFT/DeFi X handles for Memecoin community matching.",
   "handles": [
     "fish081320792",
     "slowisfast_",
     "0xmrdq",
-    "elonmusk",
-    "realdonaldtrump",
-    "Cz_binance",
     "Cryptoyiyi",
     "Heyibinance",
-    "kanyewest",
     "marionawfal",
     "cointelegraph",
     "insydercrypto",
     "PepeBoost888",
-    "binance",
     "WatcherGuru",
     "stoolpresidente",
-    "useXXYYio"
+    "useXXYYio",
+    "realDonaldTrump",
+    "elonmusk",
+    "VitalikButerin",
+    "brian_armstrong",
+    "cz_binance",
+    "SatoshiLite",
+    "aantonop",
+    "naval",
+    "ErikVoorhees",
+    "saylor",
+    "SBF_FTX",
+    "barrysilbert",
+    "lopp",
+    "winklevoss",
+    "tyler",
+    "APompliano",
+    "CobraBitcoin",
+    "TuurDemeester",
+    "PeterSchiff",
+    "gavinandresen",
+    "rogerkver",
+    "JihanWu",
+    "TraceMayer",
+    "ToneVays",
+    "JimmySong",
+    "Excellion",
+    "jimmymcshane",
+    "bypascal",
+    "MustacheElmo",
+    "woonomic",
+    "glassnode",
+    "skewdotcom",
+    "crypto_rand",
+    "CryptoYoda1338",
+    "CryptoCobain",
+    "Ansem",
+    "TheCryptoDog",
+    "MacnBTC",
+    "CryptoTony__",
+    "GCRClassic",
+    "HsakaTrades",
+    "ledger_support",
+    "Trezor",
+    "Metamask",
+    "TrustWallet",
+    "Phantom",
+    "Uniswap",
+    "Sushiswap",
+    "PancakeSwap",
+    "dYdX",
+    "AaveAave",
+    "CompoundFinance",
+    "MakerDAO",
+    "LidoFinance",
+    "Rocket_Pool",
+    "arbitrum",
+    "optimism",
+    "base",
+    "solana",
+    "ethereum",
+    "Bitcoin",
+    "dogecoin",
+    "pepe",
+    "shibtoken",
+    "bonk_inu",
+    "FlokiAnu",
+    "pudgypenguins",
+    "BoredApeYC",
+    "cryptopunksnfts",
+    "yugalabs",
+    "Azuki",
+    "Doodles",
+    "clonex",
+    "Moonbirds",
+    "opensea",
+    "blur_io",
+    "MagicEden",
+    "tensor_hq",
+    "JupiterExchange",
+    "RaydiumProtocol",
+    "Orca_so",
+    "DriftProtocol",
+    "KaminoFinance",
+    "MeteoraAG",
+    "jito_sol",
+    "pythnetwork",
+    "wormhole",
+    "LayerZero_Core",
+    "eigenlayer",
+    "ether_fi",
+    "KelpDAO",
+    "RenzoProtocol",
+    "puffer_finance",
+    "bounce_bit",
+    "babylon_chain",
+    "berachain",
+    "monad_xyz",
+    "Farcaster_xyz",
+    "warpcast_",
+    "lensprotocol",
+    "hey_xyz_",
+    "friendtech",
+    "fantasy_top",
+    "districtone_io",
+    "cyberconnecthq",
+    "galxe",
+    "Layer3xyz",
+    "zealy_io",
+    "questn_official",
+    "taskonxyz",
+    "CoinMarketCap",
+    "coingecko",
+    "DefiLlama",
+    "TokenTerminal",
+    "DuneAnalytics",
+    "Nansen_ai",
+    "ArkhamIntel",
+    "bubbles_maps",
+    "debank360",
+    "zapper_fi",
+    "zerion",
+    "rabby_io",
+    "rainbowdotme",
+    "okxweb3",
+    "bitgetwallet",
+    "gate_io",
+    "kucoincom",
+    "Bybit_Official",
+    "HTX_Global",
+    "MEXC_Official",
+    "krakenfx",
+    "coinbase",
+    "binance",
+    "cz_gemini",
+    "cameron",
+    "tyler_winklevoss",
+    "paoloardoino",
+    "Tether_to",
+    "circle",
+    "jerallaire",
+    "USDCOfficial",
+    "Paxos",
+    "maker_dai",
+    "fraxfinance",
+    "samkazemian",
+    "Arthur_0x",
+    "DeFianceCapital",
+    "AndrewKangLT",
+    "MechanismCap",
+    "KyleSamani",
+    "MulticoinCap",
+    "zhusu",
+    "ThreeArrowsCap",
+    "Suzyq3abc",
+    "CozomoMedici",
+    "punk6529",
+    "gmoneyNFT",
+    "shillrxyz",
+    "beeple",
+    "XCOPYART",
+    "pak",
+    "fewocious",
+    "TylerHobbs",
+    "dmitricherniak",
+    "archillect",
+    "NFT_VALLEY",
+    "nftnow",
+    "decentland",
+    "superrare",
+    "foundation",
+    "makersplace",
+    "knownorigin",
+    "rarible",
+    "looksrare",
+    "x2y2_io",
+    "Zora",
+    "manifoldxyz",
+    "highlight_xyz",
+    "decaart",
+    "gallery",
+    "oncyber_io",
+    "spatialxr",
+    "sandboxgame",
+    "decentraland",
+    "somniumspace",
+    "cryptovoxels",
+    "illuviumio",
+    "AxieInfinity",
+    "yogg_games",
+    "GuildFiGlobal",
+    "YieldGuild",
+    "MeritCircle",
+    "AAG_Global",
+    "Ronin_Network",
+    "Immutable",
+    "Polygon731",
+    "Optimism_FND",
+    "Arbitrum_FND",
+    "Base_FND",
+    "ZkSync",
+    "Starknet",
+    "LineaBuild",
+    "Scroll_ZKP",
+    "TaikoXa",
+    "MantleOG",
+    "MetisL2",
+    "Loopringorg",
+    "dydx_user",
+    "GMX_IO",
+    "GainsNetwork_io",
+    "HMXorg",
+    "VertexProtocol",
+    "HyperliquidX",
+    "Aevo_xyz",
+    "RageTrade",
+    "LyraFinance",
+    "PremiaFinance",
+    "DeribitExchange",
+    "RibbonFinance",
+    "Dopex_io",
+    "Opyn_",
+    "HegicOptions",
+    "Panoptic_xyz",
+    "SqueethByOpyn",
+    "GammaStrategies",
+    "ArrakisFinance",
+    "DefiEdge",
+    "AuraFinance",
+    "ConvexFinance",
+    "CurveFinance",
+    "Balancer",
+    "Beethoven_x",
+    "VelodromeFi",
+    "AerodromeFi",
+    "ThenaFi_",
+    "SolidlyExchange",
+    "Equalizer0x",
+    "RamsesExchange",
+    "ChronosFi_",
+    "Pearl_Fi",
+    "SterlingFinance",
+    "Retro_finance",
+    "MerlinSwap",
+    "PancakeSwap_L2",
+    "TraderJoe_xyz",
+    "BenqiFinance",
+    "GMX_AVAX",
+    "Platypusdefi",
+    "YetiFinance",
+    "VectorFinance",
+    "TraderJoe_NFT",
+    "JoepegNFT",
+    "SynapseProtocol",
+    "StargateFinance"
+  ],
+  "entries": [
+    {
+      "rank": 1,
+      "name": "PokerFish",
+      "handle": "fish081320792",
+      "note": ""
+    },
+    {
+      "rank": 2,
+      "name": "念云归",
+      "handle": "slowisfast_",
+      "note": ""
+    },
+    {
+      "rank": 3,
+      "name": "Mr.DQ",
+      "handle": "0xmrdq",
+      "note": ""
+    },
+    {
+      "rank": 4,
+      "name": "一屹水火先",
+      "handle": "Cryptoyiyi",
+      "note": ""
+    },
+    {
+      "rank": 5,
+      "name": "Yi He",
+      "handle": "Heyibinance",
+      "note": ""
+    },
+    {
+      "rank": 6,
+      "name": "Mario Nawfal",
+      "handle": "marionawfal",
+      "note": ""
+    },
+    {
+      "rank": 7,
+      "name": "Cointelegraph",
+      "handle": "cointelegraph",
+      "note": ""
+    },
+    {
+      "rank": 8,
+      "name": "Insyder",
+      "handle": "insydercrypto",
+      "note": ""
+    },
+    {
+      "rank": 9,
+      "name": "pepe boost",
+      "handle": "PepeBoost888",
+      "note": ""
+    },
+    {
+      "rank": 10,
+      "name": "Watcher.Guru",
+      "handle": "WatcherGuru",
+      "note": ""
+    },
+    {
+      "rank": 11,
+      "name": "Dave Portnoy",
+      "handle": "stoolpresidente",
+      "note": ""
+    },
+    {
+      "rank": 12,
+      "name": "XXYY",
+      "handle": "useXXYYio",
+      "note": ""
+    },
+    {
+      "rank": 13,
+      "name": "realDonaldTrump",
+      "handle": "realDonaldTrump",
+      "note": ""
+    },
+    {
+      "rank": 14,
+      "name": "elonmusk",
+      "handle": "elonmusk",
+      "note": ""
+    },
+    {
+      "rank": 15,
+      "name": "VitalikButerin",
+      "handle": "VitalikButerin",
+      "note": ""
+    },
+    {
+      "rank": 16,
+      "name": "brian_armstrong",
+      "handle": "brian_armstrong",
+      "note": ""
+    },
+    {
+      "rank": 17,
+      "name": "cz_binance",
+      "handle": "cz_binance",
+      "note": ""
+    },
+    {
+      "rank": 18,
+      "name": "SatoshiLite",
+      "handle": "SatoshiLite",
+      "note": ""
+    },
+    {
+      "rank": 19,
+      "name": "aantonop",
+      "handle": "aantonop",
+      "note": ""
+    },
+    {
+      "rank": 20,
+      "name": "naval",
+      "handle": "naval",
+      "note": ""
+    },
+    {
+      "rank": 21,
+      "name": "ErikVoorhees",
+      "handle": "ErikVoorhees",
+      "note": ""
+    },
+    {
+      "rank": 22,
+      "name": "saylor",
+      "handle": "saylor",
+      "note": ""
+    },
+    {
+      "rank": 23,
+      "name": "SBF_FTX",
+      "handle": "SBF_FTX",
+      "note": ""
+    },
+    {
+      "rank": 24,
+      "name": "barrysilbert",
+      "handle": "barrysilbert",
+      "note": ""
+    },
+    {
+      "rank": 25,
+      "name": "lopp",
+      "handle": "lopp",
+      "note": ""
+    },
+    {
+      "rank": 26,
+      "name": "winklevoss",
+      "handle": "winklevoss",
+      "note": ""
+    },
+    {
+      "rank": 27,
+      "name": "tyler",
+      "handle": "tyler",
+      "note": ""
+    },
+    {
+      "rank": 28,
+      "name": "APompliano",
+      "handle": "APompliano",
+      "note": ""
+    },
+    {
+      "rank": 29,
+      "name": "CobraBitcoin",
+      "handle": "CobraBitcoin",
+      "note": ""
+    },
+    {
+      "rank": 30,
+      "name": "TuurDemeester",
+      "handle": "TuurDemeester",
+      "note": ""
+    },
+    {
+      "rank": 31,
+      "name": "PeterSchiff",
+      "handle": "PeterSchiff",
+      "note": ""
+    },
+    {
+      "rank": 32,
+      "name": "gavinandresen",
+      "handle": "gavinandresen",
+      "note": ""
+    },
+    {
+      "rank": 33,
+      "name": "rogerkver",
+      "handle": "rogerkver",
+      "note": ""
+    },
+    {
+      "rank": 34,
+      "name": "JihanWu",
+      "handle": "JihanWu",
+      "note": ""
+    },
+    {
+      "rank": 35,
+      "name": "TraceMayer",
+      "handle": "TraceMayer",
+      "note": ""
+    },
+    {
+      "rank": 36,
+      "name": "ToneVays",
+      "handle": "ToneVays",
+      "note": ""
+    },
+    {
+      "rank": 37,
+      "name": "JimmySong",
+      "handle": "JimmySong",
+      "note": ""
+    },
+    {
+      "rank": 38,
+      "name": "Excellion",
+      "handle": "Excellion",
+      "note": ""
+    },
+    {
+      "rank": 39,
+      "name": "jimmymcshane",
+      "handle": "jimmymcshane",
+      "note": ""
+    },
+    {
+      "rank": 40,
+      "name": "bypascal",
+      "handle": "bypascal",
+      "note": ""
+    },
+    {
+      "rank": 41,
+      "name": "MustacheElmo",
+      "handle": "MustacheElmo",
+      "note": ""
+    },
+    {
+      "rank": 42,
+      "name": "woonomic",
+      "handle": "woonomic",
+      "note": ""
+    },
+    {
+      "rank": 43,
+      "name": "glassnode",
+      "handle": "glassnode",
+      "note": ""
+    },
+    {
+      "rank": 44,
+      "name": "skewdotcom",
+      "handle": "skewdotcom",
+      "note": ""
+    },
+    {
+      "rank": 45,
+      "name": "crypto_rand",
+      "handle": "crypto_rand",
+      "note": ""
+    },
+    {
+      "rank": 46,
+      "name": "CryptoYoda1338",
+      "handle": "CryptoYoda1338",
+      "note": ""
+    },
+    {
+      "rank": 47,
+      "name": "CryptoCobain",
+      "handle": "CryptoCobain",
+      "note": ""
+    },
+    {
+      "rank": 48,
+      "name": "Ansem",
+      "handle": "Ansem",
+      "note": ""
+    },
+    {
+      "rank": 49,
+      "name": "TheCryptoDog",
+      "handle": "TheCryptoDog",
+      "note": ""
+    },
+    {
+      "rank": 50,
+      "name": "MacnBTC",
+      "handle": "MacnBTC",
+      "note": ""
+    },
+    {
+      "rank": 51,
+      "name": "CryptoTony__",
+      "handle": "CryptoTony__",
+      "note": ""
+    },
+    {
+      "rank": 52,
+      "name": "GCRClassic",
+      "handle": "GCRClassic",
+      "note": ""
+    },
+    {
+      "rank": 53,
+      "name": "HsakaTrades",
+      "handle": "HsakaTrades",
+      "note": ""
+    },
+    {
+      "rank": 54,
+      "name": "ledger_support",
+      "handle": "ledger_support",
+      "note": ""
+    },
+    {
+      "rank": 55,
+      "name": "Trezor",
+      "handle": "Trezor",
+      "note": ""
+    },
+    {
+      "rank": 56,
+      "name": "Metamask",
+      "handle": "Metamask",
+      "note": ""
+    },
+    {
+      "rank": 57,
+      "name": "TrustWallet",
+      "handle": "TrustWallet",
+      "note": ""
+    },
+    {
+      "rank": 58,
+      "name": "Phantom",
+      "handle": "Phantom",
+      "note": ""
+    },
+    {
+      "rank": 59,
+      "name": "Uniswap",
+      "handle": "Uniswap",
+      "note": ""
+    },
+    {
+      "rank": 60,
+      "name": "Sushiswap",
+      "handle": "Sushiswap",
+      "note": ""
+    },
+    {
+      "rank": 61,
+      "name": "PancakeSwap",
+      "handle": "PancakeSwap",
+      "note": ""
+    },
+    {
+      "rank": 62,
+      "name": "dYdX",
+      "handle": "dYdX",
+      "note": ""
+    },
+    {
+      "rank": 63,
+      "name": "AaveAave",
+      "handle": "AaveAave",
+      "note": ""
+    },
+    {
+      "rank": 64,
+      "name": "CompoundFinance",
+      "handle": "CompoundFinance",
+      "note": ""
+    },
+    {
+      "rank": 65,
+      "name": "MakerDAO",
+      "handle": "MakerDAO",
+      "note": ""
+    },
+    {
+      "rank": 66,
+      "name": "LidoFinance",
+      "handle": "LidoFinance",
+      "note": ""
+    },
+    {
+      "rank": 67,
+      "name": "Rocket_Pool",
+      "handle": "Rocket_Pool",
+      "note": ""
+    },
+    {
+      "rank": 68,
+      "name": "arbitrum",
+      "handle": "arbitrum",
+      "note": ""
+    },
+    {
+      "rank": 69,
+      "name": "optimism",
+      "handle": "optimism",
+      "note": ""
+    },
+    {
+      "rank": 70,
+      "name": "base",
+      "handle": "base",
+      "note": ""
+    },
+    {
+      "rank": 71,
+      "name": "solana",
+      "handle": "solana",
+      "note": ""
+    },
+    {
+      "rank": 72,
+      "name": "ethereum",
+      "handle": "ethereum",
+      "note": ""
+    },
+    {
+      "rank": 73,
+      "name": "Bitcoin",
+      "handle": "Bitcoin",
+      "note": ""
+    },
+    {
+      "rank": 74,
+      "name": "dogecoin",
+      "handle": "dogecoin",
+      "note": ""
+    },
+    {
+      "rank": 75,
+      "name": "pepe",
+      "handle": "pepe",
+      "note": ""
+    },
+    {
+      "rank": 76,
+      "name": "shibtoken",
+      "handle": "shibtoken",
+      "note": ""
+    },
+    {
+      "rank": 77,
+      "name": "bonk_inu",
+      "handle": "bonk_inu",
+      "note": ""
+    },
+    {
+      "rank": 78,
+      "name": "FlokiAnu",
+      "handle": "FlokiAnu",
+      "note": ""
+    },
+    {
+      "rank": 79,
+      "name": "pudgypenguins",
+      "handle": "pudgypenguins",
+      "note": ""
+    },
+    {
+      "rank": 80,
+      "name": "BoredApeYC",
+      "handle": "BoredApeYC",
+      "note": ""
+    },
+    {
+      "rank": 81,
+      "name": "cryptopunksnfts",
+      "handle": "cryptopunksnfts",
+      "note": ""
+    },
+    {
+      "rank": 82,
+      "name": "yugalabs",
+      "handle": "yugalabs",
+      "note": ""
+    },
+    {
+      "rank": 83,
+      "name": "Azuki",
+      "handle": "Azuki",
+      "note": ""
+    },
+    {
+      "rank": 84,
+      "name": "Doodles",
+      "handle": "Doodles",
+      "note": ""
+    },
+    {
+      "rank": 85,
+      "name": "clonex",
+      "handle": "clonex",
+      "note": ""
+    },
+    {
+      "rank": 86,
+      "name": "Moonbirds",
+      "handle": "Moonbirds",
+      "note": ""
+    },
+    {
+      "rank": 87,
+      "name": "opensea",
+      "handle": "opensea",
+      "note": ""
+    },
+    {
+      "rank": 88,
+      "name": "blur_io",
+      "handle": "blur_io",
+      "note": ""
+    },
+    {
+      "rank": 89,
+      "name": "MagicEden",
+      "handle": "MagicEden",
+      "note": ""
+    },
+    {
+      "rank": 90,
+      "name": "tensor_hq",
+      "handle": "tensor_hq",
+      "note": ""
+    },
+    {
+      "rank": 91,
+      "name": "JupiterExchange",
+      "handle": "JupiterExchange",
+      "note": ""
+    },
+    {
+      "rank": 92,
+      "name": "RaydiumProtocol",
+      "handle": "RaydiumProtocol",
+      "note": ""
+    },
+    {
+      "rank": 93,
+      "name": "Orca_so",
+      "handle": "Orca_so",
+      "note": ""
+    },
+    {
+      "rank": 94,
+      "name": "DriftProtocol",
+      "handle": "DriftProtocol",
+      "note": ""
+    },
+    {
+      "rank": 95,
+      "name": "KaminoFinance",
+      "handle": "KaminoFinance",
+      "note": ""
+    },
+    {
+      "rank": 96,
+      "name": "MeteoraAG",
+      "handle": "MeteoraAG",
+      "note": ""
+    },
+    {
+      "rank": 97,
+      "name": "jito_sol",
+      "handle": "jito_sol",
+      "note": ""
+    },
+    {
+      "rank": 98,
+      "name": "pythnetwork",
+      "handle": "pythnetwork",
+      "note": ""
+    },
+    {
+      "rank": 99,
+      "name": "wormhole",
+      "handle": "wormhole",
+      "note": ""
+    },
+    {
+      "rank": 100,
+      "name": "LayerZero_Core",
+      "handle": "LayerZero_Core",
+      "note": ""
+    },
+    {
+      "rank": 101,
+      "name": "eigenlayer",
+      "handle": "eigenlayer",
+      "note": ""
+    },
+    {
+      "rank": 102,
+      "name": "ether_fi",
+      "handle": "ether_fi",
+      "note": ""
+    },
+    {
+      "rank": 103,
+      "name": "KelpDAO",
+      "handle": "KelpDAO",
+      "note": ""
+    },
+    {
+      "rank": 104,
+      "name": "RenzoProtocol",
+      "handle": "RenzoProtocol",
+      "note": ""
+    },
+    {
+      "rank": 105,
+      "name": "puffer_finance",
+      "handle": "puffer_finance",
+      "note": ""
+    },
+    {
+      "rank": 106,
+      "name": "bounce_bit",
+      "handle": "bounce_bit",
+      "note": ""
+    },
+    {
+      "rank": 107,
+      "name": "babylon_chain",
+      "handle": "babylon_chain",
+      "note": ""
+    },
+    {
+      "rank": 108,
+      "name": "berachain",
+      "handle": "berachain",
+      "note": ""
+    },
+    {
+      "rank": 109,
+      "name": "monad_xyz",
+      "handle": "monad_xyz",
+      "note": ""
+    },
+    {
+      "rank": 110,
+      "name": "Farcaster_xyz",
+      "handle": "Farcaster_xyz",
+      "note": ""
+    },
+    {
+      "rank": 111,
+      "name": "warpcast_",
+      "handle": "warpcast_",
+      "note": ""
+    },
+    {
+      "rank": 112,
+      "name": "lensprotocol",
+      "handle": "lensprotocol",
+      "note": ""
+    },
+    {
+      "rank": 113,
+      "name": "hey_xyz_",
+      "handle": "hey_xyz_",
+      "note": ""
+    },
+    {
+      "rank": 114,
+      "name": "friendtech",
+      "handle": "friendtech",
+      "note": ""
+    },
+    {
+      "rank": 115,
+      "name": "fantasy_top",
+      "handle": "fantasy_top",
+      "note": ""
+    },
+    {
+      "rank": 116,
+      "name": "districtone_io",
+      "handle": "districtone_io",
+      "note": ""
+    },
+    {
+      "rank": 117,
+      "name": "cyberconnecthq",
+      "handle": "cyberconnecthq",
+      "note": ""
+    },
+    {
+      "rank": 118,
+      "name": "galxe",
+      "handle": "galxe",
+      "note": ""
+    },
+    {
+      "rank": 119,
+      "name": "Layer3xyz",
+      "handle": "Layer3xyz",
+      "note": ""
+    },
+    {
+      "rank": 120,
+      "name": "zealy_io",
+      "handle": "zealy_io",
+      "note": ""
+    },
+    {
+      "rank": 121,
+      "name": "questn_official",
+      "handle": "questn_official",
+      "note": ""
+    },
+    {
+      "rank": 122,
+      "name": "taskonxyz",
+      "handle": "taskonxyz",
+      "note": ""
+    },
+    {
+      "rank": 123,
+      "name": "CoinMarketCap",
+      "handle": "CoinMarketCap",
+      "note": ""
+    },
+    {
+      "rank": 124,
+      "name": "coingecko",
+      "handle": "coingecko",
+      "note": ""
+    },
+    {
+      "rank": 125,
+      "name": "DefiLlama",
+      "handle": "DefiLlama",
+      "note": ""
+    },
+    {
+      "rank": 126,
+      "name": "TokenTerminal",
+      "handle": "TokenTerminal",
+      "note": ""
+    },
+    {
+      "rank": 127,
+      "name": "DuneAnalytics",
+      "handle": "DuneAnalytics",
+      "note": ""
+    },
+    {
+      "rank": 128,
+      "name": "Nansen_ai",
+      "handle": "Nansen_ai",
+      "note": ""
+    },
+    {
+      "rank": 129,
+      "name": "ArkhamIntel",
+      "handle": "ArkhamIntel",
+      "note": ""
+    },
+    {
+      "rank": 130,
+      "name": "bubbles_maps",
+      "handle": "bubbles_maps",
+      "note": ""
+    },
+    {
+      "rank": 131,
+      "name": "debank360",
+      "handle": "debank360",
+      "note": ""
+    },
+    {
+      "rank": 132,
+      "name": "zapper_fi",
+      "handle": "zapper_fi",
+      "note": ""
+    },
+    {
+      "rank": 133,
+      "name": "zerion",
+      "handle": "zerion",
+      "note": ""
+    },
+    {
+      "rank": 134,
+      "name": "rabby_io",
+      "handle": "rabby_io",
+      "note": ""
+    },
+    {
+      "rank": 135,
+      "name": "rainbowdotme",
+      "handle": "rainbowdotme",
+      "note": ""
+    },
+    {
+      "rank": 136,
+      "name": "okxweb3",
+      "handle": "okxweb3",
+      "note": ""
+    },
+    {
+      "rank": 137,
+      "name": "bitgetwallet",
+      "handle": "bitgetwallet",
+      "note": ""
+    },
+    {
+      "rank": 138,
+      "name": "gate_io",
+      "handle": "gate_io",
+      "note": ""
+    },
+    {
+      "rank": 139,
+      "name": "kucoincom",
+      "handle": "kucoincom",
+      "note": ""
+    },
+    {
+      "rank": 140,
+      "name": "Bybit_Official",
+      "handle": "Bybit_Official",
+      "note": ""
+    },
+    {
+      "rank": 141,
+      "name": "HTX_Global",
+      "handle": "HTX_Global",
+      "note": ""
+    },
+    {
+      "rank": 142,
+      "name": "MEXC_Official",
+      "handle": "MEXC_Official",
+      "note": ""
+    },
+    {
+      "rank": 143,
+      "name": "krakenfx",
+      "handle": "krakenfx",
+      "note": ""
+    },
+    {
+      "rank": 144,
+      "name": "coinbase",
+      "handle": "coinbase",
+      "note": ""
+    },
+    {
+      "rank": 145,
+      "name": "binance",
+      "handle": "binance",
+      "note": ""
+    },
+    {
+      "rank": 146,
+      "name": "cz_gemini",
+      "handle": "cz_gemini",
+      "note": ""
+    },
+    {
+      "rank": 147,
+      "name": "cameron",
+      "handle": "cameron",
+      "note": ""
+    },
+    {
+      "rank": 148,
+      "name": "tyler_winklevoss",
+      "handle": "tyler_winklevoss",
+      "note": ""
+    },
+    {
+      "rank": 149,
+      "name": "paoloardoino",
+      "handle": "paoloardoino",
+      "note": ""
+    },
+    {
+      "rank": 150,
+      "name": "Tether_to",
+      "handle": "Tether_to",
+      "note": ""
+    },
+    {
+      "rank": 151,
+      "name": "circle",
+      "handle": "circle",
+      "note": ""
+    },
+    {
+      "rank": 152,
+      "name": "jerallaire",
+      "handle": "jerallaire",
+      "note": ""
+    },
+    {
+      "rank": 153,
+      "name": "USDCOfficial",
+      "handle": "USDCOfficial",
+      "note": ""
+    },
+    {
+      "rank": 154,
+      "name": "Paxos",
+      "handle": "Paxos",
+      "note": ""
+    },
+    {
+      "rank": 155,
+      "name": "maker_dai",
+      "handle": "maker_dai",
+      "note": ""
+    },
+    {
+      "rank": 156,
+      "name": "fraxfinance",
+      "handle": "fraxfinance",
+      "note": ""
+    },
+    {
+      "rank": 157,
+      "name": "samkazemian",
+      "handle": "samkazemian",
+      "note": ""
+    },
+    {
+      "rank": 158,
+      "name": "Arthur_0x",
+      "handle": "Arthur_0x",
+      "note": ""
+    },
+    {
+      "rank": 159,
+      "name": "DeFianceCapital",
+      "handle": "DeFianceCapital",
+      "note": ""
+    },
+    {
+      "rank": 160,
+      "name": "AndrewKangLT",
+      "handle": "AndrewKangLT",
+      "note": ""
+    },
+    {
+      "rank": 161,
+      "name": "MechanismCap",
+      "handle": "MechanismCap",
+      "note": ""
+    },
+    {
+      "rank": 162,
+      "name": "KyleSamani",
+      "handle": "KyleSamani",
+      "note": ""
+    },
+    {
+      "rank": 163,
+      "name": "MulticoinCap",
+      "handle": "MulticoinCap",
+      "note": ""
+    },
+    {
+      "rank": 164,
+      "name": "zhusu",
+      "handle": "zhusu",
+      "note": ""
+    },
+    {
+      "rank": 165,
+      "name": "ThreeArrowsCap",
+      "handle": "ThreeArrowsCap",
+      "note": ""
+    },
+    {
+      "rank": 166,
+      "name": "Suzyq3abc",
+      "handle": "Suzyq3abc",
+      "note": ""
+    },
+    {
+      "rank": 167,
+      "name": "CozomoMedici",
+      "handle": "CozomoMedici",
+      "note": ""
+    },
+    {
+      "rank": 168,
+      "name": "punk6529",
+      "handle": "punk6529",
+      "note": ""
+    },
+    {
+      "rank": 169,
+      "name": "gmoneyNFT",
+      "handle": "gmoneyNFT",
+      "note": ""
+    },
+    {
+      "rank": 170,
+      "name": "shillrxyz",
+      "handle": "shillrxyz",
+      "note": ""
+    },
+    {
+      "rank": 171,
+      "name": "beeple",
+      "handle": "beeple",
+      "note": ""
+    },
+    {
+      "rank": 172,
+      "name": "XCOPYART",
+      "handle": "XCOPYART",
+      "note": ""
+    },
+    {
+      "rank": 173,
+      "name": "pak",
+      "handle": "pak",
+      "note": ""
+    },
+    {
+      "rank": 174,
+      "name": "fewocious",
+      "handle": "fewocious",
+      "note": ""
+    },
+    {
+      "rank": 175,
+      "name": "TylerHobbs",
+      "handle": "TylerHobbs",
+      "note": ""
+    },
+    {
+      "rank": 176,
+      "name": "dmitricherniak",
+      "handle": "dmitricherniak",
+      "note": ""
+    },
+    {
+      "rank": 177,
+      "name": "archillect",
+      "handle": "archillect",
+      "note": ""
+    },
+    {
+      "rank": 178,
+      "name": "NFT_VALLEY",
+      "handle": "NFT_VALLEY",
+      "note": ""
+    },
+    {
+      "rank": 179,
+      "name": "nftnow",
+      "handle": "nftnow",
+      "note": ""
+    },
+    {
+      "rank": 180,
+      "name": "decentland",
+      "handle": "decentland",
+      "note": ""
+    },
+    {
+      "rank": 181,
+      "name": "superrare",
+      "handle": "superrare",
+      "note": ""
+    },
+    {
+      "rank": 182,
+      "name": "foundation",
+      "handle": "foundation",
+      "note": ""
+    },
+    {
+      "rank": 183,
+      "name": "makersplace",
+      "handle": "makersplace",
+      "note": ""
+    },
+    {
+      "rank": 184,
+      "name": "knownorigin",
+      "handle": "knownorigin",
+      "note": ""
+    },
+    {
+      "rank": 185,
+      "name": "rarible",
+      "handle": "rarible",
+      "note": ""
+    },
+    {
+      "rank": 186,
+      "name": "looksrare",
+      "handle": "looksrare",
+      "note": ""
+    },
+    {
+      "rank": 187,
+      "name": "x2y2_io",
+      "handle": "x2y2_io",
+      "note": ""
+    },
+    {
+      "rank": 188,
+      "name": "Zora",
+      "handle": "Zora",
+      "note": ""
+    },
+    {
+      "rank": 189,
+      "name": "manifoldxyz",
+      "handle": "manifoldxyz",
+      "note": ""
+    },
+    {
+      "rank": 190,
+      "name": "highlight_xyz",
+      "handle": "highlight_xyz",
+      "note": ""
+    },
+    {
+      "rank": 191,
+      "name": "decaart",
+      "handle": "decaart",
+      "note": ""
+    },
+    {
+      "rank": 192,
+      "name": "gallery",
+      "handle": "gallery",
+      "note": ""
+    },
+    {
+      "rank": 193,
+      "name": "oncyber_io",
+      "handle": "oncyber_io",
+      "note": ""
+    },
+    {
+      "rank": 194,
+      "name": "spatialxr",
+      "handle": "spatialxr",
+      "note": ""
+    },
+    {
+      "rank": 195,
+      "name": "sandboxgame",
+      "handle": "sandboxgame",
+      "note": ""
+    },
+    {
+      "rank": 196,
+      "name": "decentraland",
+      "handle": "decentraland",
+      "note": ""
+    },
+    {
+      "rank": 197,
+      "name": "somniumspace",
+      "handle": "somniumspace",
+      "note": ""
+    },
+    {
+      "rank": 198,
+      "name": "cryptovoxels",
+      "handle": "cryptovoxels",
+      "note": ""
+    },
+    {
+      "rank": 199,
+      "name": "illuviumio",
+      "handle": "illuviumio",
+      "note": ""
+    },
+    {
+      "rank": 200,
+      "name": "AxieInfinity",
+      "handle": "AxieInfinity",
+      "note": ""
+    },
+    {
+      "rank": 201,
+      "name": "yogg_games",
+      "handle": "yogg_games",
+      "note": ""
+    },
+    {
+      "rank": 202,
+      "name": "GuildFiGlobal",
+      "handle": "GuildFiGlobal",
+      "note": ""
+    },
+    {
+      "rank": 203,
+      "name": "YieldGuild",
+      "handle": "YieldGuild",
+      "note": ""
+    },
+    {
+      "rank": 204,
+      "name": "MeritCircle",
+      "handle": "MeritCircle",
+      "note": ""
+    },
+    {
+      "rank": 205,
+      "name": "AAG_Global",
+      "handle": "AAG_Global",
+      "note": ""
+    },
+    {
+      "rank": 206,
+      "name": "Ronin_Network",
+      "handle": "Ronin_Network",
+      "note": ""
+    },
+    {
+      "rank": 207,
+      "name": "Immutable",
+      "handle": "Immutable",
+      "note": ""
+    },
+    {
+      "rank": 208,
+      "name": "Polygon731",
+      "handle": "Polygon731",
+      "note": ""
+    },
+    {
+      "rank": 209,
+      "name": "Optimism_FND",
+      "handle": "Optimism_FND",
+      "note": ""
+    },
+    {
+      "rank": 210,
+      "name": "Arbitrum_FND",
+      "handle": "Arbitrum_FND",
+      "note": ""
+    },
+    {
+      "rank": 211,
+      "name": "Base_FND",
+      "handle": "Base_FND",
+      "note": ""
+    },
+    {
+      "rank": 212,
+      "name": "ZkSync",
+      "handle": "ZkSync",
+      "note": ""
+    },
+    {
+      "rank": 213,
+      "name": "Starknet",
+      "handle": "Starknet",
+      "note": ""
+    },
+    {
+      "rank": 214,
+      "name": "LineaBuild",
+      "handle": "LineaBuild",
+      "note": ""
+    },
+    {
+      "rank": 215,
+      "name": "Scroll_ZKP",
+      "handle": "Scroll_ZKP",
+      "note": ""
+    },
+    {
+      "rank": 216,
+      "name": "TaikoXa",
+      "handle": "TaikoXa",
+      "note": ""
+    },
+    {
+      "rank": 217,
+      "name": "MantleOG",
+      "handle": "MantleOG",
+      "note": ""
+    },
+    {
+      "rank": 218,
+      "name": "MetisL2",
+      "handle": "MetisL2",
+      "note": ""
+    },
+    {
+      "rank": 219,
+      "name": "Loopringorg",
+      "handle": "Loopringorg",
+      "note": ""
+    },
+    {
+      "rank": 220,
+      "name": "dydx_user",
+      "handle": "dydx_user",
+      "note": ""
+    },
+    {
+      "rank": 221,
+      "name": "GMX_IO",
+      "handle": "GMX_IO",
+      "note": ""
+    },
+    {
+      "rank": 222,
+      "name": "GainsNetwork_io",
+      "handle": "GainsNetwork_io",
+      "note": ""
+    },
+    {
+      "rank": 223,
+      "name": "HMXorg",
+      "handle": "HMXorg",
+      "note": ""
+    },
+    {
+      "rank": 224,
+      "name": "VertexProtocol",
+      "handle": "VertexProtocol",
+      "note": ""
+    },
+    {
+      "rank": 225,
+      "name": "HyperliquidX",
+      "handle": "HyperliquidX",
+      "note": ""
+    },
+    {
+      "rank": 226,
+      "name": "Aevo_xyz",
+      "handle": "Aevo_xyz",
+      "note": ""
+    },
+    {
+      "rank": 227,
+      "name": "RageTrade",
+      "handle": "RageTrade",
+      "note": ""
+    },
+    {
+      "rank": 228,
+      "name": "LyraFinance",
+      "handle": "LyraFinance",
+      "note": ""
+    },
+    {
+      "rank": 229,
+      "name": "PremiaFinance",
+      "handle": "PremiaFinance",
+      "note": ""
+    },
+    {
+      "rank": 230,
+      "name": "DeribitExchange",
+      "handle": "DeribitExchange",
+      "note": ""
+    },
+    {
+      "rank": 231,
+      "name": "RibbonFinance",
+      "handle": "RibbonFinance",
+      "note": ""
+    },
+    {
+      "rank": 232,
+      "name": "Dopex_io",
+      "handle": "Dopex_io",
+      "note": ""
+    },
+    {
+      "rank": 233,
+      "name": "Opyn_",
+      "handle": "Opyn_",
+      "note": ""
+    },
+    {
+      "rank": 234,
+      "name": "HegicOptions",
+      "handle": "HegicOptions",
+      "note": ""
+    },
+    {
+      "rank": 235,
+      "name": "Panoptic_xyz",
+      "handle": "Panoptic_xyz",
+      "note": ""
+    },
+    {
+      "rank": 236,
+      "name": "SqueethByOpyn",
+      "handle": "SqueethByOpyn",
+      "note": ""
+    },
+    {
+      "rank": 237,
+      "name": "GammaStrategies",
+      "handle": "GammaStrategies",
+      "note": ""
+    },
+    {
+      "rank": 238,
+      "name": "ArrakisFinance",
+      "handle": "ArrakisFinance",
+      "note": ""
+    },
+    {
+      "rank": 239,
+      "name": "DefiEdge",
+      "handle": "DefiEdge",
+      "note": ""
+    },
+    {
+      "rank": 240,
+      "name": "AuraFinance",
+      "handle": "AuraFinance",
+      "note": ""
+    },
+    {
+      "rank": 241,
+      "name": "ConvexFinance",
+      "handle": "ConvexFinance",
+      "note": ""
+    },
+    {
+      "rank": 242,
+      "name": "CurveFinance",
+      "handle": "CurveFinance",
+      "note": ""
+    },
+    {
+      "rank": 243,
+      "name": "Balancer",
+      "handle": "Balancer",
+      "note": ""
+    },
+    {
+      "rank": 244,
+      "name": "Beethoven_x",
+      "handle": "Beethoven_x",
+      "note": ""
+    },
+    {
+      "rank": 245,
+      "name": "VelodromeFi",
+      "handle": "VelodromeFi",
+      "note": ""
+    },
+    {
+      "rank": 246,
+      "name": "AerodromeFi",
+      "handle": "AerodromeFi",
+      "note": ""
+    },
+    {
+      "rank": 247,
+      "name": "ThenaFi_",
+      "handle": "ThenaFi_",
+      "note": ""
+    },
+    {
+      "rank": 248,
+      "name": "SolidlyExchange",
+      "handle": "SolidlyExchange",
+      "note": ""
+    },
+    {
+      "rank": 249,
+      "name": "Equalizer0x",
+      "handle": "Equalizer0x",
+      "note": ""
+    },
+    {
+      "rank": 250,
+      "name": "RamsesExchange",
+      "handle": "RamsesExchange",
+      "note": ""
+    },
+    {
+      "rank": 251,
+      "name": "ChronosFi_",
+      "handle": "ChronosFi_",
+      "note": ""
+    },
+    {
+      "rank": 252,
+      "name": "Pearl_Fi",
+      "handle": "Pearl_Fi",
+      "note": ""
+    },
+    {
+      "rank": 253,
+      "name": "SterlingFinance",
+      "handle": "SterlingFinance",
+      "note": ""
+    },
+    {
+      "rank": 254,
+      "name": "Retro_finance",
+      "handle": "Retro_finance",
+      "note": ""
+    },
+    {
+      "rank": 255,
+      "name": "MerlinSwap",
+      "handle": "MerlinSwap",
+      "note": ""
+    },
+    {
+      "rank": 256,
+      "name": "PancakeSwap_L2",
+      "handle": "PancakeSwap_L2",
+      "note": ""
+    },
+    {
+      "rank": 257,
+      "name": "TraderJoe_xyz",
+      "handle": "TraderJoe_xyz",
+      "note": ""
+    },
+    {
+      "rank": 258,
+      "name": "BenqiFinance",
+      "handle": "BenqiFinance",
+      "note": ""
+    },
+    {
+      "rank": 259,
+      "name": "GMX_AVAX",
+      "handle": "GMX_AVAX",
+      "note": ""
+    },
+    {
+      "rank": 260,
+      "name": "Platypusdefi",
+      "handle": "Platypusdefi",
+      "note": ""
+    },
+    {
+      "rank": 261,
+      "name": "YetiFinance",
+      "handle": "YetiFinance",
+      "note": ""
+    },
+    {
+      "rank": 262,
+      "name": "VectorFinance",
+      "handle": "VectorFinance",
+      "note": ""
+    },
+    {
+      "rank": 263,
+      "name": "TraderJoe_NFT",
+      "handle": "TraderJoe_NFT",
+      "note": ""
+    },
+    {
+      "rank": 264,
+      "name": "JoepegNFT",
+      "handle": "JoepegNFT",
+      "note": ""
+    },
+    {
+      "rank": 265,
+      "name": "SynapseProtocol",
+      "handle": "SynapseProtocol",
+      "note": ""
+    },
+    {
+      "rank": 266,
+      "name": "StargateFinance",
+      "handle": "StargateFinance",
+      "note": ""
+    }
   ]
 }
