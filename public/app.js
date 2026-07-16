@@ -16,6 +16,7 @@ const state = {
   aiExpanded: {},
   archiveExpanded: false,
   isLoading: false,
+  memecoinLoadId: 0, // race-safe chain switches
   error: null,
   lastUpdated: null,
   autoRefreshInterval: null,
@@ -343,19 +344,16 @@ function switchPage(page) {
   };
   dom.logoSubtitle.textContent = labels[page] || labels.memecoin;
 
-  // Chain tabs apply to memecoin + othercoin
-  if (dom.chainTabs?.length) {
-    const showChains = page === 'memecoin' || page === 'othercoin';
-    const chainNav = document.getElementById('chainTabs');
-    if (chainNav) chainNav.style.display = showChains ? '' : 'none';
-  }
+  // Chain tabs = Memecoin only (Othercoin is CEX multi-market, not per-chain)
+  const chainNav = document.getElementById('chainTabs');
+  if (chainNav) chainNav.style.display = page === 'memecoin' ? '' : 'none';
 
   // Load data for the page
   if (page === 'memecoin') {
-    if (state.tokens.length === 0) loadMemecoinData(state.currentChain);
-    else { renderMemecoinSignals(); renderMemecoinTokens(); renderMemecoinMonitoring(); }
+    // Always reload for the active chain so boards never stick on Solana data
+    loadMemecoinData(state.currentChain);
   } else if (page === 'othercoin') {
-    loadOthercoinData(state.currentChain);
+    loadOthercoinData();
   } else if (page === 'bitcoin') {
     if (state.btcData) renderBitcoinData();
     else loadBitcoinData();
@@ -766,49 +764,109 @@ function renderMemecoinSignals() {
 // --- Data Fetching ---
 
 async function fetchMemecoinApi(chain) {
-  const response = await fetch(getApiUrl(`/api/trending?chain=${chain}&limit=${state.memecoinLimit}`), { headers: { 'Accept': 'application/json' } });
-  if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
+  const response = await fetch(getApiUrl(`/api/trending?chain=${encodeURIComponent(chain)}&limit=${state.memecoinLimit}`), {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `API错误: ${response.status}`);
+  }
   return response.json();
 }
 
+/** Drop junk rows so each chain board stays useful */
+function filterMemecoinTokens(tokens, chain) {
+  if (!Array.isArray(tokens)) return [];
+  const chainKey = (chain || '').toLowerCase();
+  return tokens.filter((t) => {
+    // Strict chain isolation (except "all")
+    if (chainKey && chainKey !== 'all') {
+      const tc = String(t.chain || '').toLowerCase();
+      if (tc && tc !== chainKey) return false;
+    }
+    // Skip fake CEX-only stubs on on-chain boards
+    const addr = String(t.address || '');
+    if (addr.startsWith('binance-') || addr.startsWith('binance:')) return false;
+    // Robinhood: drop ticker spam
+    const sym = String(t.symbol || '').toUpperCase();
+    if (chainKey === 'robinhood' && ['ROBINHOOD', 'HOOD', 'RH', 'RHC'].includes(sym)) return false;
+    const price = Number(t.priceUsd ?? t.price ?? 0);
+    const vol = Number(t.volume24h || t.volume1h || 0);
+    const liq = Number(t.liquidity || 0);
+    if (!(price > 0)) return false;
+    // Minimum activity — chain-specific floors
+    if (chainKey === 'bsc') {
+      if (vol < 5_000 && liq < 10_000) return false;
+    } else if (chainKey === 'robinhood') {
+      if (vol < 1_000 && liq < 5_000) return false;
+    } else if (chainKey !== 'all') {
+      if (vol < 500 && liq < 3_000) return false;
+    }
+    return true;
+  });
+}
+
 async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
-  if (state.isLoading) return;
+  // Race-safe: each click gets a loadId; stale responses are ignored
+  const loadId = isRetry ? state.memecoinLoadId : (++state.memecoinLoadId);
+  const requestChain = chain || state.currentChain;
+
   state.isLoading = true;
   if (!isRetry) {
     state.error = null;
+    // Clear previous chain's rows immediately so BSC never shows Solana/RH leftovers
+    state.tokens = [];
     dom.errorState.style.display = 'none';
     dom.loadingState.style.display = 'flex';
     dom.tokenList.innerHTML = '';
+    setStatus('loading', `${requestChain.toUpperCase()} 加载中...`);
+  } else {
+    setStatus('loading', `${requestChain.toUpperCase()} 重试中...`);
   }
-  setStatus('loading', '加载中...');
+
   try {
-    const data = await fetchMemecoinApi(chain);
+    const data = await fetchMemecoinApi(requestChain);
+    // Stale response (user already switched chain)
+    if (loadId !== state.memecoinLoadId) return;
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
-    state.tokens = data.data;
+
+    const filtered = filterMemecoinTokens(data.data, requestChain);
+    // Prefer API-reported chain; force-stamp for safety
+    const stamped = filtered.map((t) => ({ ...t, chain: t.chain || requestChain }));
+
+    state.tokens = stamped;
+    state.currentChain = requestChain;
     state.dataQuality = data.quality || {};
     state.lastUpdated = data.timestamp || Date.now();
     state.retryCount = 0;
-    detectSignals(data.data);
-    updateTrackedPrices(data.data);
-    renderMemecoinSortedTokens(data.data);
-    updateMemecoinStats(data.data, data.timestamp);
+
+    detectSignals(stamped);
+    updateTrackedPrices(stamped);
+    renderMemecoinSortedTokens(stamped);
+    updateMemecoinStats(stamped, data.timestamp);
     renderMemecoinMonitoring();
+
     const q = data.quality || {};
-    const qualityBits = [];
+    const qualityBits = [`链=${requestChain}`];
     if (data.source) qualityBits.push(data.source);
     if (q.hasSmartMoneyData) qualityBits.push('聪明钱✓');
-    else qualityBits.push('无聪明钱富化');
-    if (q.securityChecked > 0) qualityBits.push(`安全抽检${q.securityChecked}`);
-    if (q.warnings?.length) qualityBits.push(`⚠${q.warnings.length}`);
-    setStatus('', `${data.data.length} 币 · ${qualityBits.join(' · ')} · ${formatTime(data.timestamp)}`);
+    else qualityBits.push('无聪明钱');
+    if (q.securityChecked > 0) qualityBits.push(`SEC${q.securityChecked}`);
+    if (q.backupSources?.length) qualityBits.push(`备用${q.backupSources.length}`);
+    setStatus('', `${stamped.length} 币 · ${qualityBits.join(' · ')} · ${formatTime(data.timestamp)}`);
     dom.loadingState.style.display = 'none';
+    if (stamped.length === 0) {
+      dom.tokenList.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>${requestChain} 暂无合格代币（已过滤低质/错链）</p></div>`;
+    }
   } catch (err) {
+    if (loadId !== state.memecoinLoadId) return;
     console.error('Memecoin load error:', err);
     state.error = err.message;
     if (state.retryCount < state.maxRetries && !isRetry) {
       state.retryCount++;
-      setStatus('loading', `重试中 (${state.retryCount}/${state.maxRetries})...`);
-      setTimeout(() => loadMemecoinData(chain, true), 2000);
+      setStatus('loading', `${requestChain} 重试 (${state.retryCount}/${state.maxRetries})...`);
+      setTimeout(() => loadMemecoinData(requestChain, true), 1500);
       return;
     }
     showToast(`数据加载失败: ${err.message}`, 'error');
@@ -818,8 +876,10 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     dom.errorMessage.textContent = err.message;
     setStatus('error', '连接失败');
   } finally {
-    state.isLoading = false;
-    dom.refreshBtn.classList.remove('spinning');
+    if (loadId === state.memecoinLoadId) {
+      state.isLoading = false;
+      dom.refreshBtn.classList.remove('spinning');
+    }
   }
 }
 
@@ -1382,37 +1442,34 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
 // OTHERCOIN PAGE — Signal-Based Scanner
 // ====================================================================================
 
-async function fetchOthercoinApi(chain = state.currentChain) {
-  // Memecoin-style tabs: robinhood → RH only; all → CEX+RH; others → CEX multi
-  let chainParam = 'all';
-  if (chain === 'robinhood') chainParam = 'robinhood';
-  else if (chain === 'all') chainParam = 'all';
-  else chainParam = 'multi';
-  const response = await fetch(getApiUrl(`/api/othercoin?chain=${encodeURIComponent(chainParam)}`), {
-    headers: { 'Accept': 'application/json' },
+async function fetchOthercoinApi() {
+  // Othercoin = CEX multi-market signals only (not per-chain memecoin boards)
+  const response = await fetch(getApiUrl('/api/othercoin?chain=multi'), {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
   });
-  if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `API错误: ${response.status}`);
+  }
   return response.json();
 }
 
-async function loadOthercoinData(chain = state.currentChain) {
+async function loadOthercoinData() {
   if (state.otherLoading) return;
   state.otherLoading = true;
   state.otherError = null;
   dom.otherErrorState.style.display = 'none';
   dom.otherLoadingState.style.display = 'flex';
   dom.otherTokenList.innerHTML = '';
-  const statusHint = chain === 'robinhood' ? '扫描 Robinhood 链...' : '扫描信号...';
-  setStatus('loading', statusHint);
+  setStatus('loading', '扫描 CEX 信号...');
   try {
-    const data = await fetchOthercoinApi(chain);
+    const data = await fetchOthercoinApi();
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.otherTokens = data.data;
     renderOthercoinSortedTokens(data.data);
     updateOthercoinStats(data.data, data.timestamp);
-    const rhCount = data.data.filter((t) => t.chain === 'robinhood').length;
-    const suffix = rhCount ? ` · RH ${rhCount}` : '';
-    setStatus('', `${data.data.length} 个信号币${suffix} · ${formatTime(data.timestamp)}`);
+    setStatus('', `Othercoin ${data.data.length} 个 CEX 信号 · ${formatTime(data.timestamp)}`);
     dom.otherLoadingState.style.display = 'none';
   } catch (err) {
     console.error('Othercoin load error:', err);
@@ -1993,18 +2050,13 @@ function drawFundingSparkline(canvas, history) {
 // ====================================================================================
 
 function switchChain(chain) {
-  if (chain === state.currentChain && state.currentPage !== 'othercoin') return;
-  // Chain tabs drive Memecoin + Othercoin monitoring ports
-  if (state.currentPage !== 'memecoin' && state.currentPage !== 'othercoin') return;
+  // Chain tabs only control Memecoin boards
+  if (state.currentPage !== 'memecoin') return;
+  if (chain === state.currentChain && state.tokens.length > 0 && !state.isLoading) return;
   state.currentChain = chain;
   dom.chainTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.chain === chain));
-  if (state.currentPage === 'memecoin') {
-    dom.tokenList.innerHTML = '';
-    dom.loadingState.style.display = 'flex';
-    loadMemecoinData(chain);
-  } else if (state.currentPage === 'othercoin') {
-    loadOthercoinData(chain);
-  }
+  // Always force a new load (loadId invalidates in-flight previous chain)
+  loadMemecoinData(chain);
 }
 
 // ====================================================================================
@@ -2021,7 +2073,7 @@ function startAutoRefresh() {
     if (state.currentPage === 'memecoin' && !state.isLoading) {
       loadMemecoinData(state.currentChain);
     } else if (state.currentPage === 'othercoin' && !state.otherLoading) {
-      loadOthercoinData(state.currentChain);
+      loadOthercoinData();
     } else if (state.currentPage === 'bitcoin' && !state.btcLoading) {
       loadBitcoinData();
     }
@@ -2050,7 +2102,7 @@ dom.chainTabs.forEach((tab) => {
 dom.refreshBtn.addEventListener('click', () => {
   dom.refreshBtn.classList.add('spinning');
   if (state.currentPage === 'memecoin') loadMemecoinData(state.currentChain);
-  else if (state.currentPage === 'othercoin') loadOthercoinData(state.currentChain);
+  else if (state.currentPage === 'othercoin') loadOthercoinData();
   else if (state.currentPage === 'bitcoin') loadBitcoinData();
   showToast('正在刷新...', 'info');
 });
@@ -2064,7 +2116,7 @@ dom.autoRefreshToggle.addEventListener('change', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && dom.autoRefreshToggle.checked) {
     if (state.currentPage === 'memecoin' && !state.isLoading) loadMemecoinData(state.currentChain);
-    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData(state.currentChain);
+    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData();
     else if (state.currentPage === 'bitcoin' && !state.btcLoading) loadBitcoinData();
   }
 });

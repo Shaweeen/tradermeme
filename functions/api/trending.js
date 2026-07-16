@@ -564,7 +564,34 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
     quality.warnings.push('No smart-money enrichment available — signal engine will require stronger confirmation or skip weak fires');
   }
 
-  return { tokens: merged, quality };
+  // Final isolation + quality gate per requested chain
+  let tokens = merged;
+  if (chain !== 'all') {
+    tokens = merged.filter((t) => {
+      const tc = String(t.chain || chain).toLowerCase();
+      if (tc !== String(chain).toLowerCase()) return false;
+      // Stamp chain so client never mis-attributes
+      t.chain = chain;
+      const addr = String(t.address || '');
+      if (addr.startsWith('binance-') || addr.startsWith('binance:')) return false;
+      const sym = String(t.symbol || '').toUpperCase();
+      if (chain === 'robinhood' && ['ROBINHOOD', 'HOOD', 'RH', 'RHC'].includes(sym)) return false;
+      const vol = Number(t.volume24h || t.volume1h || 0);
+      const liq = Number(t.liquidity || 0);
+      const price = Number(t.priceUsd || t.price || 0);
+      if (!(price > 0)) return false;
+      if (chain === 'bsc' && vol < 5000 && liq < 10000) return false;
+      if (chain === 'robinhood' && vol < 500 && liq < 3000) return false;
+      return true;
+    });
+  } else {
+    tokens = merged.map((t) => ({ ...t, chain: t.chain || 'unknown' }));
+  }
+
+  quality.returnedChain = chain;
+  quality.returnedCount = tokens.length;
+
+  return { tokens, quality };
 }
 
 async function getSmartMoneyActivity(context, chain, limit = 50) {
