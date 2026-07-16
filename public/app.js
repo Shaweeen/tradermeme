@@ -26,6 +26,11 @@ const state = {
   sortBy: 'volume',
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
+  // Fixed 390×35 bottom-right ticker carousel
+  signalTickerIndex: 0,
+  signalTickerTimer: null,
+  signalTickerRotateMs: 2800,
+  signalFlashMs: 1000,
   trackingRetentionMs: 9 * 60 * 60 * 1000, // 9h normal historical tracking observation window
   moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
   maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
@@ -85,11 +90,15 @@ const dom = {
   autoRefreshToggle: $('#autoRefreshToggle'),
   chainTabs: $$('.chain-tab'),
 
-  // Memecoin - Signals
+  // Memecoin - Signals (compact section + fixed ticker)
   signalsList: $('#signalsList'),
   signalsEmpty: $('#signalsEmpty'),
   signalCount: $('#signalCount'),
   clearSignalsBtn: $('#clearSignalsBtn'),
+  signalTicker: $('#signalTicker'),
+  signalTickerBody: $('#signalTickerBody'),
+  signalTickerText: $('#signalTickerText'),
+  signalTickerClear: $('#signalTickerClear'),
 
   // Memecoin - Tokens
   tokenList: $('#tokenList'),
@@ -563,6 +572,14 @@ function switchPage(page) {
   const chainNav = document.getElementById('chainTabs');
   if (chainNav) chainNav.style.display = page === 'memecoin' ? '' : 'none';
 
+  // Signal ticker only on Memecoin
+  if (page !== 'memecoin') {
+    stopSignalTicker();
+    if (dom.signalTicker) dom.signalTicker.hidden = true;
+  } else {
+    renderMemecoinSignals();
+  }
+
   // Load data for the page
   if (page === 'memecoin') {
     // Always reload for the active chain so boards never stick on Solana data
@@ -967,54 +984,178 @@ function getVisibleMemecoinSignals() {
   return active.filter((s) => normalizeChainId(s.tokenChain) === want);
 }
 
-function renderMemecoinSignals() {
-  const now = Date.now();
-  pruneSignalTracking(now);
+/**
+ * Ultra-brief ticker line: NAME + % + SM/KOL (only if present)
+ * e.g. "PEPE +18.2% · SM · KOL"
+ */
+function formatBriefSignalText(signal) {
+  const name = String(signal.tokenSymbol || signal.tokenName || '?').slice(0, 16);
+  const meta = signal.meta || {};
+  const snap = meta.signalScoreSnapshot || {};
+  let pct = Number(meta.priceChange1h);
+  if (!Number.isFinite(pct) || pct === 0) pct = Number(meta.priceChange24h);
+  if (!Number.isFinite(pct) || pct === 0) {
+    // try snapshot reasons already scored — leave blank if none
+    pct = NaN;
+  }
+  const parts = [name];
+  if (Number.isFinite(pct) && pct !== 0) {
+    parts.push(`${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`);
+  }
+  const smW =
+    (Number(meta.smartWallets5m) || 0) +
+    (Number(meta.smartWallets15m) || 0) +
+    (Number(snap.monitor?.smartWallets5m) || 0);
+  const hasSM =
+    meta.hasSmartMoneyData === true ||
+    smW > 0 ||
+    Number(snap.smartMoneyQualityScore || snap.smartMoneyScore || 0) >= 25;
+  const kolW =
+    (Number(meta.kolWallets5m) || 0) +
+    (Number(meta.kolWallets15m) || 0) +
+    (Number(snap.monitor?.kolWallets5m) || 0);
+  const hasKol = kolW > 0;
+  if (hasSM) parts.push('SM');
+  if (hasKol) parts.push('KOL');
+  return parts.join(' · ');
+}
 
-  // ONLY show signals for the selected chain tab (never mix Solana into BSC/Base/RH)
+function stopSignalTicker() {
+  if (state.signalTickerTimer) {
+    clearInterval(state.signalTickerTimer);
+    state.signalTickerTimer = null;
+  }
+}
+
+function showSignalTickerItem(signals, index) {
+  if (!dom.signalTickerText || !signals.length) return;
+  const i = ((index % signals.length) + signals.length) % signals.length;
+  state.signalTickerIndex = i;
+  const signal = signals[i];
+  const text = formatBriefSignalText(signal);
+  const n = signals.length;
+  dom.signalTickerText.textContent = n > 1 ? `${text}  (${i + 1}/${n})` : text;
+  if (dom.signalTickerBody) {
+    dom.signalTickerBody.dataset.signalId = String(signal.id);
+    dom.signalTickerBody.dataset.address = signal.tokenAddress || '';
+    dom.signalTickerBody.dataset.chain = normalizeChainId(signal.tokenChain) || '';
+    dom.signalTickerBody.dataset.symbol = signal.tokenSymbol || '';
+  }
+}
+
+function startSignalTicker(signals) {
+  stopSignalTicker();
+  if (!signals.length) return;
+  showSignalTickerItem(signals, state.signalTickerIndex);
+  if (signals.length <= 1) return;
+  state.signalTickerTimer = setInterval(() => {
+    const list = getVisibleMemecoinSignals();
+    if (!list.length) {
+      stopSignalTicker();
+      if (dom.signalTicker) dom.signalTicker.hidden = true;
+      return;
+    }
+    state.signalTickerIndex = (state.signalTickerIndex + 1) % list.length;
+    showSignalTickerItem(list, state.signalTickerIndex);
+  }, state.signalTickerRotateMs);
+}
+
+/**
+ * Click ticker → Memecoin page, scroll to token list, highlight row 1s
+ */
+function focusTokenFromSignal(signalOrMeta) {
+  const address = String(signalOrMeta.tokenAddress || signalOrMeta.address || '').trim();
+  const chain = normalizeChainId(signalOrMeta.tokenChain || signalOrMeta.chain || state.currentChain);
+  const symbol = String(signalOrMeta.tokenSymbol || signalOrMeta.symbol || '').toUpperCase();
+
+  // Ensure Memecoin page
+  if (state.currentPage !== 'memecoin' && typeof switchPage === 'function') {
+    switchPage('memecoin');
+  }
+
+  const section = document.getElementById('hotTokensSection');
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Find row: address match first, then symbol
+  const rows = dom.tokenList?.querySelectorAll('.token-row[data-token-address], .token-row') || [];
+  let target = null;
+  const addrLower = address.toLowerCase();
+  for (const row of rows) {
+    const ra = String(row.dataset.tokenAddress || '').toLowerCase();
+    const rc = normalizeChainId(row.dataset.tokenChain || '');
+    if (addrLower && ra === addrLower && (!chain || !rc || rc === chain)) {
+      target = row;
+      break;
+    }
+  }
+  if (!target && symbol) {
+    for (const row of rows) {
+      if (String(row.dataset.tokenSymbol || '').toUpperCase() === symbol) {
+        target = row;
+        break;
+      }
+    }
+  }
+  // Fallback: match from state.tokens and query by data attr after re-render
+  if (!target && address) {
+    const tok = (state.tokens || []).find(
+      (t) =>
+        String(t.address || '').toLowerCase() === addrLower &&
+        (!chain || normalizeChainId(t.chain) === chain || !t.chain)
+    );
+    if (tok) {
+      // wait a frame for DOM
+      requestAnimationFrame(() => {
+        const row = dom.tokenList?.querySelector(
+          `.token-row[data-token-address="${CSS.escape(tok.address)}"]`
+        );
+        if (row) flashTokenRow(row);
+      });
+      return;
+    }
+  }
+  if (target) flashTokenRow(target);
+  else showToast(`未在当前列表找到 ${symbol || address.slice(0, 8)}`, 'info');
+}
+
+function flashTokenRow(row) {
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.remove('token-row-signal-flash');
+  // reflow to restart animation
+  void row.offsetWidth;
+  row.classList.add('token-row-signal-flash');
+  setTimeout(() => {
+    row.classList.remove('token-row-signal-flash');
+  }, state.signalFlashMs || 1000);
+}
+
+function renderMemecoinSignals() {
+  pruneSignalTracking();
+
+  // ONLY show signals for the selected chain tab
   const visibleSignals = getVisibleMemecoinSignals();
 
-  dom.signalCount.textContent = visibleSignals.length;
-  if (visibleSignals.length === 0) {
-    dom.signalsList.innerHTML = '';
-    dom.signalsEmpty.style.display = 'flex';
+  if (dom.signalCount) dom.signalCount.textContent = visibleSignals.length;
+
+  // Hide legacy in-page card list (ticker is the alert surface)
+  if (dom.signalsList) dom.signalsList.innerHTML = '';
+  if (dom.signalsEmpty) dom.signalsEmpty.style.display = 'none';
+
+  // Fixed 390×35 bottom-right ticker — only on Memecoin page
+  if (!dom.signalTicker) return;
+  if (state.currentPage !== 'memecoin' || visibleSignals.length === 0) {
+    stopSignalTicker();
+    dom.signalTicker.hidden = true;
     return;
   }
-  dom.signalsEmpty.style.display = 'none';
-  const fragment = document.createDocumentFragment();
-  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'monitor-inflow': '📡 Monitor 共振', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤', 'rules-score': '📋 规则分' };
-  for (const signal of visibleSignals) {
-    const card = document.createElement('div');
-    card.className = `signal-card signal-${signal.reason}`;
-    card.dataset.signalId = signal.id;
-    card.dataset.chain = normalizeChainId(signal.tokenChain);
-    const chainBadge = getChainBadgeHtml(normalizeChainId(signal.tokenChain));
-    card.innerHTML = `
-      <button class="signal-dismiss-btn" data-signal-id="${signal.id}" title="关闭信号">✕</button>
-      <div class="signal-header">
-        <span class="signal-type">${typeLabels[signal.reason] || '信号'}</span>
-        ${chainBadge}
-        <span class="signal-time">${formatDuration(now - signal.timestamp)}</span>
-      </div>
-      <div class="signal-body">
-        <div class="signal-token-icon">${signal.tokenIcon ? `<img src="${signal.tokenIcon}" alt="" onerror="this.style.display='none'" />` : (signal.tokenSymbol?.charAt(0) || '?')}</div>
-        <div class="signal-token-info"><span class="signal-token-symbol">${signal.tokenSymbol}</span><span class="signal-token-name">${signal.tokenName || shortAddress(signal.tokenAddress)}</span></div>
-      </div>
-      <div class="signal-message">${signal.reasonText}</div>`;
-    fragment.appendChild(card);
-  }
-  dom.signalsList.innerHTML = '';
-  dom.signalsList.appendChild(fragment);
-  dom.signalsList.querySelectorAll('.signal-dismiss-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      const id = parseInt(e.currentTarget.dataset.signalId);
-      const signal = state.signals.find((s) => s.id === id);
-      if (signal) signal.active = false;
-      saveSignalTracking();
-      renderMemecoinSignals();
-      renderMemecoinMonitoring();
-    });
-  });
+
+  dom.signalTicker.hidden = false;
+  // Keep index in range
+  if (state.signalTickerIndex >= visibleSignals.length) state.signalTickerIndex = 0;
+  startSignalTicker(visibleSignals);
 }
 
 // --- Data Fetching ---
@@ -1215,10 +1356,13 @@ function renderMemecoinTokenRows(tokens) {
     const row = document.createElement('div');
     row.className = 'token-row';
     row.style.animationDelay = `${index * 0.03}s`;
-    const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1;
-    const iconHtml = getTokenIcon(token);
     // Prefer token.chain; fall back to selected board so Base tab never loses chain stamp
     const tokenChain = normalizeMarketChain(token.chain || state.currentChain) || state.currentChain;
+    row.dataset.tokenAddress = token.address || '';
+    row.dataset.tokenChain = tokenChain || '';
+    row.dataset.tokenSymbol = token.symbol || '';
+    const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1;
+    const iconHtml = getTokenIcon(token);
     const tokenForLink = { ...token, chain: tokenChain };
     const explorerUrl = getExplorerUrl(tokenChain, token.address);
     // 详情/行情：Solana→GMGN，所有 EVM（含 Base）→ DexScreener 合约页
@@ -2464,13 +2608,38 @@ dom.otherRetryBtn.addEventListener('click', () => {
 });
 
 // Clear signals
-dom.clearSignalsBtn.addEventListener('click', () => {
+function clearAllMemecoinSignals() {
   state.signals.forEach((s) => (s.active = false));
   saveSignalTracking();
+  stopSignalTicker();
+  if (dom.signalTicker) dom.signalTicker.hidden = true;
   renderMemecoinSignals();
   renderMemecoinMonitoring();
   showToast('所有信号已清除', 'info');
-});
+}
+if (dom.clearSignalsBtn) {
+  dom.clearSignalsBtn.addEventListener('click', clearAllMemecoinSignals);
+}
+if (dom.signalTickerClear) {
+  dom.signalTickerClear.addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearAllMemecoinSignals();
+  });
+}
+if (dom.signalTickerBody) {
+  dom.signalTickerBody.addEventListener('click', () => {
+    const meta = {
+      address: dom.signalTickerBody.dataset.address,
+      chain: dom.signalTickerBody.dataset.chain,
+      symbol: dom.signalTickerBody.dataset.symbol,
+      tokenAddress: dom.signalTickerBody.dataset.address,
+      tokenChain: dom.signalTickerBody.dataset.chain,
+      tokenSymbol: dom.signalTickerBody.dataset.symbol,
+    };
+    if (!meta.address && !meta.symbol) return;
+    focusTokenFromSignal(meta);
+  });
+}
 
 // BTC Source Selector
 dom.btcSourceBtns.forEach((btn) => {

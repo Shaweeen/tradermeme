@@ -1270,7 +1270,104 @@ a:hover {
   scroll-snap-type: x mandatory;
 }
 
-/* ===== Signal Card ===== */
+/* ===== Signal section compact (cards replaced by fixed ticker) ===== */
+.signal-section-compact {
+  padding-bottom: 8px;
+}
+.signals-container-hidden {
+  display: none !important;
+}
+
+/* Fixed 390×35 signal ticker — bottom right carousel */
+.signal-ticker {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 390px;
+  height: 35px;
+  z-index: 10050;
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, rgba(22, 32, 48, 0.96), rgba(14, 20, 32, 0.98));
+  border: 1px solid rgba(75, 139, 255, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(75, 139, 255, 0.08);
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+.signal-ticker[hidden] {
+  display: none !important;
+}
+.signal-ticker-body {
+  flex: 1;
+  min-width: 0;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.signal-ticker-body:hover {
+  background: rgba(75, 139, 255, 0.1);
+}
+.signal-ticker-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+  animation: signalTickerPulse 1.4s ease-in-out infinite;
+}
+.signal-ticker-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.signal-ticker-clear {
+  flex-shrink: 0;
+  width: 32px;
+  height: 35px;
+  border: none;
+  border-left: 1px solid rgba(75, 139, 255, 0.2);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.signal-ticker-clear:hover {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.12);
+}
+@keyframes signalTickerPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Token list flash when jumping from signal ticker (1s) */
+.token-row.token-row-signal-flash {
+  outline: 2px solid var(--accent-yellow) !important;
+  outline-offset: -2px;
+  background: rgba(234, 179, 8, 0.14) !important;
+  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.35), 0 0 24px rgba(234, 179, 8, 0.2);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ===== Signal Card (legacy, unused in UI) ===== */
 .signal-card {
   display: flex;
   flex-direction: column;
