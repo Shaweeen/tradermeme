@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "personal-x-alpha-watchlist",
+  "maxHandles": 500,
+  "updatedAt": "2026-07-16",
+  "count": 17,
+  "note": "Canonical runtime list is functions/api/_x_watchlist.js (HANDLES). This JSON mirrors handles for easy paste/export. User asked for up to 500; only first batch received so far.",
+  "handles": [
+    "fish081320792",
+    "slowisfast_",
+    "0xmrdq",
+    "elonmusk",
+    "realdonaldtrump",
+    "Cz_binance",
+    "Cryptoyiyi",
+    "Heyibinance",
+    "kanyewest",
+    "marionawfal",
+    "cointelegraph",
+    "insydercrypto",
+    "PepeBoost888",
+    "binance",
+    "WatcherGuru",
+    "stoolpresidente",
+    "useXXYYio"
+  ]
+}
