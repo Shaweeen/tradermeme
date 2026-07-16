@@ -537,6 +537,11 @@ function loadSignalTracking() {
     const parsed = JSON.parse(raw);
     state.signalIdCounter = Math.max(state.signalIdCounter, parsed.signalIdCounter || 0);
     state.signals = Array.isArray(parsed.signals) ? parsed.signals : [];
+    // Normalize legacy tokenChain (sol → solana) so chain filter works
+    state.signals = state.signals.map((s) => ({
+      ...s,
+      tokenChain: normalizeChainId(s.tokenChain) || s.tokenChain || 'solana',
+    }));
     state.trackedTokens = parsed.trackedTokens && typeof parsed.trackedTokens === 'object' ? parsed.trackedTokens : {};
     pruneSignalTracking();
   } catch (e) {
@@ -552,8 +557,19 @@ function detectSignals(tokens) {
   const newSignals = [];
   pruneSignalTracking();
   const engine = window.SignalEngine;
+  const boardChain = normalizeChainId(state.currentChain);
+
   for (const token of tokens) {
-    const existingSignal = state.signals.find((s) => s.tokenAddress === token.address && s.tokenChain === (token.chain || state.currentChain) && s.active);
+    // Hard isolation: never emit a signal for another chain on this board
+    const tokenChain = normalizeChainId(token.chain || boardChain);
+    if (boardChain && boardChain !== 'all' && tokenChain && tokenChain !== boardChain) continue;
+
+    const existingSignal = state.signals.find(
+      (s) =>
+        s.tokenAddress === token.address &&
+        normalizeChainId(s.tokenChain) === tokenChain &&
+        s.active
+    );
     // Active 5-minute carousel: skip duplicates while still active
     if (existingSignal) continue;
 
@@ -574,7 +590,8 @@ function detectSignals(tokens) {
     }
 
     if (!decision.fire) continue;
-    newSignals.push(createSignal(token, decision.reason, decision.text, decision.score));
+    // Ensure token carries normalized chain before createSignal
+    newSignals.push(createSignal({ ...token, chain: tokenChain }, decision.reason, decision.text, decision.score));
   }
   for (const signal of newSignals) {
     state.signalIdCounter++;
@@ -585,13 +602,14 @@ function detectSignals(tokens) {
   }
   if (newSignals.length > 0) {
     saveSignalTracking();
-    renderMemecoinSignals();
   }
+  // Always re-render so chain tab only shows this network's signals
+  renderMemecoinSignals();
 }
 
 function createSignal(token, reason, reasonText, scoreSnapshot = null) {
-  // Use the token's actual chain from the data, NOT state.currentChain
-  const actualChain = token.chain || state.currentChain;
+  // Stamp chain from token data, fall back to selected board — always normalized
+  const actualChain = normalizeChainId(token.chain || state.currentChain) || state.currentChain;
   const buyPercent = calculateBuyPercent(token);
   const signalScoreSnapshot = scoreSnapshot || window.SignalEngine?.scoreTokenSignal(token) || null;
   return {
@@ -764,26 +782,49 @@ function getChainBadgeHtml(chain) {
   return chainBadges[chain] || '';
 }
 
+/** Normalize chain id for signal isolation (sol / SOL / solana → solana) */
+function normalizeChainId(chain) {
+  const c = String(chain || '').toLowerCase().trim();
+  if (!c) return '';
+  if (c === 'sol' || c === 'solana') return 'solana';
+  if (c === 'eth' || c === 'ethereum') return 'ethereum';
+  if (c === 'bnb' || c === 'bsc' || c === 'bnb-chain') return 'bsc';
+  if (c === 'rh' || c === 'hood' || c === 'robinhood') return 'robinhood';
+  if (c === 'base') return 'base';
+  if (c === 'all' || c === 'multi') return c;
+  return c;
+}
+
+/** Active signals for the currently selected network only */
+function getVisibleMemecoinSignals() {
+  const want = normalizeChainId(state.currentChain);
+  const active = (state.signals || []).filter((s) => s && s.active);
+  if (!want || want === 'all') return active;
+  return active.filter((s) => normalizeChainId(s.tokenChain) === want);
+}
+
 function renderMemecoinSignals() {
   const now = Date.now();
   pruneSignalTracking(now);
-  
-  // Filter signals by current chain if not viewing "all"
-  const isAllChain = state.currentChain === 'all';
-  const visibleSignals = isAllChain 
-    ? state.signals 
-    : state.signals.filter((s) => s.tokenChain === state.currentChain);
-  
+
+  // ONLY show signals for the selected chain tab (never mix Solana into BSC/Base/RH)
+  const visibleSignals = getVisibleMemecoinSignals();
+
   dom.signalCount.textContent = visibleSignals.length;
-  if (visibleSignals.length === 0) { dom.signalsList.innerHTML = ''; dom.signalsEmpty.style.display = 'flex'; return; }
+  if (visibleSignals.length === 0) {
+    dom.signalsList.innerHTML = '';
+    dom.signalsEmpty.style.display = 'flex';
+    return;
+  }
   dom.signalsEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
-  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'monitor-inflow': '📡 Monitor 共振', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤' };
+  const typeLabels = { 'ai-score': '🤖 GMGN AI', 'monitor-inflow': '📡 Monitor 共振', 'price-surge': '📈 价格飙升', 'volume-spike': '💎 交易量激增', 'buy-pressure': '🟢 买入压力', 'moonshot-selloff': '⚠️ 高收益回撤', 'rules-score': '📋 规则分' };
   for (const signal of visibleSignals) {
     const card = document.createElement('div');
     card.className = `signal-card signal-${signal.reason}`;
     card.dataset.signalId = signal.id;
-    const chainBadge = getChainBadgeHtml(signal.tokenChain);
+    card.dataset.chain = normalizeChainId(signal.tokenChain);
+    const chainBadge = getChainBadgeHtml(normalizeChainId(signal.tokenChain));
     card.innerHTML = `
       <button class="signal-dismiss-btn" data-signal-id="${signal.id}" title="关闭信号">✕</button>
       <div class="signal-header">
@@ -872,6 +913,9 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     dom.loadingState.style.display = 'flex';
     dom.tokenList.innerHTML = '';
     setStatus('loading');
+    // Immediately filter 实时信号 to selected network (hide Solana cards on BSC etc.)
+    state.currentChain = requestChain;
+    renderMemecoinSignals();
   } else {
     setStatus('loading');
   }
@@ -883,8 +927,11 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
 
     const filtered = filterMemecoinTokens(data.data, requestChain);
-    // Prefer API-reported chain; force-stamp for safety
-    const stamped = filtered.map((t) => ({ ...t, chain: t.chain || requestChain }));
+    // Force stamp request chain so signals never inherit wrong network (e.g. always sol)
+    const stamped = filtered.map((t) => ({
+      ...t,
+      chain: requestChain === 'all' ? normalizeChainId(t.chain) || t.chain : requestChain,
+    }));
 
     state.tokens = stamped;
     state.currentChain = requestChain;
@@ -897,6 +944,8 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     renderMemecoinSortedTokens(stamped);
     updateMemecoinStats(stamped, data.timestamp);
     renderMemecoinMonitoring();
+    // Guarantee 实时信号 panel matches current chain even if no new fires
+    renderMemecoinSignals();
 
     setStatus(''); // green light only — no quality 说明
     dom.loadingState.style.display = 'none';
@@ -2105,6 +2154,8 @@ function switchChain(chain) {
   if (chain === state.currentChain && state.tokens.length > 0 && !state.isLoading) return;
   state.currentChain = chain;
   dom.chainTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.chain === chain));
+  // Show only this network's 实时信号 immediately (before fetch completes)
+  renderMemecoinSignals();
   // Always force a new load (loadId invalidates in-flight previous chain)
   loadMemecoinData(chain);
 }
