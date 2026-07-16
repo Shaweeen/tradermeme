@@ -1,9 +1,11 @@
 /**
  * Public BSC / Binance-ecosystem DEX sources (no API key).
  *
- * 1) GeckoTerminal — PancakeSwap V2/V3 + BSC trending/new pools
- *    (PancakeSwap is the dominant public DEX on BNB Chain / Binance ecosystem)
- * 2) Binance public Spot 24h tickers — high-movers as CEX pulse (optional mix-in)
+ * Primary (on-chain Binance DEX ecosystem):
+ *   1) GeckoTerminal — PancakeSwap V2/V3 pools (Binance Chain public DEX)
+ *   2) GeckoTerminal — BSC network trending + new pools
+ * Optional mix-in:
+ *   3) Binance Spot 24h high-movers (CEX pulse; filtered out of on-chain board by address prefix)
  *
  * Output shape matches DexScreener pairs so transformDexScreenerPairs can reuse.
  */
@@ -67,18 +69,20 @@ function poolToPair(item, sourceTag) {
 }
 
 /**
- * PancakeSwap + BSC network trending/new pools via GeckoTerminal (public).
+ * PancakeSwap (Binance ecosystem DEX) + BSC network trending/new pools via GeckoTerminal.
+ * Prefer pancake pools first so BSC memecoin board is DEX-native, not CEX stubs.
  */
 async function getPancakeAndBscPools(limit = 40) {
+  // Pancake first (Binance DEX), then broader BSC discovery
   const urls = [
     `${GT}/networks/bsc/dexes/pancakeswap_v2/pools?page=1`,
+    `${GT}/networks/bsc/dexes/pancakeswap_v3/pools?page=1`,
+    `${GT}/networks/bsc/dexes/pancakeswap-v3/pools?page=1`,
     `${GT}/networks/bsc/trending_pools?page=1`,
     `${GT}/networks/bsc/new_pools?page=1`,
-  ];
-  // try v3 id variants
-  const v3urls = [
-    `${GT}/networks/bsc/dexes/pancakeswap-v3/pools?page=1`,
-    `${GT}/networks/bsc/dexes/pancakeswap_v3/pools?page=1`,
+    // page 2 for more pancake depth when board is thin
+    `${GT}/networks/bsc/dexes/pancakeswap_v2/pools?page=2`,
+    `${GT}/networks/bsc/trending_pools?page=2`,
   ];
 
   const pairs = [];
@@ -86,7 +90,7 @@ async function getPancakeAndBscPools(limit = 40) {
   const sourcesUsed = [];
   const seen = new Set();
 
-  for (const url of [...urls, ...v3urls]) {
+  for (const url of urls) {
     const { error, data } = await safeFetch(url, 15000);
     if (error) {
       errors.push(`${url.split('/').slice(-2).join('/')}:${error}`);
@@ -94,15 +98,23 @@ async function getPancakeAndBscPools(limit = 40) {
     }
     const list = Array.isArray(data?.data) ? data.data : [];
     if (!list.length) continue;
-    const tag = url.includes('pancakeswap') ? 'pancake-gt' : url.includes('new_pools') ? 'bsc-new-gt' : 'bsc-trend-gt';
+    const tag = url.includes('pancakeswap')
+      ? 'pancake-gt'
+      : url.includes('new_pools')
+        ? 'bsc-new-gt'
+        : 'bsc-trend-gt';
     if (!sourcesUsed.includes(tag)) sourcesUsed.push(tag);
     for (const item of list) {
       const pair = poolToPair(item, tag);
       const key = (pair.baseToken.address || pair.pairAddress).toLowerCase();
       if (!key || seen.has(key)) continue;
-      // skip pure stable/wbnb only rows
+      // skip pure stable / bluechip quote rows
       const sym = (pair.baseToken.symbol || '').toUpperCase();
-      if (['USDT', 'USDC', 'BUSD', 'WBNB', 'BNB', 'ETH', 'BTCB'].includes(sym)) continue;
+      if (['USDT', 'USDC', 'BUSD', 'WBNB', 'BNB', 'ETH', 'BTCB', 'FDUSD', 'DAI'].includes(sym)) continue;
+      // skip dust pools
+      const vol = parseFloat(pair.volume?.h24) || 0;
+      const liq = parseFloat(pair.liquidity?.usd) || 0;
+      if (vol < 1000 && liq < 2000) continue;
       seen.add(key);
       pairs.push(pair);
       if (pairs.length >= limit) break;
@@ -110,7 +122,15 @@ async function getPancakeAndBscPools(limit = 40) {
     if (pairs.length >= limit) break;
   }
 
-  pairs.sort((a, b) => (parseFloat(b.volume?.h24) || 0) - (parseFloat(a.volume?.h24) || 0));
+  // Prefer high 24h volume; slight boost for pancake-tagged rows
+  pairs.sort((a, b) => {
+    const score = (p) => {
+      const vol = parseFloat(p.volume?.h24) || 0;
+      const pancakeBoost = String(p._source || '').includes('pancake') ? 1.15 : 1;
+      return vol * pancakeBoost;
+    };
+    return score(b) - score(a);
+  });
   return { pairs: pairs.slice(0, limit), sourcesUsed, errors };
 }
 
@@ -158,22 +178,35 @@ async function getBinanceSpotMovers(limit = 20) {
 }
 
 /**
- * Full public BSC board: pancake/on-chain first, then Binance spot movers.
+ * Full public BSC board for memecoin terminal:
+ *   1) Pancake / BSC DEX pools (primary — Binance ecosystem on-chain)
+ *   2) Binance spot movers only as thin-board fill (synthetic addr; client filters them)
  */
 async function getBscPublicBoard(limit = 40) {
-  const [pancake, spot] = await Promise.all([
-    getPancakeAndBscPools(limit),
-    getBinanceSpotMovers(Math.min(15, limit)),
-  ]);
-  const seen = new Set();
+  const pancake = await getPancakeAndBscPools(limit);
   const pairs = [];
-  for (const p of [...(pancake.pairs || []), ...(spot.pairs || [])]) {
+  const seen = new Set();
+  for (const p of pancake.pairs || []) {
     const key = (p.baseToken?.address || p.pairAddress || '').toLowerCase();
     if (!key || seen.has(key)) continue;
     seen.add(key);
     pairs.push(p);
     if (pairs.length >= limit) break;
   }
+
+  // Only pull CEX movers if on-chain DEX board is thin (e.g. GT rate-limit)
+  let spot = { pairs: [], sourcesUsed: [], error: null };
+  if (pairs.length < Math.min(12, limit)) {
+    spot = await getBinanceSpotMovers(Math.min(15, limit - pairs.length));
+    for (const p of spot.pairs || []) {
+      const key = (p.baseToken?.address || p.pairAddress || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      pairs.push(p);
+      if (pairs.length >= limit) break;
+    }
+  }
+
   return {
     pairs,
     sourcesUsed: [...(pancake.sourcesUsed || []), ...(spot.sourcesUsed || [])],

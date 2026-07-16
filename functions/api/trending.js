@@ -340,7 +340,7 @@ async function fillFromBackupSources(chain, limit, existingTokens, quality, opts
   const target = Math.max(limit, 30);
   const dexMod = await initDex();
 
-  // BSC: PancakeSwap (Binance-ecosystem public DEX) + Binance spot movers first
+  // BSC: Binance-ecosystem public DEX first (PancakeSwap via GeckoTerminal)
   if (chain === 'bsc') {
     try {
       const bscPub = await import('./_bsc_public.js');
@@ -353,19 +353,30 @@ async function fillFromBackupSources(chain, limit, existingTokens, quality, opts
       if (board.pairs?.length) {
         const transformed = dexMod.transformDexScreenerPairs(board.pairs, 'bsc').map((t) => ({
           ...t,
+          chain: 'bsc',
           source: t.source || 'bsc-public',
-          dataQuality: t.source === 'binance-spot' ? 'binance-spot' : 'pancake-public',
+          dataQuality:
+            t.source === 'binance-spot'
+              ? 'binance-spot'
+              : String(t.source || '').includes('pancake')
+                ? 'binance-dex-pancake'
+                : 'bsc-dex-public',
           discoverySources: [t.source || 'bsc-public'],
         }));
         const before = tokens.length;
         tokens = mergeTokenLists(tokens, transformed, target);
         if (tokens.length > before) {
-          quality.primarySource = quality.primarySource === 'gmgn-openapi' ? 'gmgn+bsc-public' : quality.primarySource === 'none' ? 'bsc-public' : quality.primarySource;
-          console.log(`BSC public filled: ${before} → ${tokens.length}`);
+          quality.primarySource =
+            quality.primarySource === 'gmgn-openapi'
+              ? 'gmgn+binance-dex'
+              : quality.primarySource === 'none'
+                ? 'binance-dex'
+                : quality.primarySource;
+          console.log(`BSC Binance-DEX filled: ${before} → ${tokens.length}`);
         }
       }
     } catch (e) {
-      quality.warnings.push(`BSC public fail: ${e.message}`);
+      quality.warnings.push(`BSC Binance-DEX fail: ${e.message}`);
     }
   }
 
@@ -580,8 +591,10 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
       const liq = Number(t.liquidity || 0);
       const price = Number(t.priceUsd || t.price || 0);
       if (!(price > 0)) return false;
-      if (chain === 'bsc' && vol < 5000 && liq < 10000) return false;
-      if (chain === 'robinhood' && vol < 500 && liq < 3000) return false;
+      // BSC: slightly looser than before so Pancake/new-pool memecoins survive
+      if (chain === 'bsc' && vol < 2000 && liq < 5000) return false;
+      // Robinhood: keep module active with modest floors (do not cancel RH)
+      if (chain === 'robinhood' && vol < 300 && liq < 1500) return false;
       return true;
     });
   } else {

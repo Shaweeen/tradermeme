@@ -797,11 +797,11 @@ function filterMemecoinTokens(tokens, chain) {
     const vol = Number(t.volume24h || t.volume1h || 0);
     const liq = Number(t.liquidity || 0);
     if (!(price > 0)) return false;
-    // Minimum activity — chain-specific floors
+    // Minimum activity — chain-specific floors (BSC = Binance DEX; RH kept active)
     if (chainKey === 'bsc') {
-      if (vol < 5_000 && liq < 10_000) return false;
+      if (vol < 2_000 && liq < 5_000) return false;
     } else if (chainKey === 'robinhood') {
-      if (vol < 1_000 && liq < 5_000) return false;
+      if (vol < 300 && liq < 1_500) return false;
     } else if (chainKey !== 'all') {
       if (vol < 500 && liq < 3_000) return false;
     }
@@ -2129,7 +2129,8 @@ dom.retryBtn.addEventListener('click', () => {
   loadMemecoinData(state.currentChain);
 });
 
-// Detect old production API (no robinhood) so users don't think local code is broken
+// Detect API build — Robinhood is a permanent memecoin module; never hide the tab.
+// Only warn if the backend is stale so users know to use local same-origin API.
 (async function detectApiBuild() {
   try {
     const host = location.host || '';
@@ -2140,12 +2141,15 @@ dom.retryBtn.addEventListener('click', () => {
     if (badge) {
       badge.textContent = `API host: ${host || 'local'} · chains: ${ids.join(', ') || 'unknown'}`;
     }
+    // Always show Robinhood tab (user requirement: do not cancel RH monitoring)
+    document.querySelectorAll('.chain-tab[data-chain="robinhood"]').forEach((el) => {
+      el.style.display = '';
+    });
     if (ids.length && !ids.includes('robinhood')) {
-      showToast('当前 API 是旧版（无 Robinhood）。请打开 http://127.0.0.1:8788 并用 npm run dev', 'error');
-      // Hide Robinhood tab on stale backends
-      document.querySelectorAll('.chain-tab[data-chain="robinhood"]').forEach((el) => {
-        el.style.display = 'none';
-      });
+      showToast(
+        '当前 API 未声明 robinhood（可能是旧版部署）。本地请用 http://127.0.0.1:8788 + npm run dev；Robinhood 标签已保留。',
+        'error'
+      );
     }
   } catch (e) {
     console.warn('detectApiBuild failed', e);
