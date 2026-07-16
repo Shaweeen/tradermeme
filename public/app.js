@@ -992,40 +992,24 @@ function getVisibleMemecoinSignals() {
 }
 
 /**
- * Brief signal parts: name + % + SM/KOL flags (only if present)
+ * Brief signal parts for mini frame: name + % only (no SM / KOL in ticker)
  */
 function getBriefSignalParts(signal) {
   const name = String(signal.tokenSymbol || signal.tokenName || '?').slice(0, 10);
   const meta = signal.meta || {};
-  const snap = meta.signalScoreSnapshot || {};
   let pct = Number(meta.priceChange1h);
   if (!Number.isFinite(pct) || pct === 0) pct = Number(meta.priceChange24h);
   if (!Number.isFinite(pct)) pct = NaN;
-  const smW =
-    (Number(meta.smartWallets5m) || 0) +
-    (Number(meta.smartWallets15m) || 0) +
-    (Number(snap.monitor?.smartWallets5m) || 0);
-  const hasSM =
-    meta.hasSmartMoneyData === true ||
-    smW > 0 ||
-    Number(snap.smartMoneyQualityScore || snap.smartMoneyScore || 0) >= 25;
-  const kolW =
-    (Number(meta.kolWallets5m) || 0) +
-    (Number(meta.kolWallets15m) || 0) +
-    (Number(snap.monitor?.kolWallets5m) || 0);
-  const hasKol = kolW > 0;
-  return { name, pct, hasSM, hasKol };
+  return { name, pct };
 }
 
-/** Ultra-brief line: "PEPE · +18.2% · SM · KOL" */
+/** Ultra-brief line: "PEPE · +18.2%" — SM/KOL never shown in mini ticker */
 function formatBriefSignalText(signal) {
-  const { name, pct, hasSM, hasKol } = getBriefSignalParts(signal);
+  const { name, pct } = getBriefSignalParts(signal);
   const parts = [name];
   if (Number.isFinite(pct) && pct !== 0) {
     parts.push(`${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`);
   }
-  if (hasSM) parts.push('SM');
-  if (hasKol) parts.push('KOL');
   return parts.join(' · ');
 }
 
@@ -1077,7 +1061,7 @@ function buildSignalTickerList(signals) {
   if (!dom.signalTickerList) return;
   const frag = document.createDocumentFragment();
   signals.forEach((signal, idx) => {
-    const { name, pct, hasSM, hasKol } = getBriefSignalParts(signal);
+    const { name, pct } = getBriefSignalParts(signal);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'signal-ticker-item' + (idx === state.signalTickerIndex ? ' is-active' : '');
@@ -1087,13 +1071,12 @@ function buildSignalTickerList(signals) {
     btn.dataset.symbol = signal.tokenSymbol || '';
     btn.title = '点击定位到代币列表';
 
+    // Mini frame: name + % only — no SM / KOL tags
     let html = `<span class="signal-ticker-item-text">${name}</span>`;
     if (Number.isFinite(pct) && pct !== 0) {
       const cls = pct >= 0 ? 'signal-ticker-item-pct' : 'signal-ticker-item-pct down';
       html += `<span class="${cls}">${pct > 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
     }
-    if (hasSM) html += '<span class="signal-ticker-item-tag">SM</span>';
-    if (hasKol) html += '<span class="signal-ticker-item-tag kol">KOL</span>';
     btn.innerHTML = html;
     btn.addEventListener('click', () => {
       state.signalTickerIndex = idx;
@@ -2739,7 +2722,12 @@ function clearAllMemecoinSignals() {
   state.signals.forEach((s) => (s.active = false));
   saveSignalTracking();
   stopSignalTicker();
-  if (dom.signalTicker) dom.signalTicker.hidden = true;
+  clearSignalTickerHideTimer();
+  state.signalTickerHovering = false;
+  if (dom.signalTicker) {
+    dom.signalTicker.hidden = true;
+    dom.signalTicker.classList.remove('is-hiding');
+  }
   renderMemecoinSignals();
   renderMemecoinMonitoring();
   showToast('所有信号已清除', 'info');
