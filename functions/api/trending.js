@@ -549,11 +549,12 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
     .sort((a, b) => {
       // Prefer GMGN rows, then 24h volume / liquidity / smart count
       const rankScore = (t) => {
-        const gmgn = t.source === 'gmgn-openapi' ? 1e15 : 0;
+        // Soft prefer GMGN when volumes are similar; huge public DEX volume still wins
+        const gmgn = t.source === 'gmgn-openapi' ? 5e5 : 0;
         const vol = Number(t.volume24h || t.volume1h || 0);
         const liq = Number(t.liquidity || 0);
         const smart = Number(t.smartCount || 0) * 1e3;
-        return gmgn + vol + liq * 0.1 + smart;
+        return vol + gmgn + liq * 0.1 + smart;
       };
       return rankScore(b) - rankScore(a);
     })
