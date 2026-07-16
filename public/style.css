@@ -1278,44 +1278,131 @@ a:hover {
   display: none !important;
 }
 
-/* Fixed 390×35 signal ticker — bottom right carousel */
+/* Fixed 390×350 signal frame — bottom right */
 .signal-ticker {
   position: fixed;
   right: 16px;
   bottom: 16px;
   width: 390px;
-  height: 35px;
+  height: 350px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
   z-index: 10050;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   box-sizing: border-box;
-  background: linear-gradient(135deg, rgba(22, 32, 48, 0.96), rgba(14, 20, 32, 0.98));
+  background: linear-gradient(160deg, rgba(22, 32, 48, 0.97), rgba(12, 18, 28, 0.99));
   border: 1px solid rgba(75, 139, 255, 0.45);
-  border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(75, 139, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(75, 139, 255, 0.08);
   overflow: hidden;
   font-family: var(--font-sans);
 }
 .signal-ticker[hidden] {
   display: none !important;
 }
-.signal-ticker-body {
-  flex: 1;
-  min-width: 0;
-  height: 35px;
+.signal-ticker-header {
+  flex-shrink: 0;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
-  margin: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid rgba(75, 139, 255, 0.2);
+  background: rgba(75, 139, 255, 0.06);
 }
-.signal-ticker-body:hover {
-  background: rgba(75, 139, 255, 0.1);
+.signal-ticker-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+.signal-ticker-count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(75, 139, 255, 0.2);
+  color: var(--accent-blue);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.signal-ticker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  scroll-behavior: smooth;
+}
+.signal-ticker-item {
+  width: 100%;
+  min-height: 32px;
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.signal-ticker-item:last-child {
+  margin-bottom: 0;
+}
+.signal-ticker-item:hover {
+  background: rgba(75, 139, 255, 0.12);
+  border-color: rgba(75, 139, 255, 0.25);
+}
+.signal-ticker-item.is-active {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.15);
+}
+.signal-ticker-item-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.signal-ticker-item-pct {
+  flex-shrink: 0;
+  color: var(--accent-green);
+  font-weight: 700;
+}
+.signal-ticker-item-pct.down {
+  color: var(--accent-red);
+}
+.signal-ticker-item-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(75, 139, 255, 0.18);
+  color: var(--accent-cyan);
+}
+.signal-ticker-item-tag.kol {
+  background: rgba(168, 85, 247, 0.2);
+  color: var(--accent-purple);
+}
+.signal-ticker-body {
+  display: none;
 }
 .signal-ticker-dot {
   flex-shrink: 0;
@@ -1326,23 +1413,12 @@ a:hover {
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
   animation: signalTickerPulse 1.4s ease-in-out infinite;
 }
-.signal-ticker-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
 .signal-ticker-clear {
   flex-shrink: 0;
-  width: 32px;
-  height: 35px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-left: 1px solid rgba(75, 139, 255, 0.2);
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   font-size: 16px;

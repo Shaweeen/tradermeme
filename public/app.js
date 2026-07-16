@@ -26,7 +26,7 @@ const state = {
   sortBy: 'volume',
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
-  // Fixed 390×35 bottom-right ticker carousel
+  // Fixed 390×350 bottom-right signal frame
   signalTickerIndex: 0,
   signalTickerTimer: null,
   signalTickerRotateMs: 2800,
@@ -98,6 +98,8 @@ const dom = {
   signalTicker: $('#signalTicker'),
   signalTickerBody: $('#signalTickerBody'),
   signalTickerText: $('#signalTickerText'),
+  signalTickerList: $('#signalTickerList'),
+  signalTickerCount: $('#signalTickerCount'),
   signalTickerClear: $('#signalTickerClear'),
 
   // Memecoin - Tokens
@@ -985,23 +987,15 @@ function getVisibleMemecoinSignals() {
 }
 
 /**
- * Ultra-brief ticker line: NAME + % + SM/KOL (only if present)
- * e.g. "PEPE +18.2% · SM · KOL"
+ * Brief signal parts: name + % + SM/KOL flags (only if present)
  */
-function formatBriefSignalText(signal) {
+function getBriefSignalParts(signal) {
   const name = String(signal.tokenSymbol || signal.tokenName || '?').slice(0, 16);
   const meta = signal.meta || {};
   const snap = meta.signalScoreSnapshot || {};
   let pct = Number(meta.priceChange1h);
   if (!Number.isFinite(pct) || pct === 0) pct = Number(meta.priceChange24h);
-  if (!Number.isFinite(pct) || pct === 0) {
-    // try snapshot reasons already scored — leave blank if none
-    pct = NaN;
-  }
-  const parts = [name];
-  if (Number.isFinite(pct) && pct !== 0) {
-    parts.push(`${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`);
-  }
+  if (!Number.isFinite(pct)) pct = NaN;
   const smW =
     (Number(meta.smartWallets5m) || 0) +
     (Number(meta.smartWallets15m) || 0) +
@@ -1015,6 +1009,16 @@ function formatBriefSignalText(signal) {
     (Number(meta.kolWallets15m) || 0) +
     (Number(snap.monitor?.kolWallets5m) || 0);
   const hasKol = kolW > 0;
+  return { name, pct, hasSM, hasKol };
+}
+
+/** Ultra-brief line: "PEPE · +18.2% · SM · KOL" */
+function formatBriefSignalText(signal) {
+  const { name, pct, hasSM, hasKol } = getBriefSignalParts(signal);
+  const parts = [name];
+  if (Number.isFinite(pct) && pct !== 0) {
+    parts.push(`${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`);
+  }
   if (hasSM) parts.push('SM');
   if (hasKol) parts.push('KOL');
   return parts.join(' · ');
@@ -1027,25 +1031,87 @@ function stopSignalTicker() {
   }
 }
 
+function buildSignalTickerList(signals) {
+  if (!dom.signalTickerList) return;
+  const frag = document.createDocumentFragment();
+  signals.forEach((signal, idx) => {
+    const { name, pct, hasSM, hasKol } = getBriefSignalParts(signal);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'signal-ticker-item' + (idx === state.signalTickerIndex ? ' is-active' : '');
+    btn.dataset.signalId = String(signal.id);
+    btn.dataset.address = signal.tokenAddress || '';
+    btn.dataset.chain = normalizeChainId(signal.tokenChain) || '';
+    btn.dataset.symbol = signal.tokenSymbol || '';
+    btn.title = '点击定位到代币列表';
+
+    let html = `<span class="signal-ticker-item-text">${name}</span>`;
+    if (Number.isFinite(pct) && pct !== 0) {
+      const cls = pct >= 0 ? 'signal-ticker-item-pct' : 'signal-ticker-item-pct down';
+      html += `<span class="${cls}">${pct > 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+    }
+    if (hasSM) html += '<span class="signal-ticker-item-tag">SM</span>';
+    if (hasKol) html += '<span class="signal-ticker-item-tag kol">KOL</span>';
+    btn.innerHTML = html;
+    btn.addEventListener('click', () => {
+      state.signalTickerIndex = idx;
+      highlightTickerActive(signals);
+      focusTokenFromSignal({
+        tokenAddress: signal.tokenAddress,
+        tokenChain: signal.tokenChain,
+        tokenSymbol: signal.tokenSymbol,
+        address: signal.tokenAddress,
+        chain: signal.tokenChain,
+        symbol: signal.tokenSymbol,
+      });
+    });
+    frag.appendChild(btn);
+  });
+  dom.signalTickerList.innerHTML = '';
+  dom.signalTickerList.appendChild(frag);
+}
+
+function highlightTickerActive(signals) {
+  if (!dom.signalTickerList) return;
+  const items = dom.signalTickerList.querySelectorAll('.signal-ticker-item');
+  const i = signals.length
+    ? ((state.signalTickerIndex % signals.length) + signals.length) % signals.length
+    : 0;
+  items.forEach((el, idx) => {
+    el.classList.toggle('is-active', idx === i);
+    if (idx === i) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (dom.signalTickerBody) {
+        dom.signalTickerBody.dataset.signalId = el.dataset.signalId || '';
+        dom.signalTickerBody.dataset.address = el.dataset.address || '';
+        dom.signalTickerBody.dataset.chain = el.dataset.chain || '';
+        dom.signalTickerBody.dataset.symbol = el.dataset.symbol || '';
+      }
+      if (dom.signalTickerText) {
+        const sig = signals[i];
+        if (sig) dom.signalTickerText.textContent = formatBriefSignalText(sig);
+      }
+    }
+  });
+}
+
 function showSignalTickerItem(signals, index) {
-  if (!dom.signalTickerText || !signals.length) return;
+  if (!signals.length) return;
   const i = ((index % signals.length) + signals.length) % signals.length;
   state.signalTickerIndex = i;
-  const signal = signals[i];
-  const text = formatBriefSignalText(signal);
-  const n = signals.length;
-  dom.signalTickerText.textContent = n > 1 ? `${text}  (${i + 1}/${n})` : text;
-  if (dom.signalTickerBody) {
-    dom.signalTickerBody.dataset.signalId = String(signal.id);
-    dom.signalTickerBody.dataset.address = signal.tokenAddress || '';
-    dom.signalTickerBody.dataset.chain = normalizeChainId(signal.tokenChain) || '';
-    dom.signalTickerBody.dataset.symbol = signal.tokenSymbol || '';
+  // Rebuild if count changed
+  const existing = dom.signalTickerList?.querySelectorAll('.signal-ticker-item').length || 0;
+  if (existing !== signals.length) {
+    buildSignalTickerList(signals);
   }
+  highlightTickerActive(signals);
 }
 
 function startSignalTicker(signals) {
   stopSignalTicker();
   if (!signals.length) return;
+  if (dom.signalTickerCount) dom.signalTickerCount.textContent = String(signals.length);
+  buildSignalTickerList(signals);
   showSignalTickerItem(signals, state.signalTickerIndex);
   if (signals.length <= 1) return;
   state.signalTickerTimer = setInterval(() => {
@@ -1055,6 +1121,7 @@ function startSignalTicker(signals) {
       if (dom.signalTicker) dom.signalTicker.hidden = true;
       return;
     }
+    if (dom.signalTickerCount) dom.signalTickerCount.textContent = String(list.length);
     state.signalTickerIndex = (state.signalTickerIndex + 1) % list.length;
     showSignalTickerItem(list, state.signalTickerIndex);
   }, state.signalTickerRotateMs);
@@ -1144,7 +1211,7 @@ function renderMemecoinSignals() {
   if (dom.signalsList) dom.signalsList.innerHTML = '';
   if (dom.signalsEmpty) dom.signalsEmpty.style.display = 'none';
 
-  // Fixed 390×35 bottom-right ticker — only on Memecoin page
+  // Fixed 390×350 bottom-right frame — only on Memecoin page
   if (!dom.signalTicker) return;
   if (state.currentPage !== 'memecoin' || visibleSignals.length === 0) {
     stopSignalTicker();

@@ -128,7 +128,7 @@
             <span class="section-badge" id="signalCount">0</span>
           </div>
           <div class="section-controls">
-            <span class="section-hint" id="signalHint">简讯固定在右下角 · 点击可定位列表代币</span>
+            <span class="section-hint" id="signalHint">右下角 390×350 提醒框 · 点击定位列表代币</span>
             <button class="section-action-btn" id="clearSignalsBtn" title="清除所有信号">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -138,7 +138,7 @@
             </button>
           </div>
         </div>
-        <!-- Full card list removed: signals carousel lives in #signalTicker (fixed 390×35) -->
+        <!-- Full card list removed: signals live in #signalTicker (fixed 390×350) -->
         <div class="signals-container signals-container-hidden" id="signalsContainer" aria-hidden="true">
           <div class="signals-empty" id="signalsEmpty" style="display:none"></div>
           <div class="signals-list" id="signalsList"></div>
@@ -566,13 +566,21 @@
   <!-- Toast Notification -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- Memecoin signal ticker: fixed 390×35 bottom-right, carousel of brief alerts -->
+  <!-- Memecoin signal frame: fixed 390×350 bottom-right -->
   <div id="signalTicker" class="signal-ticker" hidden>
-    <button type="button" class="signal-ticker-body" id="signalTickerBody" title="点击定位到代币列表">
-      <span class="signal-ticker-dot" aria-hidden="true"></span>
-      <span class="signal-ticker-text" id="signalTickerText">暂无信号</span>
+    <div class="signal-ticker-header">
+      <span class="signal-ticker-title">
+        <span class="signal-ticker-dot" aria-hidden="true"></span>
+        信号提醒
+      </span>
+      <span class="signal-ticker-count" id="signalTickerCount">0</span>
+      <button type="button" class="signal-ticker-clear" id="signalTickerClear" title="清除信号">×</button>
+    </div>
+    <div class="signal-ticker-list" id="signalTickerList" role="list"></div>
+    <!-- keep for API compat / single-line fallback -->
+    <button type="button" class="signal-ticker-body" id="signalTickerBody" hidden aria-hidden="true">
+      <span class="signal-ticker-text" id="signalTickerText"></span>
     </button>
-    <button type="button" class="signal-ticker-clear" id="signalTickerClear" title="清除信号">×</button>
   </div>
 
   <script src="/signal-engine.js"></script>
