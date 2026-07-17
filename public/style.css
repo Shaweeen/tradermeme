@@ -1301,15 +1301,30 @@ a:hover {
   font-family: var(--font-sans);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* React Bits–style: frame enters with soft fade + lift (not flashy) */
+.signal-ticker.is-entering {
+  animation: signalTickerEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .signal-ticker.is-hiding {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(10px) scale(0.98);
   pointer-events: none;
 }
 .signal-ticker[hidden] {
   display: none !important;
+}
+@keyframes signalTickerEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .signal-ticker-header {
   flex-shrink: 0;
@@ -1369,7 +1384,20 @@ a:hover {
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  /* Animated List–style stagger (delay set via --i) */
+  animation: tickerItemIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+@keyframes tickerItemIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .signal-ticker-item:last-child {
   margin-bottom: 0;
@@ -1381,6 +1409,10 @@ a:hover {
 .signal-ticker-item.is-active {
   background: rgba(34, 197, 94, 0.14);
   border-color: transparent;
+  box-shadow: inset 3px 0 0 rgba(34, 197, 94, 0.75);
+}
+.signal-ticker-item:active {
+  transform: scale(0.98);
 }
 .signal-ticker-item-text {
   flex: 1 1 auto;
@@ -1457,7 +1489,12 @@ a:hover {
   outline-offset: -2px;
   background: rgba(234, 179, 8, 0.14) !important;
   box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.35), 0 0 24px rgba(234, 179, 8, 0.2);
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  animation: tokenRowFlash 1s ease both;
+}
+@keyframes tokenRowFlash {
+  0% { filter: brightness(1.15); }
+  40% { filter: brightness(1.08); }
+  100% { filter: brightness(1); }
 }
 
 /* ===== Signal Card (legacy, unused in UI) ===== */
@@ -1738,8 +1775,21 @@ a:hover {
   padding: 12px 16px;
   align-items: center;
   border-bottom: 1px solid rgba(30, 42, 58, 0.4);
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast);
   cursor: default;
+  /* Fade Content–style list stagger (delay from inline style) */
+  animation: tokenRowIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tokenRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .token-row:last-child {
@@ -1748,6 +1798,11 @@ a:hover {
 
 .token-row:hover {
   background: var(--bg-hover);
+}
+
+/* Cap stagger so long lists stay snappy (only first ~20 rows feel staggered) */
+.token-row:nth-child(n + 21) {
+  animation-delay: 0.6s !important;
 }
 
 .token-row .td {
@@ -3430,6 +3485,16 @@ body::after {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+  .signal-ticker.is-entering,
+  .signal-ticker.is-hiding,
+  .token-row,
+  .signal-ticker-item,
+  .token-row.token-row-signal-flash {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
 

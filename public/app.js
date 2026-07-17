@@ -1054,6 +1054,10 @@ function showSignalTickerFrame() {
   if (!dom.signalTicker) return;
   dom.signalTicker.classList.remove('is-hiding');
   dom.signalTicker.hidden = false;
+  // Soft enter (React Bits Fade/list feel) — restarts when re-shown
+  dom.signalTicker.classList.remove('is-entering');
+  void dom.signalTicker.offsetWidth;
+  dom.signalTicker.classList.add('is-entering');
   resetSignalTickerIdleTimer();
 }
 
@@ -1065,6 +1069,7 @@ function buildSignalTickerList(signals) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'signal-ticker-item' + (idx === state.signalTickerIndex ? ' is-active' : '');
+    btn.style.setProperty('--i', String(Math.min(idx, 12)));
     btn.dataset.signalId = String(signal.id);
     btn.dataset.address = signal.tokenAddress || '';
     btn.dataset.chain = normalizeChainId(signal.tokenChain) || '';
@@ -1465,7 +1470,8 @@ function renderMemecoinTokenRows(tokens) {
   tokens.forEach((token, index) => {
     const row = document.createElement('div');
     row.className = 'token-row';
-    row.style.animationDelay = `${index * 0.03}s`;
+    // List stagger: first 20 rows only (React Bits Animated List–style, capped for perf)
+    row.style.animationDelay = `${Math.min(index, 20) * 0.028}s`;
     // Prefer token.chain; fall back to selected board so Base tab never loses chain stamp
     const tokenChain = normalizeMarketChain(token.chain || state.currentChain) || state.currentChain;
     row.dataset.tokenAddress = token.address || '';
