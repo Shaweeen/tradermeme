@@ -13,7 +13,13 @@ assert.equal(typeof engine.scoreTokenSignal, 'function');
 assert.equal(typeof engine.analyzeTrackedSignal, 'function');
 assert.equal(typeof engine.getMonitorInflowScore, 'function');
 assert.equal(typeof engine.shouldEmitAlert, 'function');
-assert.ok(String(engine.version || '').includes('phase-a') || String(engine.version || '').includes('v3'));
+assert.ok(
+  String(engine.version || '').includes('monitor-heat') ||
+    String(engine.version || '').includes('phase-a') ||
+    String(engine.version || '').includes('v3') ||
+    String(engine.version || '').includes('v4')
+);
+assert.equal(typeof engine.evaluateMonitorHeat, 'function');
 
 const strong = engine.scoreTokenSignal({
   symbol: 'ALPHA',
@@ -91,7 +97,7 @@ const riskyFire = engine.shouldEmitAlert({
 assert.equal(riskyFire.fire, false, 'honeypot/rug must not fire');
 assert.equal(riskyFire.reason, 'hard-veto');
 
-// Pure volume dump — must NOT fire (Phase A)
+// Pure volume dump — must NOT fire
 const volumeOnly = engine.shouldEmitAlert({
   symbol: 'VOLONLY',
   priceChange1h: 2,
@@ -104,6 +110,49 @@ const volumeOnly = engine.shouldEmitAlert({
   txns24h: { buys: 50, sells: 50, total: 100 },
 });
 assert.equal(volumeOnly.fire, false, `volume-only must not fire, got ${JSON.stringify(volumeOnly)}`);
+
+// Strong price but no Monitor heat — must NOT fire (v4)
+const noHeat = engine.shouldEmitAlert({
+  symbol: 'NOHEAT',
+  priceChange1h: 40,
+  volume1h: 200_000,
+  liquidity: 80_000,
+  smartCount: 0,
+  hasSmartMoneyData: true,
+  dataQuality: 'gmgn-enriched',
+  txns1h: { buys: 200, sells: 50, total: 250 },
+  smartNetInflow5m: 0,
+  smartNetInflow15m: 0,
+  volume5m: 0,
+  volume15m: 0,
+  smartWallets5m: 0,
+  smartWallets15m: 0,
+  top10Holders: 0.2,
+});
+assert.equal(noHeat.fire, false, `no monitor heat must not fire, got ${JSON.stringify(noHeat)}`);
+assert.ok(['not-monitor-hot', 'no-smart-enrichment'].includes(noHeat.reason), noHeat.reason);
+
+// 5m Smart Net Inflow heat — must fire
+const hot5m = engine.shouldEmitAlert({
+  symbol: 'HOT5',
+  priceChange1h: 12,
+  volume1h: 100_000,
+  liquidity: 50_000,
+  smartCount: 4,
+  hasSmartMoneyData: true,
+  dataQuality: 'gmgn-enriched',
+  txns1h: { buys: 100, sells: 40, total: 140 },
+  smartNetInflow5m: 12_000,
+  smartNetInflow15m: 25_000,
+  volume5m: 40_000,
+  volume15m: 90_000,
+  smartWallets5m: 3,
+  smartWallets15m: 5,
+  newWallets5m: 10,
+  top10Holders: 0.25,
+});
+assert.equal(hot5m.fire, true, `5m monitor heat should fire, got ${JSON.stringify(hot5m)}`);
+assert.ok(String(hot5m.reason).includes('monitor-hot'), hot5m.reason);
 
 const tracked = engine.analyzeTrackedSignal({
   symbol: 'CHASE',
@@ -174,8 +223,14 @@ const monitorInflow = engine.scoreTokenSignal({
   txns24h: { buys: 640, sells: 360, total: 1000 },
   top10Holders: 0.24,
 });
-assert.ok(monitorInflow.version.includes('phase-a') || monitorInflow.version.includes('v3'));
-assert.ok(monitorInflow.monitorInflowScore >= 75, `expected monitor inflow >=75, got ${monitorInflow.monitorInflowScore}`);
+assert.ok(
+  monitorInflow.version.includes('monitor-heat') ||
+    monitorInflow.version.includes('phase-a') ||
+    monitorInflow.version.includes('v3') ||
+    monitorInflow.version.includes('v4')
+);
+assert.ok(monitorInflow.monitorInflowScore >= 70, `expected monitor inflow >=70, got ${monitorInflow.monitorInflowScore}`);
+assert.ok(monitorInflow.heat?.hot === true, 'monitor heat should be hot');
 assert.ok(monitorInflow.signalScore >= 62, `expected solid signal from monitor inflow, got ${monitorInflow.signalScore}`);
 
 const monitorFire = engine.shouldEmitAlert({

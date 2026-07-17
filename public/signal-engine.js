@@ -2,23 +2,45 @@
   'use strict';
 
   const V2 = {
-    version: 'gmgn-rules-v3-phase-a',
+    version: 'gmgn-monitor-heat-v4',
     weights: {
-      priceMomentum: 0.15,
-      volumeQuality: 0.17,
-      buyPressure: 0.18,
-      smartMoneyQuality: 0.25,
+      priceMomentum: 0.12,
+      volumeQuality: 0.15,
+      buyPressure: 0.15,
+      smartMoneyQuality: 0.33,
       riskAdjusted: 0.25,
     },
-    // Alert thresholds (single source of truth for frontend)
+    /**
+     * Signal collection = ONLY hot memecoins in 5m / 15m / 1h on-chain windows.
+     * Heat standard ≈ GMGN Monitor · Smart Net Inflow board rules (proxy via
+     * smart net USD + smart/KOL wallet counts + short-window volume / tx activity).
+     */
     thresholds: {
       aiScore: 62,
-      maxAiRisk: 74,
-      monitorInflow: 70,
-      monitorMaxRisk: 60,
+      maxAiRisk: 72,
+      monitorInflow: 62,
+      monitorMaxRisk: 68,
       priceSurge1h: 15,
       volume1hMin: 80_000,
       buyPressure: 75,
+      // --- Monitor Smart Net Inflow heat floors ---
+      // 5m burst
+      net5mMin: 2_500,
+      net5mStrong: 8_000,
+      smartWallets5mMin: 2,
+      volume5mMin: 12_000,
+      // 15m build
+      net15mMin: 6_000,
+      net15mStrong: 20_000,
+      smartWallets15mMin: 3,
+      volume15mMin: 40_000,
+      // 1h sustained heat (txid / volume + smart participation)
+      volume1hHot: 80_000,
+      net1hMin: 10_000,
+      smartWallets1hMin: 3,
+      smartCount1hMin: 2,
+      // composite monitor score (same formula as getMonitorInflowScore)
+      monitorHeatScore: 58,
     },
   };
 
@@ -69,37 +91,142 @@
   }
 
   function getMonitorMetrics(token = {}) {
+    const volume1h = numFinite(
+      token.volume1h,
+      token.volume_1h,
+      token.volume?.h1,
+      token.buys_volume_1h
+    );
     return {
       smartNetInflow5m: num(token.smartNetInflow5m, token.smart_net_inflow_5m, token.smart_netflow_5m, token.net_inflow_5m),
       smartNetInflow15m: num(token.smartNetInflow15m, token.smart_net_inflow_15m, token.smart_netflow_15m, token.net_inflow_15m),
+      smartNetInflow1h: num(token.smartNetInflow1h, token.smart_net_inflow_1h, token.smart_netflow_1h, token.net_inflow_1h),
       volume5m: num(token.volume5m, token.volume_5m, token.volume?.m5),
       volume15m: num(token.volume15m, token.volume_15m, token.volume?.m15),
+      volume1h,
+      // txid heat proxies (swap count in short windows)
+      txns5m: numFinite(token.txns5m, token.swaps_5m, token.txns?.m5?.total),
+      txns15m: numFinite(token.txns15m, token.swaps_15m, token.txns?.m15?.total),
+      txns1h: numFinite(
+        token.txns1h?.total,
+        token.swaps_1h,
+        (Number(token.txns1h?.buys) || 0) + (Number(token.txns1h?.sells) || 0)
+      ),
       newWallets5m: num(token.newWallets5m, token.new_wallets_5m, token.new_wallet_count_5m),
       newWallets15m: num(token.newWallets15m, token.new_wallets_15m, token.new_wallet_count_15m),
       smartWallets5m: num(token.smartWallets5m, token.smart_wallets_5m, token.smart_count_5m, token.smartCount5m),
       smartWallets15m: num(token.smartWallets15m, token.smart_wallets_15m, token.smart_count_15m, token.smartCount15m),
+      smartWallets1h: num(token.smartWallets1h, token.smart_wallets_1h, token.smart_count_1h),
       kolWallets5m: num(token.kolWallets5m, token.kol_wallets_5m, token.kol_count_5m, token.kolCount5m),
       kolWallets15m: num(token.kolWallets15m, token.kol_wallets_15m, token.kol_count_15m, token.kolCount15m),
+      smartCount: num(token.smartCount, token.smart_degen_count, token.smart_count),
     };
   }
 
   function getMonitorInflowScore(token = {}) {
     const m = getMonitorMetrics(token);
-    const net = Math.max(0, m.smartNetInflow5m) * 1.25 + Math.max(0, m.smartNetInflow15m) * 0.75;
-    const volume = Math.max(0, m.volume5m) * 0.9 + Math.max(0, m.volume15m) * 0.45;
+    // Weight recent net more (GMGN Monitor Smart Net Inflow bias to short windows)
+    const net =
+      Math.max(0, m.smartNetInflow5m) * 1.35 +
+      Math.max(0, m.smartNetInflow15m) * 0.85 +
+      Math.max(0, m.smartNetInflow1h) * 0.35;
+    const volume =
+      Math.max(0, m.volume5m) * 1.0 +
+      Math.max(0, m.volume15m) * 0.55 +
+      Math.max(0, m.volume1h) * 0.2;
     const netScore = clampScore(net <= 0 ? 0 : Math.log10(net + 1) * 22 - 45);
     const monitorVolumeScore = clampScore(volume <= 0 ? 0 : Math.log10(volume + 1) * 18 - 45);
     const newWalletScore = clampScore(m.newWallets5m * 1.5 + m.newWallets15m * 0.65);
-    const smartWalletScore = clampScore(m.smartWallets5m * 18 + m.smartWallets15m * 8);
+    const smartWalletScore = clampScore(
+      m.smartWallets5m * 18 + m.smartWallets15m * 9 + m.smartWallets1h * 4 + m.smartCount * 3
+    );
     const kolWalletScore = clampScore(m.kolWallets5m * 28 + m.kolWallets15m * 14);
     const score = clampScore(
-      netScore * 0.38 +
+      netScore * 0.40 +
       monitorVolumeScore * 0.18 +
-      newWalletScore * 0.16 +
+      newWalletScore * 0.14 +
       smartWalletScore * 0.18 +
       kolWalletScore * 0.10
     );
     return { ...m, score, netScore, monitorVolumeScore, newWalletScore, smartWalletScore, kolWalletScore };
+  }
+
+  /**
+   * GMGN Monitor–style heat gate for 5m / 15m / 1h.
+   * Only tokens that pass at least one window are signal-eligible.
+   */
+  function evaluateMonitorHeat(token = {}) {
+    const T = V2.thresholds;
+    const mon = getMonitorInflowScore(token);
+    const m = mon;
+    const windows = [];
+    const notes = [];
+
+    // --- 5m: Smart Net Inflow burst + short volume/txid activity ---
+    const hot5mNet =
+      m.smartNetInflow5m >= T.net5mStrong ||
+      (m.smartNetInflow5m >= T.net5mMin && m.smartWallets5m >= T.smartWallets5mMin) ||
+      (m.smartWallets5m >= 3 && m.volume5m >= T.volume5mMin);
+    const hot5mActivity =
+      m.volume5m >= T.volume5mMin ||
+      m.txns5m >= 25 ||
+      m.smartNetInflow5m >= T.net5mMin;
+    if (hot5mNet && hot5mActivity) {
+      windows.push('5m');
+      notes.push(`5m net $${Math.round(m.smartNetInflow5m)} · SM ${m.smartWallets5m}`);
+    }
+
+    // --- 15m: sustained smart accumulation ---
+    const hot15mNet =
+      m.smartNetInflow15m >= T.net15mStrong ||
+      (m.smartNetInflow15m >= T.net15mMin && m.smartWallets15m >= T.smartWallets15mMin) ||
+      (m.smartWallets15m >= 4 && m.volume15m >= T.volume15mMin);
+    const hot15mActivity =
+      m.volume15m >= T.volume15mMin ||
+      m.volume1h >= T.volume1hHot * 0.5 ||
+      m.txns15m >= 40 ||
+      m.smartNetInflow15m >= T.net15mMin;
+    if (hot15mNet && hot15mActivity) {
+      windows.push('15m');
+      notes.push(`15m net $${Math.round(m.smartNetInflow15m)} · SM ${m.smartWallets15m}`);
+    }
+
+    // --- 1h: on-chain txid/volume heat + smart participation ---
+    const net1h = Math.max(m.smartNetInflow1h, m.smartNetInflow15m, m.smartNetInflow5m);
+    const smart1h = Math.max(m.smartWallets1h, m.smartWallets15m, m.smartCount);
+    const hot1hVolume = m.volume1h >= T.volume1hHot || m.txns1h >= 80;
+    const hot1hSmart =
+      net1h >= T.net1hMin ||
+      smart1h >= T.smartWallets1hMin ||
+      m.smartCount >= T.smartCount1hMin ||
+      m.kolWallets15m >= 1;
+    if (hot1hVolume && hot1hSmart) {
+      windows.push('1h');
+      notes.push(`1h vol $${Math.round(m.volume1h)} · smart ${smart1h}`);
+    }
+
+    // Composite board score (Monitor card intensity) as secondary admit
+    if (
+      windows.length === 0 &&
+      mon.score >= T.monitorHeatScore &&
+      (m.smartNetInflow5m > 0 || m.smartNetInflow15m > 0) &&
+      (m.volume5m > 0 || m.volume15m > 0 || m.volume1h >= T.volume1hHot * 0.4)
+    ) {
+      windows.push(m.smartNetInflow5m >= m.smartNetInflow15m ? '5m' : '15m');
+      notes.push(`Monitor分 ${mon.score}/100`);
+    }
+
+    // Prefer shortest hot window for labeling
+    const primaryWindow = windows.includes('5m') ? '5m' : windows.includes('15m') ? '15m' : windows.includes('1h') ? '1h' : null;
+
+    return {
+      hot: windows.length > 0,
+      windows,
+      primaryWindow,
+      monitor: mon,
+      notes,
+      detail: notes.slice(0, 2).join(' · '),
+    };
   }
 
   function applyRiskCaps(score, metrics) {
@@ -202,7 +329,16 @@
     else if (volume24h >= 500_000) reasons.push(`24h 量 ${Math.round(volume24h).toLocaleString('en-US')}`);
     if (buyPercent != null && buyPercent >= 60) reasons.push(`买入占比 ${buyPercent.toFixed(0)}%`);
     if (smartCount > 0) reasons.push(`Smart Money ${smartCount}`);
-    if (monitor.score >= 55) reasons.push(`Smart Net Inflow ${monitor.score}/100 · 5m $${Math.round(monitor.smartNetInflow5m).toLocaleString('en-US')} · 15m $${Math.round(monitor.smartNetInflow15m).toLocaleString('en-US')}`);
+    const heat = evaluateMonitorHeat(token);
+    if (heat.hot) {
+      reasons.push(`Monitor热度 ${heat.primaryWindow || heat.windows.join('/')} · 分${heat.monitor.score}/100`);
+      if (heat.detail) reasons.push(heat.detail);
+    }
+    if (monitor.score >= 55) {
+      reasons.push(
+        `Smart Net Inflow ${monitor.score}/100 · 5m $${Math.round(monitor.smartNetInflow5m).toLocaleString('en-US')} · 15m $${Math.round(monitor.smartNetInflow15m).toLocaleString('en-US')}`
+      );
+    }
     if (monitor.newWallets5m || monitor.newWallets15m) reasons.push(`新钱包 ${monitor.newWallets5m}/${monitor.newWallets15m}`);
     if (monitor.kolWallets5m || monitor.kolWallets15m) reasons.push(`KOL 钱包 ${monitor.kolWallets5m}/${monitor.kolWallets15m}`);
     if (token.fromTrenches) reasons.push('发现: Trenches 新盘');
@@ -255,61 +391,67 @@
       reasons,
       hasSmartMoneyData,
       dataQuality,
+      heat: evaluateMonitorHeat(token),
     };
   }
 
   /**
-   * Phase A alert policy:
-   * - Never fire on volume alone / buy-pressure alone / price alone
+   * Signal policy v4 — ONLY hot on-chain memecoins (5m / 15m / 1h):
    * - Hard veto blocks all alerts
-   * - Fire only: (AI score gate) OR (monitor inflow + risk ok + confirmation)
+   * - Must pass GMGN Monitor Smart Net Inflow–style heat gate
+   * - Risk must not be extreme
+   * - Pure volume / pure price / pure buy-pressure alone NEVER fires
    */
   function shouldEmitAlert(token = {}, scoreSnapshot = null) {
     const score = scoreSnapshot || scoreTokenSignal(token);
     const T = V2.thresholds;
+    const heat = score.heat || evaluateMonitorHeat(token);
+
     if (score.hardVeto) {
-      return { fire: false, reason: 'hard-veto', text: `风险否决: ${(score.hardVetoReasons || []).join(', ')}`, score };
+      return { fire: false, reason: 'hard-veto', text: `风险否决: ${(score.hardVetoReasons || []).join(', ')}`, score, heat };
     }
-    if (score.riskScore > T.maxAiRisk && score.monitorInflowScore < T.monitorInflow) {
-      return { fire: false, reason: 'risk-high', text: `风险过高 ${score.riskScore}`, score };
+    if (score.riskScore > T.maxAiRisk) {
+      return { fire: false, reason: 'risk-high', text: `风险过高 ${score.riskScore}`, score, heat };
     }
 
-    const priceChange1h = Number(token.priceChange1h ?? 0);
-    const volume1h = Number(token.volume1h ?? 0);
-    const buyPercent = score.buyPercent;
-    const hasConfirm =
-      priceChange1h >= T.priceSurge1h ||
-      volume1h >= T.volume1hMin ||
-      (buyPercent != null && buyPercent >= T.buyPressure) ||
-      (score.monitorInflowScore >= 55) ||
-      Number(token.smartCount || 0) >= 2;
-
-    // Path 1: composite rules score (not pure volume)
-    if (score.signalScore >= T.aiScore && score.riskScore <= T.maxAiRisk && hasConfirm) {
+    // Primary: only Monitor heat windows (5m / 15m / 1h)
+    if (!heat.hot) {
       return {
-        fire: true,
-        reason: 'rules-score',
-        text: `规则分 ${score.signalLevel} ${score.signalScore}/100 · 买点${score.entryGrade}`,
+        fire: false,
+        reason: 'not-monitor-hot',
+        text: '未达 5m/15m/1h Monitor Smart Net Inflow 火热标准',
         score,
+        heat,
       };
     }
 
-    // Path 2: strong monitor inflow + risk control + confirmation
-    if (
-      score.hasSmartMoneyData &&
-      score.monitorInflowScore >= T.monitorInflow &&
-      score.riskScore <= T.monitorMaxRisk &&
-      hasConfirm
-    ) {
+    // Soft quality: prefer enriched SM; allow rank-only if window net is strong
+    const m = heat.monitor || getMonitorMetrics(token);
+    const strongNet =
+      m.smartNetInflow5m >= T.net5mStrong ||
+      m.smartNetInflow15m >= T.net15mStrong ||
+      m.smartNetInflow1h >= T.net1hMin * 1.5;
+    if (!score.hasSmartMoneyData && !strongNet) {
       return {
-        fire: true,
-        reason: 'monitor-inflow',
-        text: `Monitor 共振 ${score.monitorInflowScore}/100 · Smart Net Inflow / 新钱包 / KOL`,
+        fire: false,
+        reason: 'no-smart-enrichment',
+        text: '无聪明钱/Monitor 富化且净流入不足',
         score,
+        heat,
       };
     }
 
-    return { fire: false, reason: 'no-gate', text: '未达分层触发条件', score };
+    // Cap extreme chase still applies via entry grade; allow fire if heat ok
+    const win = heat.primaryWindow || heat.windows[0] || '15m';
+    const reason =
+      win === '5m' ? 'monitor-hot-5m' : win === '1h' ? 'monitor-hot-1h' : 'monitor-hot-15m';
+    return {
+      fire: true,
+      reason,
+      text: `Monitor ${win} 火热 · 分${heat.monitor?.score ?? score.monitorInflowScore}/100 · ${heat.detail || 'Smart Net Inflow'}`,
+      score: { ...score, heat },
+      heat,
+    };
   }
 
   function getTrackedPerformance(tracked = {}) {
@@ -359,6 +501,7 @@
     calculateBuyPercent,
     getMonitorMetrics,
     getMonitorInflowScore,
+    evaluateMonitorHeat,
     scoreTokenSignal,
     shouldEmitAlert,
     evaluateHardVeto,

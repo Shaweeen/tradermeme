@@ -59,15 +59,17 @@ const state = {
 };
 
 // ===== Signal Thresholds (prefer SignalEngine.thresholds when loaded) =====
+// Keep in sync with SignalEngine.thresholds (monitor-heat-v4)
 const SIGNAL_THRESHOLDS = {
   priceSurge: 15,
-  volumeSpike: 500000, // legacy UI only — alerts no longer fire on volume alone
+  volumeSpike: 500000,
   volume1hMin: 80000,
   buyPressure: 75,
   aiScore: 62,
-  maxAiRisk: 74,
-  monitorInflow: 70,
-  monitorMaxRisk: 60,
+  maxAiRisk: 72,
+  monitorInflow: 62,
+  monitorMaxRisk: 68,
+  monitorHeatScore: 58,
 };
 
 const TRACKING_STORAGE_KEY = 'coinwatch_memecoin_signal_tracking_v1';
@@ -777,7 +779,17 @@ function detectSignals(tokens) {
 
     if (!decision.fire) continue;
     // Ensure token carries normalized chain before createSignal
-    newSignals.push(createSignal({ ...token, chain: tokenChain }, decision.reason, decision.text, decision.score));
+    const sig = createSignal({ ...token, chain: tokenChain }, decision.reason, decision.text, decision.score);
+    // Stamp Monitor heat window for AI module / ticker
+    if (decision.heat?.primaryWindow) {
+      sig.meta = {
+        ...(sig.meta || {}),
+        heatWindow: decision.heat.primaryWindow,
+        heatWindows: decision.heat.windows || [],
+        heatDetail: decision.heat.detail || '',
+      };
+    }
+    newSignals.push(sig);
   }
   for (const signal of newSignals) {
     state.signalIdCounter++;
@@ -1746,7 +1758,18 @@ function renderMemecoinMonitoring() {
   });
   const visibleKeys = sortedTrackingKeys.slice(0, maxVisibleTrackingCards);
   const archivedKeys = sortedTrackingKeys.slice(maxVisibleTrackingCards);
-  const badgeLabels = { 'ai-score': 'AI', 'price-surge': '飙升', 'volume-spike': '放量', 'buy-pressure': '买压' };
+  const badgeLabels = {
+    'ai-score': 'AI',
+    'rules-score': '规则',
+    'monitor-inflow': 'Monitor',
+    'monitor-hot-5m': '5m热',
+    'monitor-hot-15m': '15m热',
+    'monitor-hot-1h': '1h热',
+    'price-surge': '飙升',
+    'volume-spike': '放量',
+    'buy-pressure': '买压',
+    'moonshot-selloff': '回撤',
+  };
   for (const key of visibleKeys) {
     const tracked = state.trackedTokens[key];
     const elapsed = now - tracked.signalAt;

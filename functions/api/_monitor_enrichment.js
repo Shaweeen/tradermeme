@@ -65,18 +65,24 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
     buckets.set(key, {
       smartNetInflow5m: num(token.smartNetInflow5m),
       smartNetInflow15m: num(token.smartNetInflow15m),
+      smartNetInflow1h: num(token.smartNetInflow1h),
       volume5m: num(token.volume5m),
       volume15m: num(token.volume15m),
+      volume1h: num(token.volume1h),
       newWallets5m: num(token.newWallets5m),
       newWallets15m: num(token.newWallets15m),
       smartWalletSet5m: new Set(),
       smartWalletSet15m: new Set(),
+      smartWalletSet1h: new Set(),
       kolWalletSet5m: new Set(),
       kolWalletSet15m: new Set(),
+      kolWalletSet1h: new Set(),
       smartWalletBase5m: num(token.smartWallets5m),
       smartWalletBase15m: num(token.smartWallets15m),
+      smartWalletBase1h: num(token.smartWallets1h),
       kolWalletBase5m: num(token.kolWallets5m),
       kolWalletBase15m: num(token.kolWallets15m),
+      kolWalletBase1h: num(token.kolWallets1h),
     });
   }
 
@@ -89,10 +95,12 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
     const age = nowSec - eventTs;
     const in5m = eventTs > 0 && age >= 0 && age <= 5 * 60;
     const in15m = eventTs > 0 && age >= 0 && age <= 15 * 60;
+    const in1h = eventTs > 0 && age >= 0 && age <= 60 * 60;
     const volume1m = num(data.volume_1m || data.volume1m);
     const volume1h = num(data.volume_1h || data.volume1h || data.volume || event.volume);
     if (in5m) bucket.volume5m = Math.max(bucket.volume5m, volume1m || volume1h);
     if (in15m) bucket.volume15m = Math.max(bucket.volume15m, volume1h || volume1m);
+    if (in1h) bucket.volume1h = Math.max(bucket.volume1h, volume1h || volume1m);
     const holders = num(data.holder_count || event.cur_data?.holder_count);
     const freshRate = num(data.fresh_wallet_rate);
     if (freshRate > 0 && holders > 0) {
@@ -112,6 +120,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       const buyAge = nowSec - ts;
       if (ts > 0 && buyAge >= 0 && buyAge <= 5 * 60) addNet(bucket, '5m', amount, wallet, false);
       if (ts > 0 && buyAge >= 0 && buyAge <= 15 * 60) addNet(bucket, '15m', amount, wallet, false);
+      if (ts > 0 && buyAge >= 0 && buyAge <= 60 * 60) addNet(bucket, '1h', amount, wallet, false);
     }
   }
 
@@ -122,12 +131,14 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       if (!bucket) continue;
       const ts = toUnixSec(trade.timestamp || trade.time || trade.created_at, nowSec);
       const age = nowSec - ts;
-      if (!(ts > 0 && age >= 0 && age <= 15 * 60)) continue;
+      // Collect up to 1h for Monitor 5m/15m/1h heat windows
+      if (!(ts > 0 && age >= 0 && age <= 60 * 60)) continue;
       const side = String(trade.side || '').toLowerCase();
       const amount = tradeAmountUsd(trade) * (side === 'sell' ? -1 : 1);
       const wallet = String(trade.maker || trade.wallet_address || trade.address || '');
       if (age <= 5 * 60) addNet(bucket, '5m', amount, wallet, isKol);
-      addNet(bucket, '15m', amount, wallet, isKol);
+      if (age <= 15 * 60) addNet(bucket, '15m', amount, wallet, isKol);
+      addNet(bucket, '1h', amount, wallet, isKol);
     }
   }
   applyTrades(smartTrades, false);
@@ -141,12 +152,15 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       ...token,
       smartNetInflow5m: Math.round(bucket.smartNetInflow5m * 100) / 100,
       smartNetInflow15m: Math.round(bucket.smartNetInflow15m * 100) / 100,
+      smartNetInflow1h: Math.round(bucket.smartNetInflow1h * 100) / 100,
       volume5m: Math.max(num(token.volume5m), bucket.volume5m),
       volume15m: Math.max(num(token.volume15m), bucket.volume15m),
+      volume1h: Math.max(num(token.volume1h), bucket.volume1h),
       newWallets5m: Math.max(num(token.newWallets5m), bucket.newWallets5m),
       newWallets15m: Math.max(num(token.newWallets15m), bucket.newWallets15m),
       smartWallets5m: Math.max(num(token.smartWallets5m), bucket.smartWalletBase5m + bucket.smartWalletSet5m.size),
       smartWallets15m: Math.max(num(token.smartWallets15m), bucket.smartWalletBase15m + bucket.smartWalletSet15m.size),
+      smartWallets1h: Math.max(num(token.smartWallets1h), bucket.smartWalletBase1h + bucket.smartWalletSet1h.size),
       kolWallets5m: Math.max(num(token.kolWallets5m), bucket.kolWalletBase5m + bucket.kolWalletSet5m.size),
       kolWallets15m: Math.max(num(token.kolWallets15m), bucket.kolWalletBase15m + bucket.kolWalletSet15m.size),
     };
