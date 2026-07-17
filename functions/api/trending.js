@@ -211,10 +211,11 @@ async function enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens)
   ];
 
   try {
+    // KOL limit higher — feeds Monitor KOL Net Inflow (gmgn.ai/monitor KOL)
     const [signalResult, smartResult, kolResult] = await Promise.allSettled([
       withTimeout(gmgnMod.getTokenSignalV2(apiKey, gmgnSlug, signalGroups), 'token_signal', 4000),
       withTimeout(gmgnMod.getSmartMoney(apiKey, gmgnSlug, 120), 'smartmoney', 4000),
-      withTimeout(gmgnMod.getKol(apiKey, gmgnSlug, 120), 'kol', 4000),
+      withTimeout(gmgnMod.getKol(apiKey, gmgnSlug, 200), 'kol', 5000),
     ]);
 
     meta.signalOk = signalResult.status === 'fulfilled';
@@ -224,17 +225,34 @@ async function enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens)
     if (!meta.smartOk) console.warn(`GMGN smartmoney failed: ${smartResult.reason?.message || smartResult.reason}`);
     if (!meta.kolOk) console.warn(`GMGN kol failed: ${kolResult.reason?.message || kolResult.reason}`);
 
+    // Personal X list for identity only; overlap with GMGN KOL → keep GMGN as sole source
+    let watchlistHandles = [];
+    try {
+      const wl = await import('./_x_watchlist.js');
+      watchlistHandles = typeof wl.getWatchlistHandles === 'function' ? wl.getWatchlistHandles() : [];
+    } catch (e) {
+      console.warn('watchlist load skip:', e.message || e);
+    }
+
     let enriched = applyMonitorSignalEnrichment(tokens, {
       tokenSignals: meta.signalOk ? signalResult.value : [],
       smartTrades: meta.smartOk ? smartResult.value : [],
+      // GMGN Monitor KOL Net Inflow source (on-chain KOL trades)
       kolTrades: meta.kolOk ? kolResult.value : [],
+      watchlistHandles,
     });
 
     meta.hasSmartMoneyData = meta.signalOk || meta.smartOk || meta.kolOk;
+    meta.kolNetInflowOk = meta.kolOk;
     enriched = enriched.map((t) => ({
       ...t,
       hasSmartMoneyData: meta.hasSmartMoneyData,
       dataQuality: meta.hasSmartMoneyData ? 'gmgn-enriched' : 'rank-only',
+      // Explicit Monitor dual boards
+      hasKolNetInflow:
+        Number(t.kolNetInflow5m || 0) !== 0 ||
+        Number(t.kolNetInflow15m || 0) !== 0 ||
+        Number(t.kolNetInflow1h || 0) !== 0,
     }));
 
     // Security for top N only (latency budget)

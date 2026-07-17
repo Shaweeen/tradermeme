@@ -209,8 +209,12 @@ const monitorInflow = engine.scoreTokenSignal({
   smartCount: 3,
   hasSmartMoneyData: true,
   dataQuality: 'gmgn-enriched',
+  // Smart Net Inflow (Monitor)
   smartNetInflow5m: 42_000,
   smartNetInflow15m: 120_000,
+  // KOL Net Inflow (gmgn.ai/monitor KOL tab) — separate board
+  kolNetInflow5m: 18_000,
+  kolNetInflow15m: 45_000,
   volume5m: 180_000,
   volume15m: 520_000,
   newWallets5m: 38,
@@ -243,6 +247,8 @@ const monitorFire = engine.shouldEmitAlert({
   dataQuality: 'gmgn-enriched',
   smartNetInflow5m: 42_000,
   smartNetInflow15m: 120_000,
+  kolNetInflow5m: 18_000,
+  kolNetInflow15m: 45_000,
   volume5m: 180_000,
   volume15m: 520_000,
   newWallets5m: 38,

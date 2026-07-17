@@ -119,36 +119,56 @@
       smartWallets1h: num(token.smartWallets1h, token.smart_wallets_1h, token.smart_count_1h),
       kolWallets5m: num(token.kolWallets5m, token.kol_wallets_5m, token.kol_count_5m, token.kolCount5m),
       kolWallets15m: num(token.kolWallets15m, token.kol_wallets_15m, token.kol_count_15m, token.kolCount15m),
+      kolWallets1h: num(token.kolWallets1h, token.kol_wallets_1h),
+      // KOL Net Inflow (gmgn.ai/monitor KOL tab) — separate from smart net
+      kolNetInflow5m: num(token.kolNetInflow5m, token.kol_net_inflow_5m),
+      kolNetInflow15m: num(token.kolNetInflow15m, token.kol_net_inflow_15m),
+      kolNetInflow1h: num(token.kolNetInflow1h, token.kol_net_inflow_1h),
       smartCount: num(token.smartCount, token.smart_degen_count, token.smart_count),
     };
   }
 
   function getMonitorInflowScore(token = {}) {
     const m = getMonitorMetrics(token);
-    // Weight recent net more (GMGN Monitor Smart Net Inflow bias to short windows)
-    const net =
+    // Smart Net Inflow (primary) + KOL Net Inflow (secondary, GMGN Monitor split)
+    const smartNet =
       Math.max(0, m.smartNetInflow5m) * 1.35 +
       Math.max(0, m.smartNetInflow15m) * 0.85 +
       Math.max(0, m.smartNetInflow1h) * 0.35;
+    const kolNet =
+      Math.max(0, m.kolNetInflow5m) * 1.2 +
+      Math.max(0, m.kolNetInflow15m) * 0.75 +
+      Math.max(0, m.kolNetInflow1h) * 0.3;
     const volume =
       Math.max(0, m.volume5m) * 1.0 +
       Math.max(0, m.volume15m) * 0.55 +
       Math.max(0, m.volume1h) * 0.2;
-    const netScore = clampScore(net <= 0 ? 0 : Math.log10(net + 1) * 22 - 45);
+    const netScore = clampScore(smartNet <= 0 ? 0 : Math.log10(smartNet + 1) * 22 - 45);
+    const kolNetScore = clampScore(kolNet <= 0 ? 0 : Math.log10(kolNet + 1) * 20 - 40);
     const monitorVolumeScore = clampScore(volume <= 0 ? 0 : Math.log10(volume + 1) * 18 - 45);
     const newWalletScore = clampScore(m.newWallets5m * 1.5 + m.newWallets15m * 0.65);
     const smartWalletScore = clampScore(
       m.smartWallets5m * 18 + m.smartWallets15m * 9 + m.smartWallets1h * 4 + m.smartCount * 3
     );
-    const kolWalletScore = clampScore(m.kolWallets5m * 28 + m.kolWallets15m * 14);
+    const kolWalletScore = clampScore(m.kolWallets5m * 22 + m.kolWallets15m * 12 + m.kolWallets1h * 5);
     const score = clampScore(
-      netScore * 0.40 +
-      monitorVolumeScore * 0.18 +
-      newWalletScore * 0.14 +
-      smartWalletScore * 0.18 +
+      netScore * 0.34 +
+      kolNetScore * 0.12 +
+      monitorVolumeScore * 0.16 +
+      newWalletScore * 0.12 +
+      smartWalletScore * 0.16 +
       kolWalletScore * 0.10
     );
-    return { ...m, score, netScore, monitorVolumeScore, newWalletScore, smartWalletScore, kolWalletScore };
+    return {
+      ...m,
+      score,
+      netScore,
+      kolNetScore,
+      monitorVolumeScore,
+      newWalletScore,
+      smartWalletScore,
+      kolWalletScore,
+    };
   }
 
   /**
@@ -162,57 +182,69 @@
     const windows = [];
     const notes = [];
 
-    // --- 5m: Smart Net Inflow burst + short volume/txid activity ---
+    // --- 5m: Smart Net Inflow and/or KOL Net Inflow burst ---
     const hot5mNet =
       m.smartNetInflow5m >= T.net5mStrong ||
       (m.smartNetInflow5m >= T.net5mMin && m.smartWallets5m >= T.smartWallets5mMin) ||
-      (m.smartWallets5m >= 3 && m.volume5m >= T.volume5mMin);
+      (m.smartWallets5m >= 3 && m.volume5m >= T.volume5mMin) ||
+      m.kolNetInflow5m >= T.net5mMin ||
+      (m.kolNetInflow5m >= T.net5mMin * 0.6 && m.kolWallets5m >= 2);
     const hot5mActivity =
       m.volume5m >= T.volume5mMin ||
       m.txns5m >= 25 ||
-      m.smartNetInflow5m >= T.net5mMin;
+      m.smartNetInflow5m >= T.net5mMin ||
+      m.kolNetInflow5m >= T.net5mMin * 0.5;
     if (hot5mNet && hot5mActivity) {
       windows.push('5m');
-      notes.push(`5m net $${Math.round(m.smartNetInflow5m)} · SM ${m.smartWallets5m}`);
+      notes.push(
+        `5m SM net $${Math.round(m.smartNetInflow5m)} · KOL net $${Math.round(m.kolNetInflow5m)} · SM ${m.smartWallets5m}/KOL ${m.kolWallets5m}`
+      );
     }
 
-    // --- 15m: sustained smart accumulation ---
+    // --- 15m ---
     const hot15mNet =
       m.smartNetInflow15m >= T.net15mStrong ||
       (m.smartNetInflow15m >= T.net15mMin && m.smartWallets15m >= T.smartWallets15mMin) ||
-      (m.smartWallets15m >= 4 && m.volume15m >= T.volume15mMin);
+      (m.smartWallets15m >= 4 && m.volume15m >= T.volume15mMin) ||
+      m.kolNetInflow15m >= T.net15mMin ||
+      (m.kolNetInflow15m >= T.net15mMin * 0.5 && m.kolWallets15m >= 2);
     const hot15mActivity =
       m.volume15m >= T.volume15mMin ||
       m.volume1h >= T.volume1hHot * 0.5 ||
       m.txns15m >= 40 ||
-      m.smartNetInflow15m >= T.net15mMin;
+      m.smartNetInflow15m >= T.net15mMin ||
+      m.kolNetInflow15m >= T.net15mMin * 0.4;
     if (hot15mNet && hot15mActivity) {
       windows.push('15m');
-      notes.push(`15m net $${Math.round(m.smartNetInflow15m)} · SM ${m.smartWallets15m}`);
+      notes.push(
+        `15m SM net $${Math.round(m.smartNetInflow15m)} · KOL net $${Math.round(m.kolNetInflow15m)}`
+      );
     }
 
-    // --- 1h: on-chain txid/volume heat + smart participation ---
+    // --- 1h ---
     const net1h = Math.max(m.smartNetInflow1h, m.smartNetInflow15m, m.smartNetInflow5m);
+    const kol1h = Math.max(m.kolNetInflow1h, m.kolNetInflow15m, m.kolNetInflow5m);
     const smart1h = Math.max(m.smartWallets1h, m.smartWallets15m, m.smartCount);
     const hot1hVolume = m.volume1h >= T.volume1hHot || m.txns1h >= 80;
     const hot1hSmart =
       net1h >= T.net1hMin ||
+      kol1h >= T.net1hMin * 0.5 ||
       smart1h >= T.smartWallets1hMin ||
       m.smartCount >= T.smartCount1hMin ||
       m.kolWallets15m >= 1;
     if (hot1hVolume && hot1hSmart) {
       windows.push('1h');
-      notes.push(`1h vol $${Math.round(m.volume1h)} · smart ${smart1h}`);
+      notes.push(`1h vol $${Math.round(m.volume1h)} · SM net $${Math.round(net1h)} · KOL net $${Math.round(kol1h)}`);
     }
 
-    // Composite board score (Monitor card intensity) as secondary admit
+    // Composite board score as secondary admit
     if (
       windows.length === 0 &&
       mon.score >= T.monitorHeatScore &&
-      (m.smartNetInflow5m > 0 || m.smartNetInflow15m > 0) &&
+      (m.smartNetInflow5m > 0 || m.smartNetInflow15m > 0 || m.kolNetInflow5m > 0 || m.kolNetInflow15m > 0) &&
       (m.volume5m > 0 || m.volume15m > 0 || m.volume1h >= T.volume1hHot * 0.4)
     ) {
-      windows.push(m.smartNetInflow5m >= m.smartNetInflow15m ? '5m' : '15m');
+      windows.push(m.smartNetInflow5m + m.kolNetInflow5m >= m.smartNetInflow15m + m.kolNetInflow15m ? '5m' : '15m');
       notes.push(`Monitor分 ${mon.score}/100`);
     }
 
