@@ -199,13 +199,16 @@
             <span class="section-badge" id="trackedCount">0</span>
           </div>
           <div class="section-controls">
-            <span class="section-hint" id="trackingHint">5分钟实时信号轮动 · 24小时历史追踪 · 绿点为信号买入标注</span>
+            <span class="section-hint" id="trackingHint">买入点=信号发出 · 刷新清失效 · 胜率反馈选标</span>
           </div>
+        </div>
+        <div class="signal-outcome-stats" id="signalOutcomeStats" aria-label="信号胜率统计">
+          <div class="outcome-stat"><span class="outcome-stat-label">胜率</span><strong class="outcome-stat-value">—</strong><em>样本积累中</em></div>
         </div>
         <div class="monitor-grid" id="monitorGrid">
           <div class="monitor-empty" id="monitorEmpty">
             <span class="monitor-empty-icon">🔭</span>
-            <p class="monitor-empty-text">尚未追踪任何代币<br/>当有信号触发时，代币将自动出现在这里</p>
+            <p class="monitor-empty-text">尚未追踪任何代币<br/>信号发出即标记买入点 · 刷新自动移除失效 · 胜负用于优化选标</p>
           </div>
           <div class="monitor-cards" id="monitorCards"></div>
         </div>

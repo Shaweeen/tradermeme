@@ -2050,6 +2050,75 @@ a:hover {
   border-color: var(--accent-blue);
 }
 
+/* ===== 24H AI outcome stats (win rate from buy-point) ===== */
+.signal-outcome-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 10px 18px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.outcome-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.outcome-stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.outcome-stat-value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.outcome-stat-value.good {
+  color: var(--accent-green);
+}
+
+.outcome-stat-value.danger {
+  color: var(--accent-red);
+}
+
+.outcome-stat-value.positive {
+  color: var(--accent-green);
+}
+
+.outcome-stat-value.negative {
+  color: var(--accent-red);
+}
+
+.outcome-stat em {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+.archive-token-row.outcome-row {
+  opacity: 0.92;
+}
+
+.archive-token-row.outcome-row small {
+  display: block;
+  font-size: 9px;
+  color: var(--text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ===== Monitoring Grid ===== */
 .monitor-grid {
   min-height: 100px;

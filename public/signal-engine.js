@@ -526,9 +526,259 @@
     return { ...perf, entryGrade, entryAction, resultLabel, dropFromPeak };
   }
 
+  /**
+   * Signal outcome from buy-point (signal emission = 买入标注点).
+   * Win = ever reached +winPct from buy; Loss = never won and broke -lossPct
+   * or was invalidated (dead market). Used for win-rate stats & selection.
+   */
+  const OUTCOME = {
+    winPct: 35,       // 有效胜利：相对买入点峰值 ≥ +35%
+    softWinPct: 15,   // 软胜（计入有效率但不计入强胜）
+    lossPct: -15,     // 跌破买入点
+    hardLossPct: -25, // 硬败
+    settleMinMs: 10 * 60 * 1000, // 至少观察 10 分钟再结算 flat/loss
+  };
+
+  function evaluateSignalOutcome(tracked = {}, opts = {}) {
+    const now = Number(opts.now || Date.now());
+    const perf = getTrackedPerformance(tracked);
+    const signalAt = Number(tracked.signalAt || 0);
+    const elapsed = signalAt > 0 ? now - signalAt : 0;
+    const invalidReason = opts.invalidReason || tracked.invalidReason || '';
+    const dropFromPeak = (perf.maxGain || 0) - (perf.currentChange || 0);
+
+    let status = 'pending'; // pending | win | soft_win | loss | invalid | flat
+    let tier = '观察中';
+    let isSettled = false;
+
+    if (invalidReason) {
+      status = 'invalid';
+      tier = '失效移除';
+      isSettled = true;
+    } else if (perf.maxGain >= 500) {
+      status = 'win';
+      tier = dropFromPeak >= 250 || perf.currentChange <= perf.maxGain * 0.45 ? '超级收益·回撤' : '超级收益';
+      isSettled = true;
+    } else if (perf.maxGain >= 100) {
+      status = 'win';
+      tier = '高收益验证';
+      isSettled = true;
+    } else if (perf.maxGain >= OUTCOME.winPct) {
+      status = 'win';
+      tier = '有效信号';
+      isSettled = true;
+    } else if (perf.maxGain >= OUTCOME.softWinPct && perf.currentChange >= OUTCOME.lossPct) {
+      status = 'soft_win';
+      tier = '软胜';
+      // soft win settles only if already past soft target and holding, or on expiry
+      isSettled = !!opts.forceSettle || elapsed >= (opts.retentionMs || 24 * 60 * 60 * 1000) * 0.5;
+    } else if (perf.currentChange <= OUTCOME.hardLossPct || (perf.currentChange <= OUTCOME.lossPct && perf.maxGain < OUTCOME.softWinPct)) {
+      status = 'loss';
+      tier = '失败/跌破';
+      isSettled = elapsed >= OUTCOME.settleMinMs || !!opts.forceSettle;
+    } else if (opts.forceSettle || (opts.retentionMs > 0 && elapsed >= opts.retentionMs)) {
+      status = perf.maxGain >= OUTCOME.softWinPct ? 'soft_win' : 'flat';
+      tier = status === 'soft_win' ? '软胜·到期' : '横盘到期';
+      isSettled = true;
+    }
+
+    const isWin = status === 'win' || status === 'soft_win';
+    const isLoss = status === 'loss' || status === 'invalid';
+
+    return {
+      ...perf,
+      status,
+      tier,
+      isSettled,
+      isWin,
+      isLoss,
+      dropFromPeak,
+      elapsed,
+      buyPrice: perf.base,
+      // pattern keys for selection learning
+      patternKey: buildPatternKey(tracked),
+      entryGrade: (tracked.signalScoreSnapshot || tracked.signalMeta?.signalScoreSnapshot || {}).entryGrade || 'C',
+      signalReason: tracked.signalReason || '',
+      heatWindow: tracked.signalMeta?.heatWindow || '',
+    };
+  }
+
+  function buildPatternKey(tracked = {}) {
+    const snap = tracked.signalScoreSnapshot || tracked.signalMeta?.signalScoreSnapshot || {};
+    const grade = snap.entryGrade || 'C';
+    const reason = tracked.signalReason || 'unknown';
+    const win = tracked.signalMeta?.heatWindow || snap.heat?.primaryWindow || '';
+    return `${reason}|${grade}|${win || '-'}`.toLowerCase();
+  }
+
+  /**
+   * Aggregate settled outcomes → win rate + per-pattern stats for selection.
+   */
+  function computeOutcomeStats(outcomes = []) {
+    const list = Array.isArray(outcomes) ? outcomes.filter((o) => o && o.isSettled) : [];
+    const total = list.length;
+    const wins = list.filter((o) => o.isWin).length;
+    const losses = list.filter((o) => o.isLoss).length;
+    const flats = list.filter((o) => o.status === 'flat').length;
+    const invalids = list.filter((o) => o.status === 'invalid').length;
+    const strongWins = list.filter((o) => o.status === 'win').length;
+    const winRate = total > 0 ? wins / total : 0;
+    const strongWinRate = total > 0 ? strongWins / total : 0;
+    const avgMaxGain = total > 0 ? list.reduce((s, o) => s + Number(o.maxGain || 0), 0) / total : 0;
+    const avgCurrent = total > 0 ? list.reduce((s, o) => s + Number(o.currentChange || 0), 0) / total : 0;
+
+    const byPattern = {};
+    for (const o of list) {
+      const k = o.patternKey || 'unknown';
+      if (!byPattern[k]) byPattern[k] = { key: k, total: 0, wins: 0, losses: 0, strongWins: 0, avgMaxGain: 0, sumMax: 0 };
+      const p = byPattern[k];
+      p.total += 1;
+      if (o.isWin) p.wins += 1;
+      if (o.isLoss) p.losses += 1;
+      if (o.status === 'win') p.strongWins += 1;
+      p.sumMax += Number(o.maxGain || 0);
+      p.avgMaxGain = p.sumMax / p.total;
+      p.winRate = p.wins / p.total;
+    }
+
+    const byGrade = {};
+    for (const o of list) {
+      const g = o.entryGrade || 'C';
+      if (!byGrade[g]) byGrade[g] = { grade: g, total: 0, wins: 0, winRate: 0 };
+      byGrade[g].total += 1;
+      if (o.isWin) byGrade[g].wins += 1;
+      byGrade[g].winRate = byGrade[g].wins / byGrade[g].total;
+    }
+
+    return {
+      total,
+      wins,
+      losses,
+      flats,
+      invalids,
+      strongWins,
+      winRate,
+      strongWinRate,
+      avgMaxGain,
+      avgCurrent,
+      byPattern,
+      byGrade,
+    };
+  }
+
+  /**
+   * Use historical win rates to gate / boost new signal selection.
+   * Returns { allow, scoreDelta, reason, note }.
+   */
+  function getSelectionAdvice(decision = {}, stats = null, opts = {}) {
+    const minSamples = Number(opts.minSamples || 5);
+    const score = decision.score || {};
+    const heat = decision.heat || score.heat || {};
+    const reason = decision.reason || 'unknown';
+    const grade = score.entryGrade || 'C';
+    const window = heat.primaryWindow || '';
+    const patternKey = `${reason}|${grade}|${window || '-'}`.toLowerCase();
+
+    if (!stats || !stats.total) {
+      return { allow: true, scoreDelta: 0, patternKey, reason: 'cold-start', note: '样本不足，默认放行' };
+    }
+
+    const pattern = stats.byPattern?.[patternKey];
+    const gradeStat = stats.byGrade?.[grade];
+
+    // Hard block: pattern with enough samples and very low win rate
+    if (pattern && pattern.total >= minSamples && pattern.winRate < 0.28) {
+      return {
+        allow: false,
+        scoreDelta: -20,
+        patternKey,
+        reason: 'pattern-low-winrate',
+        note: `模式 ${patternKey} 胜率 ${(pattern.winRate * 100).toFixed(0)}%（${pattern.wins}/${pattern.total}）过低，跳过`,
+      };
+    }
+
+    let scoreDelta = 0;
+    let note = '';
+
+    // Boost high-win patterns
+    if (pattern && pattern.total >= minSamples) {
+      if (pattern.winRate >= 0.6) {
+        scoreDelta += 10;
+        note = `高胜率模式 +10（${(pattern.winRate * 100).toFixed(0)}%）`;
+      } else if (pattern.winRate >= 0.45) {
+        scoreDelta += 5;
+        note = `中高胜率模式 +5`;
+      } else if (pattern.winRate < 0.35) {
+        scoreDelta -= 8;
+        note = `偏低胜率模式 -8`;
+      }
+    }
+
+    // Grade historical performance
+    if (gradeStat && gradeStat.total >= minSamples) {
+      if (gradeStat.winRate >= 0.55) scoreDelta += 4;
+      else if (gradeStat.winRate < 0.3) scoreDelta -= 6;
+    }
+
+    // Prefer 5m heat if it historically wins more than 1h (when enough data)
+    const win5 = Object.values(stats.byPattern || {}).filter((p) => p.key.includes('|5m') || p.key.endsWith('|5m'));
+    // soft: 5m reasons
+    if (reason.includes('5m') && stats.strongWinRate >= 0.25) scoreDelta += 2;
+
+    // Overall board win-rate adaptive floor: if global WR is low, demand higher score
+    if (stats.total >= minSamples * 2 && stats.winRate < 0.35) {
+      scoreDelta -= 5;
+      note = (note ? note + ' · ' : '') + '全局胜率偏低，抬高门槛';
+    }
+
+    return {
+      allow: true,
+      scoreDelta,
+      patternKey,
+      reason: scoreDelta >= 5 ? 'pattern-boost' : scoreDelta <= -5 ? 'pattern-penalty' : 'neutral',
+      note: note || '中性',
+    };
+  }
+
+  /**
+   * Apply selection advice to an emit decision (score floor raise / block).
+   */
+  function applySelectionAdvice(decision = {}, advice = null, opts = {}) {
+    if (!decision || !decision.fire) return decision;
+    if (!advice) return decision;
+    if (advice.allow === false) {
+      return {
+        ...decision,
+        fire: false,
+        reason: advice.reason || 'selection-block',
+        text: advice.note || '历史胜率过滤',
+        selectionAdvice: advice,
+      };
+    }
+    const baseFloor = Number(opts.baseScoreFloor || V2.thresholds.aiScore);
+    const score = decision.score || {};
+    const adjusted = (Number(score.signalScore) || 0) + (Number(advice.scoreDelta) || 0);
+    // When penalized, require meeting raised floor
+    if ((advice.scoreDelta || 0) < 0 && adjusted < baseFloor) {
+      return {
+        ...decision,
+        fire: false,
+        reason: 'selection-score-floor',
+        text: `胜率惩罚后分数 ${Math.round(adjusted)} < ${baseFloor}`,
+        selectionAdvice: advice,
+      };
+    }
+    return {
+      ...decision,
+      selectionAdvice: advice,
+      score: score.signalScore != null ? { ...score, selectionAdjustedScore: Math.round(adjusted) } : score,
+    };
+  }
+
   global.SignalEngine = {
     version: V2.version,
     thresholds: V2.thresholds,
+    outcomeThresholds: OUTCOME,
     clampScore,
     calculateBuyPercent,
     getMonitorMetrics,
@@ -539,5 +789,10 @@
     evaluateHardVeto,
     analyzeTrackedSignal,
     getTrackedPerformance,
+    evaluateSignalOutcome,
+    buildPatternKey,
+    computeOutcomeStats,
+    getSelectionAdvice,
+    applySelectionAdvice,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

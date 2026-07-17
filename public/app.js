@@ -13,6 +13,9 @@ const state = {
   tokens: [],
   signals: [],
   trackedTokens: {},
+  // Settled buy-point outcomes (win/loss) for 24H AI 胜率 & selection learning
+  signalOutcomes: [],
+  sessionRemovedInvalid: 0, // cleared invalids this session (for UI)
   aiExpanded: {},
   archiveExpanded: false,
   isLoading: false,
@@ -34,12 +37,14 @@ const state = {
   signalTickerRotateMs: 2800,
   signalTickerIdleHideMs: 3000,
   signalFlashMs: 1000,
-  trackingRetentionMs: 9 * 60 * 60 * 1000, // 9h normal historical tracking observation window
+  trackingRetentionMs: 24 * 60 * 60 * 1000, // 24H AI 信号观察窗口（买入标注点起）
   moonshotRetentionMs: 30 * 24 * 60 * 60 * 1000, // >500% projects are kept for 1 month
   maxPriceHistory: 2880, // normal 24h at 30s refresh cadence
   maxMoonshotPriceHistory: 900, // compressed 1-month moonshot history for localStorage safety
   maxTrackingStorageBytes: 4_000_000, // keep below common 5MB localStorage quota
   zeroNoInflowCleanupMs: 4 * 60 * 60 * 1000, // remove zero-price archive rows after 4h without capital inflow
+  // 失效：跌破买入点持续 N 分钟后从 24H 列表移除并记为 loss
+  invalidLossHoldMs: 30 * 60 * 1000,
   memecoinLimit: 30,
 
   // Othercoin state
@@ -650,6 +655,118 @@ function shouldCleanupZeroNoInflow(tracked = {}, now = Date.now()) {
   return lastInflowAt > 0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs;
 }
 
+/**
+ * Build / append a settled outcome from signal buy-point. Dedupes by key+signalAt.
+ */
+function recordSignalOutcome(tracked, extra = {}) {
+  if (!tracked) return null;
+  const engine = window.SignalEngine;
+  const key = getTrackingKey(tracked.address, tracked.chain);
+  const evalOpts = {
+    now: extra.now || Date.now(),
+    forceSettle: true,
+    invalidReason: extra.invalidReason || tracked.invalidReason || '',
+    retentionMs: getTrackedRetentionMs(tracked, extra.now || Date.now()),
+  };
+  const outcome = engine?.evaluateSignalOutcome
+    ? engine.evaluateSignalOutcome(tracked, evalOpts)
+    : {
+        status: extra.invalidReason ? 'invalid' : 'flat',
+        isSettled: true,
+        isWin: false,
+        isLoss: !!extra.invalidReason,
+        maxGain: 0,
+        currentChange: 0,
+        patternKey: `${tracked.signalReason || 'unknown'}|C|-`,
+      };
+
+  const row = {
+    id: `${key}|${tracked.signalAt}`,
+    key,
+    symbol: tracked.symbol || '',
+    chain: tracked.chain || '',
+    address: tracked.address || '',
+    signalAt: tracked.signalAt,
+    settledAt: Date.now(),
+    status: outcome.status,
+    tier: outcome.tier || '',
+    isSettled: true,
+    isWin: !!outcome.isWin,
+    isLoss: !!outcome.isLoss,
+    maxGain: Number(outcome.maxGain || 0),
+    maxDrawdown: Number(outcome.maxDrawdown || 0),
+    currentChange: Number(outcome.currentChange || 0),
+    buyPrice: Number(tracked.priceAtSignal || outcome.buyPrice || 0),
+    exitPrice: Number(tracked.currentPrice || 0),
+    patternKey: outcome.patternKey || '',
+    entryGrade: outcome.entryGrade || tracked.signalScoreSnapshot?.entryGrade || 'C',
+    signalReason: tracked.signalReason || '',
+    heatWindow: tracked.signalMeta?.heatWindow || '',
+    invalidReason: extra.invalidReason || '',
+    removeReason: extra.removeReason || '',
+  };
+
+  // Replace existing same signal
+  const prevIdx = state.signalOutcomes.findIndex((o) => o.id === row.id || (o.key === key && o.signalAt === tracked.signalAt));
+  if (prevIdx >= 0) state.signalOutcomes[prevIdx] = row;
+  else state.signalOutcomes.unshift(row);
+  // Cap in memory
+  if (state.signalOutcomes.length > 250) state.signalOutcomes = state.signalOutcomes.slice(0, 250);
+  return row;
+}
+
+function getOutcomeStatsCached() {
+  const engine = window.SignalEngine;
+  if (engine?.computeOutcomeStats) return engine.computeOutcomeStats(state.signalOutcomes);
+  const total = state.signalOutcomes.length;
+  const wins = state.signalOutcomes.filter((o) => o.isWin).length;
+  return { total, wins, losses: total - wins, winRate: total ? wins / total : 0, byPattern: {}, byGrade: {} };
+}
+
+/**
+ * Remove tracked token after recording outcome (失效 / 到期 / 主动放弃).
+ */
+function removeTrackedWithOutcome(key, tracked, { invalidReason = '', removeReason = '', countInvalid = false } = {}) {
+  if (tracked) {
+    recordSignalOutcome(tracked, { invalidReason, removeReason });
+  }
+  delete state.trackedTokens[key];
+  state.signals = state.signals.filter((s) => getTrackingKey(s.tokenAddress, s.tokenChain) !== key);
+  delete state.aiExpanded[key];
+  if (countInvalid) state.sessionRemovedInvalid = (state.sessionRemovedInvalid || 0) + 1;
+}
+
+/**
+ * 失效判定：相对买入点持续亏损，或市场死亡。
+ * Returns reason string if should remove, else ''.
+ */
+function getInvalidReasonForTracked(tracked, now = Date.now()) {
+  if (!tracked) return '空记录';
+  if (shouldCleanupZeroNoInflow(tracked, now)) return '价格归零且长时间无资金流入';
+
+  const engine = window.SignalEngine;
+  const outcome = engine?.evaluateSignalOutcome
+    ? engine.evaluateSignalOutcome(tracked, { now })
+    : null;
+
+  // Sustained break below buy point without ever soft-winning
+  if (outcome && outcome.status === 'loss' && outcome.isSettled) {
+    const brokeAt = Number(tracked.brokeBuyAt || 0);
+    if (!brokeAt) {
+      tracked.brokeBuyAt = now;
+      return '';
+    }
+    if (now - brokeAt >= state.invalidLossHoldMs) {
+      return `跌破买入点 ${(outcome.currentChange || 0).toFixed(1)}% 超过 ${Math.round(state.invalidLossHoldMs / 60000)} 分钟`;
+    }
+  } else if (outcome && (outcome.isWin || (outcome.currentChange || 0) > -10)) {
+    // Recovered — clear break timer
+    delete tracked.brokeBuyAt;
+  }
+
+  return '';
+}
+
 function pruneSignalTracking(now = Date.now()) {
   state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
   for (const [key, tracked] of Object.entries(state.trackedTokens)) {
@@ -657,23 +774,47 @@ function pruneSignalTracking(now = Date.now()) {
       delete state.trackedTokens[key];
       continue;
     }
-    if (shouldCleanupZeroNoInflow(tracked, now)) {
-      delete state.trackedTokens[key];
-      delete state.aiExpanded[key];
+
+    // 每次刷新：移除已失效
+    const invalidReason = getInvalidReasonForTracked(tracked, now);
+    if (invalidReason) {
+      removeTrackedWithOutcome(key, tracked, {
+        invalidReason,
+        removeReason: 'invalid-refresh',
+        countInvalid: true,
+      });
       continue;
     }
+
     const retentionMs = getTrackedRetentionMs(tracked, now);
     if (now - tracked.signalAt > retentionMs) {
-      delete state.trackedTokens[key];
+      // 24H 到期：强制结算胜负后移除
+      removeTrackedWithOutcome(key, tracked, {
+        removeReason: 'retention-expired',
+      });
       continue;
     }
+
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
     const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = (tracked.priceHistory || [])
       .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
       .slice(-historyLimit);
+    // 买入标注点始终保留
     if (!tracked.priceHistory.some((p) => p.time === tracked.signalAt && p.price === tracked.priceAtSignal)) {
       tracked.priceHistory.unshift({ time: tracked.signalAt, price: tracked.priceAtSignal, marker: 'buy' });
+    }
+
+    // 已达明确胜利：写入 outcomes（仍可留在列表观察，不删）
+    const live = window.SignalEngine?.evaluateSignalOutcome?.(tracked, { now });
+    if (live?.isSettled && live.isWin && !tracked.outcomeRecorded) {
+      recordSignalOutcome(tracked, { removeReason: 'live-win' });
+      tracked.outcomeRecorded = true;
+      tracked.outcomeStatus = live.status;
+      tracked.outcomeTier = live.tier;
+    } else if (live) {
+      tracked.outcomeStatus = live.status;
+      tracked.outcomeTier = live.tier;
     }
   }
 }
@@ -686,6 +827,7 @@ function saveSignalTracking() {
       signalIdCounter: state.signalIdCounter,
       signals: state.signals,
       trackedTokens: state.trackedTokens,
+      signalOutcomes: state.signalOutcomes,
     };
     const prepared = window.TrackingStorage?.prepareTrackingStateForStorage
       ? window.TrackingStorage.prepareTrackingStateForStorage(payload, {
@@ -702,6 +844,9 @@ function saveSignalTracking() {
       state.trackedTokens = prepared.trackedTokens;
       state.signals = prepared.signals || state.signals;
     }
+    if (Array.isArray(prepared.signalOutcomes)) {
+      state.signalOutcomes = prepared.signalOutcomes;
+    }
   } catch (e) {
     console.warn('Failed to save signal tracking state:', e);
     try {
@@ -710,6 +855,7 @@ function saveSignalTracking() {
         signalIdCounter: state.signalIdCounter,
         signals: state.signals.slice(0, 20),
         trackedTokens: state.trackedTokens,
+        signalOutcomes: state.signalOutcomes.slice(0, 80),
       }, { now: Date.now(), maxBytes: 2_000_000, normalRetentionMs: state.trackingRetentionMs, moonshotRetentionMs: state.moonshotRetentionMs, normalMaxPoints: 240, moonshotMaxPoints: 240 });
       if (fallback) localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify(fallback));
     } catch (fallbackError) {
@@ -731,11 +877,13 @@ function loadSignalTracking() {
       tokenChain: normalizeChainId(s.tokenChain) || s.tokenChain || 'solana',
     }));
     state.trackedTokens = parsed.trackedTokens && typeof parsed.trackedTokens === 'object' ? parsed.trackedTokens : {};
+    state.signalOutcomes = Array.isArray(parsed.signalOutcomes) ? parsed.signalOutcomes : [];
     pruneSignalTracking();
   } catch (e) {
     console.warn('Failed to load signal tracking state:', e);
     state.signals = [];
     state.trackedTokens = {};
+    state.signalOutcomes = [];
   }
 }
 
@@ -746,11 +894,17 @@ function detectSignals(tokens) {
   pruneSignalTracking();
   const engine = window.SignalEngine;
   const boardChain = normalizeChainId(state.currentChain);
+  // 用历史买入点胜率优化本次选中
+  const outcomeStats = getOutcomeStatsCached();
 
   for (const token of tokens) {
     // Hard isolation: never emit a signal for another chain on this board
     const tokenChain = normalizeChainId(token.chain || boardChain);
     if (boardChain && boardChain !== 'all' && tokenChain && tokenChain !== boardChain) continue;
+
+    // Already tracking this token — do not re-fire
+    const trackKey = getTrackingKey(token.address, tokenChain);
+    if (state.trackedTokens[trackKey]) continue;
 
     const existingSignal = state.signals.find(
       (s) =>
@@ -777,6 +931,12 @@ function detectSignals(tokens) {
         : { fire: false, reason: 'no-engine', text: '', score: scoreSnapshot };
     }
 
+    // 胜率反馈：过滤低胜率模式、抬高/压低分数门槛
+    if (decision.fire && engine?.getSelectionAdvice && engine?.applySelectionAdvice) {
+      const advice = engine.getSelectionAdvice(decision, outcomeStats, { minSamples: 5 });
+      decision = engine.applySelectionAdvice(decision, advice, { baseScoreFloor: SIGNAL_THRESHOLDS.aiScore });
+    }
+
     if (!decision.fire) continue;
     // Ensure token carries normalized chain before createSignal
     const sig = createSignal({ ...token, chain: tokenChain }, decision.reason, decision.text, decision.score);
@@ -787,6 +947,12 @@ function detectSignals(tokens) {
         heatWindow: decision.heat.primaryWindow,
         heatWindows: decision.heat.windows || [],
         heatDetail: decision.heat.detail || '',
+      };
+    }
+    if (decision.selectionAdvice) {
+      sig.meta = {
+        ...(sig.meta || {}),
+        selectionAdvice: decision.selectionAdvice,
       };
     }
     newSignals.push(sig);
@@ -902,10 +1068,12 @@ function getAbandonReasonForTracked(found, tracked, now = Date.now()) {
 }
 
 function abandonTrackedTarget(key, tracked, reason) {
-  delete state.trackedTokens[key];
-  state.signals = state.signals.filter((s) => getTrackingKey(s.tokenAddress, s.tokenChain) !== key);
-  delete state.aiExpanded[key];
-  if (tracked?.symbol) showToast(`🧹 已放弃 ${tracked.symbol}: ${reason}`, 'warning');
+  removeTrackedWithOutcome(key, tracked, {
+    invalidReason: reason || '市场失效',
+    removeReason: 'abandon-refresh',
+    countInvalid: true,
+  });
+  if (tracked?.symbol) showToast(`🧹 已移除失效 ${tracked.symbol}: ${reason}`, 'warning');
 }
 
 function maybeRaiseMoonshotSelloffAlert(key, tracked, token, now = Date.now()) {
@@ -955,6 +1123,7 @@ function startTrackingToken(signal) {
     name: signal.tokenName,
     icon: signal.tokenIcon,
     chain: signal.tokenChain,
+    // 信号发出时刻 = 买入标注点（胜负统计基准）
     signalAt: signal.timestamp,
     signalReason: signal.reason,
     signalReasonText: signal.reasonText,
@@ -967,6 +1136,9 @@ function startTrackingToken(signal) {
     signalScoreSnapshot: signal.meta?.signalScoreSnapshot || null,
     aiNotes: null,
     historyStatus: 'active',
+    outcomeStatus: 'pending',
+    outcomeTier: '观察中',
+    outcomeRecorded: false,
   };
 }
 
@@ -1670,9 +1842,9 @@ function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
 }
 
 function getLevelClass(level) {
-  if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '超级收益', '有效信号'].includes(level)) return 'good';
-  if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中'].includes(level)) return 'warn';
-  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', '高收益回撤', 'D', '失败/跌破'].includes(level)) return 'danger';
+  if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '超级收益', '有效信号', '软胜', '软胜·到期', '超级收益·回撤', '胜'].includes(level)) return 'good';
+  if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中', '横盘到期', '平'].includes(level)) return 'warn';
+  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', '高收益回撤', 'D', '失败/跌破', '失效移除', '负'].includes(level)) return 'danger';
   return 'neutral';
 }
 
@@ -1739,14 +1911,53 @@ function showStrategyPreview(tracked, analysis) {
 
 // --- Monitoring ---
 
+function formatWinRatePct(rate) {
+  if (!Number.isFinite(rate) || rate <= 0) return '—';
+  return `${(rate * 100).toFixed(0)}%`;
+}
+
+function renderSignalOutcomeStatsBar() {
+  const el = document.getElementById('signalOutcomeStats');
+  const hint = document.getElementById('trackingHint');
+  const stats = getOutcomeStatsCached();
+  const live = Object.keys(state.trackedTokens).length;
+  const removed = state.sessionRemovedInvalid || 0;
+  const wr = formatWinRatePct(stats.winRate);
+  const strongWr = formatWinRatePct(stats.strongWinRate);
+  const avgPeak = stats.total ? formatChange(stats.avgMaxGain) : '—';
+  // Best pattern tip for selection
+  let bestTip = '样本积累中 · 胜率将反馈选标';
+  const patterns = Object.values(stats.byPattern || {}).filter((p) => p.total >= 3);
+  if (patterns.length) {
+    patterns.sort((a, b) => b.winRate - a.winRate || b.total - a.total);
+    const top = patterns[0];
+    bestTip = `优选模式 ${(top.winRate * 100).toFixed(0)}% · ${top.key}（${top.wins}/${top.total}）`;
+  }
+  if (hint) {
+    hint.textContent = `买入点=信号发出 · 刷新清失效 · 胜率反馈选标 · ${bestTip}`;
+  }
+  if (!el) return;
+  el.innerHTML = `
+    <div class="outcome-stat"><span class="outcome-stat-label">胜率</span><strong class="outcome-stat-value ${stats.winRate >= 0.45 ? 'good' : stats.winRate > 0 && stats.winRate < 0.3 ? 'danger' : ''}">${wr}</strong><em>${stats.wins || 0}胜/${stats.losses || 0}负</em></div>
+    <div class="outcome-stat"><span class="outcome-stat-label">强胜≥35%</span><strong class="outcome-stat-value">${strongWr}</strong><em>${stats.strongWins || 0}次</em></div>
+    <div class="outcome-stat"><span class="outcome-stat-label">均峰值</span><strong class="outcome-stat-value ${getChangeClass(stats.avgMaxGain || 0)}">${avgPeak}</strong><em>自买入点</em></div>
+    <div class="outcome-stat"><span class="outcome-stat-label">追踪中</span><strong class="outcome-stat-value">${live}</strong><em>24H</em></div>
+    <div class="outcome-stat"><span class="outcome-stat-label">本轮清失效</span><strong class="outcome-stat-value ${removed ? 'danger' : ''}">${removed}</strong><em>样本 ${stats.total || 0}</em></div>
+  `;
+}
+
 function renderMemecoinMonitoring() {
   pruneSignalTracking();
-  const keys = Object.keys(state.trackedTokens);
   const activeAddresses = new Set(state.signals.filter((s) => s.active).map((s) => getTrackingKey(s.tokenAddress, s.tokenChain)));
   const now = Date.now();
   const remainingKeys = Object.keys(state.trackedTokens);
   dom.trackedCount.textContent = remainingKeys.length;
-  if (remainingKeys.length === 0) { dom.monitorCards.innerHTML = ''; dom.monitorEmpty.style.display = 'flex'; return; }
+  renderSignalOutcomeStatsBar();
+  if (remainingKeys.length === 0) {
+    dom.monitorCards.innerHTML = '';
+    dom.monitorEmpty.style.display = 'flex';
+    return;
+  }
   dom.monitorEmpty.style.display = 'none';
   const fragment = document.createDocumentFragment();
   let cardIndex = 0;
@@ -1775,9 +1986,16 @@ function renderMemecoinMonitoring() {
     const elapsed = now - tracked.signalAt;
     const isActive = activeAddresses.has(key);
     const analysis = analyzeTrackedToken(tracked, isActive, now);
+    const liveOutcome = window.SignalEngine?.evaluateSignalOutcome?.(tracked, { now }) || {};
     const priceChange = analysis.currentChange;
     const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
     const statusClass = isActive ? 'active' : 'history';
+    const outcomeLabel = tracked.outcomeTier || liveOutcome.tier || analysis.historyStatus || '观察中';
+    const outcomeClass = liveOutcome.isWin || tracked.outcomeStatus === 'win' || tracked.outcomeStatus === 'soft_win'
+      ? 'good'
+      : liveOutcome.isLoss || tracked.outcomeStatus === 'loss'
+        ? 'danger'
+        : getLevelClass(outcomeLabel);
     const isExpanded = !!state.aiExpanded[key];
     const card = document.createElement('div');
     card.className = `monitor-card ${tracked.moonshot?.active ? 'moonshot-card' : ''} ${tracked.moonshot?.selloffAlertedAt ? 'moonshot-alert-card' : ''}`.trim();
@@ -1808,6 +2026,7 @@ function renderMemecoinMonitoring() {
       <div class="ai-chip-row">
         ${tracked.moonshot?.active ? `<span class="ai-chip moonshot">🚀 500%+ · 保留1个月</span>` : ''}
         ${tracked.moonshot?.selloffAlertedAt ? `<span class="ai-chip danger">⚠️ ${tracked.moonshot.selloffReason || '高收益回撤'}</span>` : ''}
+        <span class="ai-chip ${outcomeClass}">结果：${outcomeLabel}</span>
         <span class="ai-chip ${getLevelClass(analysis.signalLevel)}">AI：${analysis.signalLevel} ${analysis.aiScore}/100</span>
         <span class="ai-chip ${getLevelClass(analysis.riskLevel)}">风险：${analysis.riskLevel}</span>
         <span class="ai-chip ${getLevelClass(analysis.resonanceLevel)}">共振：${analysis.resonanceLevel}</span>
@@ -1817,7 +2036,8 @@ function renderMemecoinMonitoring() {
       <div class="monitor-stats">
         <div class="monitor-stat"><span class="monitor-stat-label">买入标注点</span><span class="monitor-stat-value" style="font-size:11px;color:var(--accent-green)">${formatPrice(tracked.priceAtSignal)}</span></div>
         <div class="monitor-stat"><span class="monitor-stat-label">当前价格</span><span class="monitor-stat-value" style="font-size:11px">${formatPrice(tracked.currentPrice)}</span></div>
-        <div class="monitor-stat"><span class="monitor-stat-label">变化</span><span class="monitor-stat-value ${getChangeClass(priceChange)}">${formatChange(priceChange)}</span></div>
+        <div class="monitor-stat"><span class="monitor-stat-label">相对买入</span><span class="monitor-stat-value ${getChangeClass(priceChange)}">${formatChange(priceChange)}</span></div>
+        <div class="monitor-stat"><span class="monitor-stat-label">峰值</span><span class="monitor-stat-value ${getChangeClass(analysis.maxGain)}">${formatChange(analysis.maxGain)}</span></div>
         <div class="monitor-stat" style="margin-left:auto"><span class="monitor-stat-label">已追踪</span><span class="monitor-stat-value" style="font-size:11px;color:var(--text-muted)">${formatDuration(elapsed)}</span></div>
       </div>
       <div class="monitor-actions">
@@ -1855,17 +2075,30 @@ function renderMemecoinMonitoring() {
           </button>
           ${alertReason ? `<small>提醒原因：${alertReason}</small>` : ''}
         </span>
-        <span class="archive-return ${moonshot ? 'moonshot' : getChangeClass(analysis.currentChange)}">买入点→当前 PNL ${formatChange(analysis.currentChange)}</span>
+        <span class="archive-return ${moonshot ? 'moonshot' : getChangeClass(analysis.currentChange)}">买入→现 ${formatChange(analysis.currentChange)} · 峰 ${formatChange(analysis.maxGain)}</span>
       </div>`;
+  }).join('');
+  // Recent settled outcomes (win/loss ledger) under archive
+  const recentOutcomes = (state.signalOutcomes || []).slice(0, 12);
+  const outcomeRows = recentOutcomes.map((o) => {
+    const cls = o.isWin ? 'positive' : o.isLoss ? 'negative' : 'neutral';
+    const tag = o.isWin ? '胜' : o.isLoss ? '负' : o.status === 'flat' ? '平' : o.status;
+    return `<div class="archive-token-row outcome-row">
+      <span class="archive-token-id"><strong>${o.symbol || '?'}</strong> <em>${o.tier || tag}</em> <small>${o.patternKey || ''}</small></span>
+      <span class="archive-return ${cls}">${tag} · 峰${formatChange(o.maxGain)} · 终${formatChange(o.currentChange)}</span>
+    </div>`;
   }).join('');
   const emptyArchive = '<div class="archive-empty-row">当前只追踪了最新 8 个以内，暂无额外历史记录</div>';
   archiveCard.innerHTML = `
     <button class="archive-toggle" type="button">
-      <span>📦 已追踪历史记录</span>
-      <strong>${archivedKeys.length}</strong>
+      <span>📦 已追踪历史 + 胜负台账</span>
+      <strong>${archivedKeys.length + recentOutcomes.length}</strong>
       <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
     </button>
-    ${state.archiveExpanded ? `<div class="archive-token-list simple-history-list">${archivedRows || emptyArchive}</div>` : ''}`;
+    ${state.archiveExpanded ? `<div class="archive-token-list simple-history-list">
+      ${archivedRows || emptyArchive}
+      ${outcomeRows ? `<div class="archive-empty-row" style="margin-top:8px">—— 已结算买入点（近12条）——</div>${outcomeRows}` : ''}
+    </div>` : ''}`;
   fragment.appendChild(archiveCard);
   dom.monitorCards.innerHTML = '';
   dom.monitorCards.appendChild(fragment);
