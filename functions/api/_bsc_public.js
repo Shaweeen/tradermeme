@@ -75,14 +75,18 @@ function poolToPair(item, sourceTag) {
 async function getPancakeAndBscPools(limit = 40) {
   // Pancake first (Binance DEX), then broader BSC discovery
   const urls = [
+    // Binance ecosystem DEX (Pancake) — primary
     `${GT}/networks/bsc/dexes/pancakeswap_v2/pools?page=1`,
     `${GT}/networks/bsc/dexes/pancakeswap_v3/pools?page=1`,
     `${GT}/networks/bsc/dexes/pancakeswap-v3/pools?page=1`,
+    // GMGN-style heat: trending + new launches
     `${GT}/networks/bsc/trending_pools?page=1`,
     `${GT}/networks/bsc/new_pools?page=1`,
-    // page 2 for more pancake depth when board is thin
-    `${GT}/networks/bsc/dexes/pancakeswap_v2/pools?page=2`,
     `${GT}/networks/bsc/trending_pools?page=2`,
+    `${GT}/networks/bsc/new_pools?page=2`,
+    `${GT}/networks/bsc/dexes/pancakeswap_v2/pools?page=2`,
+    // other BSC DEXes sometimes carry early memes
+    `${GT}/networks/bsc/dexes/uniswap_v3/pools?page=1`,
   ];
 
   const pairs = [];

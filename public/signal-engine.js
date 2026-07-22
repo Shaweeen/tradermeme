@@ -292,6 +292,189 @@
     };
   }
 
+  function formatUsdCompact(value) {
+    const n = Number(value) || 0;
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (abs >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+    if (abs >= 1) return `$${Math.round(n).toLocaleString('en-US')}`;
+    return '$0';
+  }
+
+  function formatTop10Pct(top10) {
+    const n = Number(top10) || 0;
+    if (!(n > 0)) return null;
+    const pct = n > 1 ? n : n * 100;
+    return `${pct.toFixed(1)}%`;
+  }
+
+  /**
+   * Structured GMGN security report for AI panel (not MVP placeholders).
+   * securityChecked = true when /token security was fetched for this address.
+   */
+  function buildSecurityReport(token = {}, opts = {}) {
+    const riskScore = Number(opts.riskScore ?? 0);
+    const riskLevel = opts.riskLevel || labelRisk(riskScore);
+    const riskFlags = Array.isArray(opts.riskFlags) ? opts.riskFlags.slice() : [];
+    const sec = token.security && typeof token.security === 'object' ? token.security : {};
+    const checked = !!(token.securityChecked || opts.securityChecked);
+    const isHoneypot = !!(token.isHoneypot || sec.rawFlags?.isHoneypot);
+    const isRug = !!(token.isRug || sec.rawFlags?.isRug);
+    const isBan = !!(token.isBan || sec.rawFlags?.isBan);
+    const canSell = sec.canSell == null ? null : !!sec.canSell;
+    const renounced = sec.renounced == null ? null : !!sec.renounced;
+    const top10 = Number(token.top10Holders ?? token.top10 ?? 0);
+    const top10Label = formatTop10Pct(top10);
+
+    const hardBits = [];
+    if (isHoneypot) hardBits.push('Honeypot');
+    if (isRug) hardBits.push('Rug');
+    if (isBan) hardBits.push('Ban');
+    if (canSell === false) hardBits.push('不可卖');
+    if (renounced === false) hardBits.push('权限未放弃');
+
+    const softBits = [];
+    if (top10Label) softBits.push(`Top10 ${top10Label}`);
+    if (canSell === true) softBits.push('可卖');
+    if (renounced === true) softBits.push('已放弃权限');
+
+    let source = 'model-only';
+    if (checked) source = 'gmgn-security';
+    else if (isHoneypot || isRug || isBan) source = 'rank-flags';
+
+    let headline = '';
+    if (hardBits.length) {
+      headline = `硬风险：${hardBits.join(' · ')}`;
+    } else if (checked) {
+      headline = 'GMGN security 已校验 · 未发现 honeypot/rug/ban';
+    } else {
+      headline = '未完成 GMGN security 抽检（仅 top 币抽检）· 风险分来自模型';
+    }
+
+    const detailParts = [];
+    if (softBits.length) detailParts.push(softBits.join(' · '));
+    if (riskFlags.length) {
+      const extra = riskFlags.filter((f) => !hardBits.some((h) => String(f).includes(h)));
+      if (extra.length) detailParts.push(extra.slice(0, 4).join(' / '));
+    }
+    const summary = detailParts.length ? `${headline}。${detailParts.join('。')}` : `${headline}。`;
+
+    return {
+      checked,
+      source,
+      isHoneypot,
+      isRug,
+      isBan,
+      canSell,
+      renounced,
+      top10Holders: top10,
+      top10Label,
+      riskScore,
+      riskLevel,
+      riskFlags,
+      hardBits,
+      softBits,
+      headline,
+      summary,
+    };
+  }
+
+  /**
+   * Smart Money + KOL Net Inflow resonance from GMGN Monitor enrichment.
+   * Replaces buy-pressure/volume text heuristics in the AI panel.
+   */
+  function buildResonanceReport(token = {}, monitorInput = null) {
+    const mon = monitorInput && typeof monitorInput === 'object'
+      ? monitorInput
+      : getMonitorInflowScore(token);
+    const hasSmartMoneyData =
+      token.hasSmartMoneyData !== false && token.dataQuality !== 'dex-fallback';
+    const smartCount = Number(mon.smartCount || token.smartCount || token.smart_degen_count || 0);
+    const smNet5 = Number(mon.smartNetInflow5m) || 0;
+    const smNet15 = Number(mon.smartNetInflow15m) || 0;
+    const smNet1h = Number(mon.smartNetInflow1h) || 0;
+    const kolNet5 = Number(mon.kolNetInflow5m) || 0;
+    const kolNet15 = Number(mon.kolNetInflow15m) || 0;
+    const kolNet1h = Number(mon.kolNetInflow1h) || 0;
+    const smW5 = Number(mon.smartWallets5m) || 0;
+    const smW15 = Number(mon.smartWallets15m) || 0;
+    const kolW5 = Number(mon.kolWallets5m) || 0;
+    const kolW15 = Number(mon.kolWallets15m) || 0;
+    const monitorScore = Number(mon.score) || 0;
+
+    // Composite resonance: prefer board score, boost when both SM + KOL present
+    let score = monitorScore;
+    const hasSmSignal = smNet5 > 0 || smNet15 > 0 || smW5 > 0 || smartCount > 0;
+    const hasKolSignal = kolNet5 > 0 || kolNet15 > 0 || kolW5 > 0 || kolW15 > 0;
+    if (hasSmSignal && hasKolSignal) score = clampScore(score + 8);
+    if (smartCount >= 5) score = clampScore(score + 4);
+
+    let level = '无';
+    if (!hasSmartMoneyData && !hasSmSignal && !hasKolSignal) {
+      level = '未知';
+      score = Math.min(score, 20);
+    } else if (score >= 70 && (hasSmSignal || hasKolSignal)) level = '强';
+    else if (score >= 50) level = '中';
+    else if (score >= 28 || hasSmSignal || hasKolSignal) level = '弱';
+    else level = '无';
+
+    const lines = [];
+    if (hasSmSignal || smNet5 || smNet15) {
+      lines.push(
+        `Smart Net 5m ${formatUsdCompact(smNet5)} · 15m ${formatUsdCompact(smNet15)}` +
+          (smNet1h ? ` · 1h ${formatUsdCompact(smNet1h)}` : '')
+      );
+    }
+    if (hasKolSignal || kolNet5 || kolNet15) {
+      lines.push(
+        `KOL Net 5m ${formatUsdCompact(kolNet5)} · 15m ${formatUsdCompact(kolNet15)}` +
+          (kolNet1h ? ` · 1h ${formatUsdCompact(kolNet1h)}` : '')
+      );
+    }
+    const walletBits = [];
+    if (smW5 || smW15 || smartCount) {
+      walletBits.push(`SM钱包 ${smW5}/${smW15}${smartCount ? ` · 聪明钱${smartCount}` : ''}`);
+    }
+    if (kolW5 || kolW15) walletBits.push(`KOL钱包 ${kolW5}/${kolW15}`);
+    if (walletBits.length) lines.push(walletBits.join(' · '));
+    if (token.kolSource && token.kolSource !== 'none') {
+      lines.push(`KOL源 ${token.kolSource}`);
+    }
+    if (!hasSmartMoneyData) {
+      lines.push('无 GMGN smartmoney/KOL 富化（可能为 Dex 回退）');
+    } else if (!lines.length) {
+      lines.push('已接入 Monitor 源，当前窗口无显著 Smart/KOL 净流入');
+    }
+    lines.push(`Monitor 共振分 ${monitorScore}/100`);
+
+    const source = hasSmartMoneyData
+      ? (hasKolSignal || hasSmSignal ? 'gmgn-monitor' : 'gmgn-rank')
+      : 'unavailable';
+
+    return {
+      score: clampScore(score),
+      level,
+      source,
+      hasSmartMoneyData,
+      hasSmSignal,
+      hasKolSignal,
+      smartCount,
+      smartNetInflow5m: smNet5,
+      smartNetInflow15m: smNet15,
+      smartNetInflow1h: smNet1h,
+      kolNetInflow5m: kolNet5,
+      kolNetInflow15m: kolNet15,
+      kolNetInflow1h: kolNet1h,
+      smartWallets5m: smW5,
+      smartWallets15m: smW15,
+      kolWallets5m: kolW5,
+      kolWallets15m: kolW15,
+      monitorScore,
+      summary: lines.join('。') + '。',
+      lines,
+    };
+  }
+
   function scoreTokenSignal(token = {}) {
     const priceChange1h = Number(token.priceChange1h ?? 0);
     const priceChange24h = Number(token.priceChange24h ?? 0);
@@ -313,6 +496,7 @@
     if (token.isRug) { riskScore += 45; riskFlags.push('GMGN 标记 Rug'); }
     if (token.isBan) { riskScore += 30; riskFlags.push('GMGN 标记 Ban'); }
     if (token.security?.canSell === false) { riskScore += 40; riskFlags.push('合约不可卖'); }
+    if (token.security?.renounced === false) { riskScore += 10; riskFlags.push('合约权限未放弃'); }
     if (liquidity > 0 && liquidity < 10_000) { riskScore += 25; riskFlags.push('流动性过低'); }
     else if (liquidity > 0 && liquidity < 40_000) { riskScore += 12; riskFlags.push('流动性一般'); }
     if (!volume || volume < 80_000) { riskScore += 14; riskFlags.push('成交量不足'); }
@@ -324,9 +508,17 @@
     if (priceChange1h >= 180) { riskScore += 24; riskFlags.push('短线涨幅极高'); }
     else if (priceChange1h >= 90) { riskScore += 12; riskFlags.push('短线涨幅过高'); }
     if (!hasSmartMoneyData) { riskScore += 8; riskFlags.push('缺少聪明钱富化'); }
+    if (!token.securityChecked) { riskScore += 4; riskFlags.push('未完成 security 抽检'); }
     riskScore = clampScore(riskScore);
     const veto = evaluateHardVeto(token, riskScore, riskFlags);
     const riskLevel = labelRisk(riskScore);
+    const security = buildSecurityReport(token, {
+      riskScore,
+      riskLevel,
+      riskFlags: veto.riskFlags,
+      securityChecked: token.securityChecked,
+    });
+    const resonance = buildResonanceReport(token, monitor);
 
     const priceMomentumScore = clampScore(Math.max(0, Math.min(priceChange1h, 95)) * 1.05 + Math.max(0, Math.min(priceChange24h, 180)) * 0.08);
     const volumeQualityScore = clampScore(volume <= 0 ? 0 : Math.log10(volume) * 18 - 45);
@@ -409,6 +601,10 @@
       riskFlags: veto.riskFlags,
       hardVeto: veto.hardVeto,
       hardVetoReasons: veto.hardVetoReasons,
+      security,
+      resonance,
+      resonanceScore: resonance.score,
+      resonanceLevel: resonance.level,
       smartMoneyScore: smartMoneyQualityScore,
       smartMoneyQualityScore,
       monitorInflowScore: monitor.score,
@@ -423,6 +619,7 @@
       reasons,
       hasSmartMoneyData,
       dataQuality,
+      securityChecked: !!token.securityChecked,
       heat: evaluateMonitorHeat(token),
     };
   }
@@ -784,6 +981,9 @@
     getMonitorMetrics,
     getMonitorInflowScore,
     evaluateMonitorHeat,
+    buildSecurityReport,
+    buildResonanceReport,
+    formatUsdCompact,
     scoreTokenSignal,
     shouldEmitAlert,
     evaluateHardVeto,

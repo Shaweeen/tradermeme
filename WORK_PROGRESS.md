@@ -1,72 +1,60 @@
 # Work Progress
 
-Date: 2026-07-03
+Date: 2026-07-21
 
 ## Current deployed / pushed state
 - Repository: https://github.com/Shaweeen/tradermeme.git
 - Branch: main
-- Latest local work: Memecoin signal tracking history card simplification.
 - Live site: https://tradermeme.pages.dev/
+- Latest local work (this session): AI panel wired to real GMGN security + Monitor Smart/KOL Net Inflow (not yet pushed/deployed).
 
-## Completed previously
-- Fixed Memecoin data fallback and DexScreener fallback.
-- Added 5-minute realtime signal tracking and 24-hour historical tracking.
-- Added persistent buy marker at signal trigger price.
-- Added Memecoin AI MVP panels inside signal tracking cards:
-  - AI signal explanation
-  - Token safety/risk estimate
-  - Smart Money resonance estimate
-  - Top100 traders placeholder
-  - wallet profile placeholder
-  - AI historical tracking summary
-  - strategy preview placeholder only; no real order execution
-- Added realtime re-trigger fix: 24h history no longer suppresses fresh 5-minute realtime alerts.
-- Added GMGN rank field aliases for live signal detection: `price_change_percent1h`, `price_change_percent`, `volume`, `buys`, `sells`, `smart_degen_count`.
+## Completed previously (through 2026-07-17)
+- Multi-chain Memecoin boards + backup sources (BSC Pancake / DexScreener fallback).
+- Signal ticker UI, chain-isolated realtime alerts, detail links (Sol→GMGN, EVM→DexScreener).
+- X watchlist + GMGN KOL Net Inflow dedupe.
+- Monitor heat gate: only 5m / 15m / 1h Smart Net Inflow style signals enter AI tracking.
+- 24H AI: buy-point win rate, purge invalids, selection feedback from pattern outcomes.
+- Signal tracking count-based archive (newest 8 cards + compact history).
 
-## Completed 2026-07-03
-- Changed Memecoin signal tracking display from time-based 8h archive to a simpler count-based layout:
-  - newest 8 tracking cards remain visible
-  - older 24h tracking items move into compact `📦 历史记录`
-  - archive rows show symbol/name, buy marker price, and current PNL
-- Kept homepage/top-level layout unchanged.
+## Completed 2026-07-21
+- **AI 面板接真数据** (local, not deployed yet):
+  - `SignalEngine.buildSecurityReport` — GMGN security 抽检状态、honeypot/rug/ban、可卖、权限、Top10、风险摘要
+  - `SignalEngine.buildResonanceReport` — Smart Net + KOL Net Inflow、钱包数、Monitor 共振分（替换买压/放量 MVP 估算）
+  - `scoreTokenSignal` 输出 `security` / `resonance` 对象
+  - `createSignal` meta 持久化 security + full Monitor 字段
+  - `analyzeTrackedToken` / `renderAiDetailPanel` 展示真实来源标签与指标文案
+  - `npm test` 纳入 `signal-outcome.test.mjs` + security/resonance 断言
+- **GMGN 429 限流缓解** (local, not deployed yet):
+  - `_gmgn.js`: response cache + in-flight coalesce + max 3 concurrent + 429 circuit breaker + stale serve
+  - multi-rank: fewer intervals, no orderby stampede, sequential under pressure
+  - enrichment: smart/kol limits cut, security top-4 batched (2), skip discovery when circuit open
+  - multi-chain: max 2 parallel (1 under circuit)
+  - quality.gmgnRateLimit surfaced in trending response
+  - tests: `tests/gmgn-rate-limit.test.mjs`
+- **钱包画像** (local, not deployed yet):
+  - Monitor enrichment builds `topWallets` (top 6 SM/KOL by |net| on token in 1h)
+  - `GET /api/wallet-profile` → GMGN `wallet_stats` (lazy, 5min cache)
+  - AI panel lists wallets; click loads 7d 胜率 / PnL / 买卖 / 风格评级 + GMGN link
+  - tests: `tests/wallet-profile.test.mjs`
+- **策略预览 API** (local, not deployed yet):
+  - `GET /api/strategy-preview` + pure `buildStrategyQuote` (standard ladder TP/SL)
+  - Modal UI with legs table, risk R:R, grade-based sizing; always `executionEnabled: false`
+  - Local fallback quote if API fails; D/禁止交易 hard block
+  - tests: `tests/strategy-preview.test.mjs`
 
-## Verification 2026-07-03 16:06 CST
-- `node --check public/app.js` passed.
-- `npm run build` passed.
-- `node --check` passed for all Pages Function JS files:
-  - `functions/api/trending.js`
-  - `functions/api/othercoin.js`
-  - `functions/api/bitcoin.js`
-  - `functions/api/_gmgn.js`
-  - `functions/api/_dexscreener.js`
-- Live API checks:
-  - `https://tradermeme.pages.dev/api/trending?chain=solana&limit=10` returned HTTP 200, `success:true`, `count:10`, source `gmgn-openapi`.
-  - `https://tradermeme.pages.dev/api/othercoin?limit=5` returned HTTP 200, `success:true`, `count:10`.
-  - `https://tradermeme.pages.dev/api/bitcoin` returned HTTP 200, `success:true`, BTC data present.
-- Local browser smoke test at `http://127.0.0.1:8788/`:
-  - page loaded with no browser console JS errors
-  - synthetic tracking render showed 8 visible tracking cards
-  - archive module appeared with 4 older rows
-  - archive expand worked and row showed symbol/name, buy price, PNL
+## Verification 2026-07-21
+- `npm test` (signal-engine, outcome, rate-limit, wallet-profile, strategy-preview, enrichment, static)
 
-## Deployment status
-- Cloudflare Pages deploy was attempted with:
-  - `npx wrangler pages deploy public --project-name tradermeme --branch main`
-- Deployment is blocked in this non-interactive shell because Wrangler is not authenticated and `CLOUDFLARE_API_TOKEN` is not set:
-  - `You are not authenticated. Please run wrangler login.`
-  - `it's necessary to set a CLOUDFLARE_API_TOKEN environment variable`
-- Current changes are ready to deploy once Cloudflare auth is available.
+## Live site notes
+- All of the above is local-only until deploy.
+- Local Wrangler was unauthenticated last check; deploy needs `wrangler login` or `CLOUDFLARE_API_TOKEN`.
 
 ## Next recommended work
-1. Authenticate Wrangler or set `CLOUDFLARE_API_TOKEN`, then deploy `public` to Pages project `tradermeme`.
-2. Confirm the live UI shows the new compact history archive behavior.
-3. Connect real GMGN token security data to Token 安全检查.
-4. Connect real GMGN smartmoney/KOL data to Smart Money 共振.
-5. Add Top100 traders real table.
-6. Add wallet profile real drawer.
-7. Only after analysis modules are stable, add strategy order quote/preview API; keep real execution behind explicit confirmation.
+1. Commit + push entire session stack; deploy after Cloudflare auth.
+2. Optional: Top100 traders table (beyond top-6 related wallets).
+3. Real execution only after explicit product decision + wallet connect + confirm UX (not started).
 
 ## Important safety
-- Trading execution is not enabled. Current strategy module is preview-only.
+- Trading execution is not enabled. Strategy module is preview-only.
 - Do not store private keys in frontend.
 - Any real order creation must require explicit user confirmation.

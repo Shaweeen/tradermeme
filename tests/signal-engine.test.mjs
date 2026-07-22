@@ -291,4 +291,76 @@ assert.notEqual(lowLiqTrap.signalLevel, '强报警');
 // Unknown buy ratio should not invent 50%
 assert.equal(engine.calculateBuyPercent({}), null);
 
+// --- Security + Smart/KOL resonance reports (AI panel real data) ---
+assert.equal(typeof engine.buildSecurityReport, 'function');
+assert.equal(typeof engine.buildResonanceReport, 'function');
+
+const secured = engine.scoreTokenSignal({
+  symbol: 'SAFE',
+  priceChange1h: 20,
+  volume1h: 150_000,
+  liquidity: 90_000,
+  smartCount: 4,
+  hasSmartMoneyData: true,
+  dataQuality: 'gmgn-enriched',
+  securityChecked: true,
+  security: { renounced: true, canSell: true, rawFlags: { isHoneypot: false, isRug: false, isBan: false } },
+  isHoneypot: false,
+  isRug: false,
+  isBan: false,
+  top10Holders: 0.18,
+  smartNetInflow5m: 15_000,
+  smartNetInflow15m: 40_000,
+  kolNetInflow5m: 8_000,
+  kolNetInflow15m: 20_000,
+  volume5m: 50_000,
+  volume15m: 120_000,
+  smartWallets5m: 3,
+  smartWallets15m: 5,
+  kolWallets5m: 1,
+  kolWallets15m: 2,
+  txns1h: { buys: 200, sells: 80, total: 280 },
+});
+assert.ok(secured.security, 'score should include security report');
+assert.equal(secured.security.checked, true);
+assert.equal(secured.security.source, 'gmgn-security');
+assert.ok(String(secured.security.summary).includes('已校验') || String(secured.security.headline).includes('已校验'));
+assert.ok(!secured.riskFlags.some((f) => f.includes('Honeypot')));
+assert.ok(secured.resonance, 'score should include resonance report');
+assert.ok(['强', '中', '弱'].includes(secured.resonance.level), secured.resonance.level);
+assert.ok(secured.resonance.hasSmSignal || secured.resonance.hasKolSignal);
+assert.ok(String(secured.resonance.summary).includes('Smart Net') || String(secured.resonance.summary).includes('KOL'));
+assert.equal(secured.resonanceLevel, secured.resonance.level);
+
+const honeySec = engine.buildSecurityReport(
+  {
+    isHoneypot: true,
+    isRug: false,
+    securityChecked: true,
+    security: { canSell: false, renounced: false },
+    top10Holders: 0.6,
+  },
+  { riskScore: 90, riskLevel: '极高', riskFlags: ['GMGN 标记 Honeypot', '合约不可卖'] }
+);
+assert.equal(honeySec.checked, true);
+assert.ok(honeySec.hardBits.includes('Honeypot'));
+assert.ok(honeySec.hardBits.includes('不可卖'));
+assert.ok(String(honeySec.summary).includes('硬风险'));
+
+const noDataRes = engine.buildResonanceReport({
+  hasSmartMoneyData: false,
+  dataQuality: 'dex-fallback',
+  smartNetInflow5m: 0,
+  smartNetInflow15m: 0,
+});
+assert.equal(noDataRes.level, '未知');
+assert.ok(String(noDataRes.summary).includes('无 GMGN') || noDataRes.source === 'unavailable');
+
+const unchecked = engine.buildSecurityReport(
+  { securityChecked: false, top10Holders: 0.2 },
+  { riskScore: 30, riskLevel: '低', riskFlags: [] }
+);
+assert.equal(unchecked.checked, false);
+assert.ok(String(unchecked.summary).includes('未完成') || String(unchecked.headline).includes('未完成'));
+
 console.log('signal-engine tests passed');

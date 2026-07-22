@@ -64,6 +64,7 @@ const env = loadDevVars();
 if (env.GMGN_API_KEY) console.log('[local-dev] GMGN_API_KEY loaded from .dev.vars');
 else console.log('[local-dev] GMGN_API_KEY not set — public backup sources only');
 
+
 // --- API routes map to functions/api/*.js ---
 const API_ROUTES = {
   '/api/trending': '../functions/api/trending.js',
@@ -74,6 +75,8 @@ const API_ROUTES = {
   '/api/othercoin': '../functions/api/othercoin.js',
   '/api/bitcoin': '../functions/api/bitcoin.js',
   '/api/btc': '../functions/api/btc.js',
+  '/api/wallet-profile': '../functions/api/wallet-profile.js',
+  '/api/strategy-preview': '../functions/api/strategy-preview.js',
 };
 
 const MIME = {
@@ -199,4 +202,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`[local-dev] http://${HOST}:${PORT}`);
   console.log('[local-dev] multi-source: GMGN → DexScreener search/boosts → GeckoTerminal');
+  if (proxyUrl) {
+    console.log(`[local-dev] NOTE: outbound uses ${proxyUrl}`);
+    console.log('[local-dev] Browser must BYPASS proxy for 127.0.0.1 / localhost');
+    console.log('[local-dev] (Clash: 系统代理 → 绕过 → 加 127.0.0.1,localhost；否则会 502 打不开)');
+  }
 });

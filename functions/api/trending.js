@@ -29,13 +29,13 @@ async function initDex() {
 }
 
 const CHAIN_MAP = {
-  solana: { gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '🪙' },
+  solana: { gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '' },
   // GMGN eth slug is `eth` (not null) — multi-interval rank works for Ethereum too
-  ethereum: { gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '🔷' },
-  base: { gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
-  bsc: { gmgn: 'bsc', dexscreener: 'bsc', label: 'BSC', icon: '🟡' },
+  ethereum: { gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '' },
+  base: { gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '' },
+  bsc: { gmgn: 'bsc', dexscreener: 'bsc', label: 'BSC', icon: '' },
   // Robinhood Chain — GMGN rank when available; always top-up from Dex if thin
-  robinhood: { gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '🟢' },
+  robinhood: { gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '' },
 };
 
 const CACHE_SHORT = 30;
@@ -155,7 +155,7 @@ function transformGmgnRank(data, chain, gmgnSlug) {
 function withTimeout(promise, label, ms = 3500) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+    new Promise((_, reject) =>setTimeout(() =>reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
   ]);
 }
 
@@ -410,7 +410,7 @@ async function fillFromBackupSources(chain, limit, existingTokens, quality, opts
         }));
         const before = tokens.length;
         tokens = mergeTokenLists(tokens, transformed, target);
-        if (tokens.length > before) {
+        if (tokens.length >before) {
           quality.primarySource =
             quality.primarySource === 'gmgn-openapi'
               ? 'gmgn+binance-dex'
@@ -439,7 +439,7 @@ async function fillFromBackupSources(chain, limit, existingTokens, quality, opts
       const transformed = dexMod.transformDexScreenerPairs(dexData.tokens, chain);
       const before = tokens.length;
       tokens = mergeTokenLists(tokens, transformed, target);
-      if (tokens.length > before) {
+      if (tokens.length >before) {
         quality.primarySource = quality.primarySource === 'gmgn-openapi' || quality.primarySource === 'gmgn+dex'
           ? 'gmgn+dex'
           : quality.primarySource === 'none'
@@ -469,7 +469,7 @@ async function fillFromBackupSources(chain, limit, existingTokens, quality, opts
         }));
         const before = tokens.length;
         tokens = mergeTokenLists(tokens, transformed, target);
-        if (tokens.length > before) {
+        if (tokens.length >before) {
           quality.backupSources = quality.backupSources || [];
           quality.backupSources.push(`${chain}:geckoterminal`);
           if (quality.primarySource === 'none') quality.primarySource = 'geckoterminal';
@@ -538,7 +538,7 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
               rankData = await gmgnMod.getTrendingSwaps(apiKey, gmgnSlug, '5m', { limit: Math.max(limit, 30) });
             }
 
-            if (Array.isArray(rankData) && rankData.length > 0) {
+            if (Array.isArray(rankData) && rankData.length >0) {
               tokens = transformGmgnRank(rankData, c, gmgnSlug);
               const enriched = await enrichTokensWithMonitorSignals(gmgnMod, apiKey, gmgnSlug, tokens);
               tokens = enriched.tokens;
@@ -577,7 +577,7 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
             quality.warnings.push(`${c}: all sources empty after rotation`);
           } else if (beforeBackup === 0) {
             quality.warnings.push(`${c}: filled ${tokens.length} via public DEX backups`);
-          } else if (tokens.length > beforeBackup) {
+          } else if (tokens.length >beforeBackup) {
             quality.warnings.push(`${c}: GMGN ${beforeBackup} + public DEX → ${tokens.length}`);
           }
         }
@@ -635,7 +635,7 @@ async function getTrendingMemecoins(context, chain, limit = 30) {
       const vol = Number(t.volume24h || t.volume1h || 0);
       const liq = Number(t.liquidity || 0);
       const price = Number(t.priceUsd || t.price || 0);
-      if (!(price > 0)) return false;
+      if (!(price >0)) return false;
       // BSC: slightly looser than before so Pancake/new-pool memecoins survive
       if (chain === 'bsc' && vol < 2000 && liq < 5000) return false;
       // Robinhood: keep module active with modest floors (do not cancel RH)
@@ -778,7 +778,7 @@ export async function onRequest(context) {
 
     try {
       const { tokens, quality } = await getTrendingMemecoins(context, chain, limit);
-      const source = quality?.primarySource || (tokens.some((t) => t.source === 'dexscreener') ? 'dexscreener' : 'gmgn-openapi');
+      const source = quality?.primarySource || (tokens.some((t) =>t.source === 'dexscreener') ? 'dexscreener' : 'gmgn-openapi');
       return jsonResponse({
         success: true,
         chain,

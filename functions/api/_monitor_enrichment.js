@@ -81,6 +81,90 @@ function addKolNet(bucket, windowName, amount, wallet, twitter = '') {
 }
 
 /**
+ * Aggregate SM/KOL wallets that touched this token (for AI 钱包画像).
+ * @param {object} bucket
+ * @param {string} wallet
+ * @param {'smart'|'kol'} role
+ * @param {number} amount signed USD (sell negative)
+ * @param {object} [meta]
+ */
+function recordWalletActivity(bucket, wallet, role, amount, meta = {}) {
+  const addr = String(wallet || '').trim();
+  // Allow short test fixtures; real Sol/EVM addresses are much longer
+  if (!addr || addr.length < 2) return;
+  if (!bucket.walletActivity) bucket.walletActivity = new Map();
+  const key = addr.toLowerCase();
+  let row = bucket.walletActivity.get(key);
+  if (!row) {
+    row = {
+      address: addr,
+      role,
+      buyUsd: 0,
+      sellUsd: 0,
+      netUsd: 0,
+      tradeCount: 0,
+      twitter: '',
+      name: '',
+      tags: [],
+      lastTs: 0,
+    };
+    bucket.walletActivity.set(key, row);
+  }
+  // Prefer kol label if same wallet appears in both
+  if (role === 'kol') row.role = 'kol';
+  else if (row.role !== 'kol') row.role = 'smart';
+  const abs = Math.abs(Number(amount) || 0);
+  if (amount >= 0) row.buyUsd += abs;
+  else row.sellUsd += abs;
+  row.netUsd = row.buyUsd - row.sellUsd;
+  row.tradeCount += 1;
+  if (meta.twitter && !row.twitter) row.twitter = normalizeHandle(meta.twitter);
+  if (meta.name && !row.name) row.name = String(meta.name).slice(0, 40);
+  if (Array.isArray(meta.tags) && meta.tags.length) {
+    const merged = new Set([...(row.tags || []), ...meta.tags.map((t) => String(t).toLowerCase())]);
+    row.tags = [...merged].slice(0, 6);
+  }
+  const ts = Number(meta.ts) || 0;
+  if (ts > row.lastTs) row.lastTs = ts;
+}
+
+function tradeMakerMeta(trade = {}) {
+  const info = trade.maker_info || trade.user || trade.wallet_info || {};
+  const tags = [];
+  if (Array.isArray(info.tags)) tags.push(...info.tags);
+  else if (info.tag) tags.push(info.tag);
+  if (trade.tag) tags.push(trade.tag);
+  return {
+    twitter: tradeTwitter(trade),
+    name: info.name || info.ens || info.twitter_name || '',
+    tags,
+    ts: toUnixSec(trade.timestamp || trade.time || trade.created_at, 0),
+  };
+}
+
+/** Top wallets by |netUsd| then buyUsd — max N for UI. */
+function buildTopWallets(bucket, max = 6) {
+  if (!bucket?.walletActivity || !(bucket.walletActivity instanceof Map)) return [];
+  return [...bucket.walletActivity.values()]
+    .filter((w) => w.tradeCount > 0 && (w.buyUsd > 0 || w.sellUsd > 0))
+    .sort((a, b) => Math.abs(b.netUsd) - Math.abs(a.netUsd) || b.buyUsd - a.buyUsd || b.tradeCount - a.tradeCount)
+    .slice(0, max)
+    .map((w) => ({
+      address: w.address,
+      role: w.role,
+      buyUsd: Math.round(w.buyUsd * 100) / 100,
+      sellUsd: Math.round(w.sellUsd * 100) / 100,
+      netUsd: Math.round(w.netUsd * 100) / 100,
+      tradeCount: w.tradeCount,
+      side: w.netUsd >= 0 ? (w.sellUsd > 0 && w.buyUsd > 0 ? 'mixed' : 'buy') : 'sell',
+      twitter: w.twitter || '',
+      name: w.name || '',
+      tags: w.tags || [],
+      lastTs: w.lastTs || 0,
+    }));
+}
+
+/**
  * Prefer GMGN KOL as the only source when handle also exists on personal X watchlist.
  * Returns { gmgnHandles, watchlistOnlyHandles, sharedHandles }
  */
@@ -148,6 +232,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       kolWalletBase5m: num(token.kolWallets5m),
       kolWalletBase15m: num(token.kolWallets15m),
       kolWalletBase1h: num(token.kolWallets1h),
+      walletActivity: new Map(),
     });
   }
 
@@ -188,6 +273,14 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       if (ts > 0 && buyAge >= 0 && buyAge <= 5 * 60) addSmartNet(bucket, '5m', amount, wallet);
       if (ts > 0 && buyAge >= 0 && buyAge <= 15 * 60) addSmartNet(bucket, '15m', amount, wallet);
       if (ts > 0 && buyAge >= 0 && buyAge <= 60 * 60) addSmartNet(bucket, '1h', amount, wallet);
+      if (ts > 0 && buyAge >= 0 && buyAge <= 60 * 60) {
+        recordWalletActivity(bucket, wallet, 'smart', amount, {
+          twitter: buy.twitter_username || buy.twitter || '',
+          name: buy.name || '',
+          tags: buy.tags || ['smart_degen'],
+          ts,
+        });
+      }
     }
   }
 
@@ -205,6 +298,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
     if (age <= 5 * 60) addSmartNet(bucket, '5m', amount, wallet);
     if (age <= 15 * 60) addSmartNet(bucket, '15m', amount, wallet);
     addSmartNet(bucket, '1h', amount, wallet);
+    recordWalletActivity(bucket, wallet, 'smart', amount, tradeMakerMeta(trade));
   }
 
   // KOL trades → KOL Net Inflow only (gmgn.ai/monitor KOL Net Inflow)
@@ -222,6 +316,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
     if (age <= 5 * 60) addKolNet(bucket, '5m', amount, wallet, tw);
     if (age <= 15 * 60) addKolNet(bucket, '15m', amount, wallet, tw);
     addKolNet(bucket, '1h', amount, wallet, tw);
+    recordWalletActivity(bucket, wallet, 'kol', amount, tradeMakerMeta(trade));
   }
 
   return tokens.map((token) => {
@@ -231,6 +326,7 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
 
     const gmgnHandles = [...bucket.kolTwitterAll];
     const sources = dedupeKolSources(gmgnHandles, watchlistSet);
+    const topWallets = buildTopWallets(bucket, 6);
 
     return {
       ...token,
@@ -259,6 +355,8 @@ function applyMonitorSignalEnrichment(tokens = [], options = {}) {
       kolHandlesShared: sources.sharedHandles,
       kolHandlesUnique: sources.uniqueHandles,
       kolSource: sources.gmgnHandles.length ? 'gmgn-kol-net-inflow' : (sources.watchlistOnlyHandles.length ? 'x-watchlist' : 'none'),
+      // Top SM/KOL wallets that traded this token in 1h (AI 钱包画像)
+      topWallets,
     };
   });
 }
@@ -269,4 +367,6 @@ export {
   dedupeKolSources,
   normalizeHandle,
   tradeTwitter,
+  buildTopWallets,
+  recordWalletActivity,
 };

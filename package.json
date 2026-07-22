@@ -1,15 +1,15 @@
 {
-  "name": "memecoin-monitor",
+  "name": "dreamstudio",
   "version": "1.0.0",
-  "description": "Multi-chain memecoin monitoring dashboard powered by gmgn.ai data",
+  "description": "DreamStudio — multi-chain multi-trader dashboard (memecoin · altcoin · bitcoin)",
   "main": "functions/api/trending.js",
   "type": "module",
   "scripts": {
     "dev": "node scripts/local-dev.mjs",
     "dev:wrangler": "wrangler pages dev public --port 8788 --ip 127.0.0.1",
-    "deploy": "wrangler pages deploy public --project-name tradermeme --branch main",
+    "deploy": "wrangler pages deploy public --project-name dreamstudio --branch main",
     "build": "echo 'Static site, no build step needed'",
-    "test": "node tests/signal-engine.test.mjs && node tests/tracking-storage.test.mjs && node tests/monitor-enrichment.test.mjs && node tests/archive-copy-static.test.mjs && node tests/visual-polish-static.test.mjs"
+    "test": "node tests/signal-engine.test.mjs && node tests/signal-outcome.test.mjs && node tests/gmgn-rate-limit.test.mjs && node tests/wallet-profile.test.mjs && node tests/strategy-preview.test.mjs && node tests/value-rank.test.mjs && node tests/bitcoin-bias.test.mjs && node tests/tracking-storage.test.mjs && node tests/monitor-enrichment.test.mjs && node tests/archive-copy-static.test.mjs && node tests/visual-polish-static.test.mjs"
   },
   "keywords": [
     "memecoin",

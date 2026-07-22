@@ -1,5 +1,5 @@
-# Cloudflare Pages configuration for memecoin-monitor
-name = "memecoin-monitor"
+# Cloudflare Pages configuration for DreamStudio
+name = "dreamstudio"
 compatibility_date = "2025-04-16"
 compatibility_flags = ["nodejs_compat"]
 

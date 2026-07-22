@@ -97,4 +97,19 @@ assert.equal(token.kolSource, 'gmgn-kol-net-inflow');
 assert.ok(token.newWallets5m >= 30);
 assert.ok(token.volume5m >= 11000);
 
+// Top wallets for AI 钱包画像
+assert.ok(Array.isArray(token.topWallets), 'topWallets should be array');
+assert.ok(token.topWallets.length >= 3, `expected top wallets, got ${token.topWallets.length}`);
+const addrs = token.topWallets.map((w) => w.address);
+assert.ok(addrs.includes('S3') || addrs.includes('S1'), 'smart wallets present');
+assert.ok(addrs.some((a) => a === 'K1' || a === 'K2'), 'kol wallets present');
+const kolRow = token.topWallets.find((w) => w.role === 'kol');
+assert.ok(kolRow, 'at least one KOL role');
+assert.ok(kolRow.twitter === 'ansem' || kolRow.twitter === 'someotherkol', kolRow.twitter);
+const smBuy = token.topWallets.find((w) => w.address === 'S3');
+if (smBuy) {
+  assert.ok(smBuy.buyUsd >= 3000);
+  assert.equal(smBuy.role, 'smart');
+}
+
 console.log('monitor-enrichment tests passed');

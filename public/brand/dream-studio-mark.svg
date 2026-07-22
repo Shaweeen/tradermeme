@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="dream studio">
+  <defs>
+    <linearGradient id="mInk" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e8f2ff"/>
+      <stop offset="50%" stop-color="#7eb6ff"/>
+      <stop offset="100%" stop-color="#3ddeb0"/>
+    </linearGradient>
+    <linearGradient id="mPanel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#151d2c"/>
+      <stop offset="100%" stop-color="#0a101a"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#mPanel)"/>
+  <rect x="3" y="3" width="122" height="122" rx="25" fill="none" stroke="rgba(126,182,255,0.32)" stroke-width="2"/>
+  <text x="64" y="58" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="800" letter-spacing="-0.6" fill="url(#mInk)">dream</text>
+  <text x="64" y="84" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="650" letter-spacing="3.2" fill="#d7e2f0">studio</text>
+  <rect x="40" y="94" width="48" height="2.5" rx="1.5" fill="url(#mInk)" opacity="0.75"/>
+</svg>

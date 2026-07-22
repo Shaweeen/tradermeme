@@ -1,6 +1,6 @@
 /**
- * CoinWatch - Frontend Application
- * Multi-page dashboard: Memecoin (10-item), Othercoin (top coins), Bitcoin (BTC market)
+ * DreamStudio - Frontend Application
+ * Multi-page dashboard: Memecoin · Altcoin · Bitcoin
  */
 
 // ===== State =====
@@ -26,7 +26,7 @@ const state = {
   autoRefreshDelay: 30000,
   retryCount: 0,
   maxRetries: 3,
-  sortBy: 'volume',
+  sortBy: 'value', // default: server value-rank Top20
   signalIdCounter: 0,
   signalExpiryMs: 300000, // 5 min active signal carousel
   // Fixed compact bottom-right signal frame (auto-hide 3s idle)
@@ -45,9 +45,9 @@ const state = {
   zeroNoInflowCleanupMs: 4 * 60 * 60 * 1000, // remove zero-price archive rows after 4h without capital inflow
   // 失效：跌破买入点持续 N 分钟后从 24H 列表移除并记为 loss
   invalidLossHoldMs: 30 * 60 * 1000,
-  memecoinLimit: 30,
+  memecoinLimit: 20, // 仅展示价值排序后 Top 20
 
-  // Othercoin state
+  // Altcoin state (legacy key: othercoin)
   otherTokens: [],
   otherLoading: false,
   otherError: null,
@@ -61,6 +61,10 @@ const state = {
   btcPreferredSource: 'auto',
   btcSourceRetryCount: 0,
   btcSourceMaxRetries: 2,
+  btcPeriod: '1h', // 计费窗：1h | 2h | 4h
+  btcSeriesUnit: 'day', // hour | day | month | year
+  btcSourceMeta: null,
+  btcSourceHealth: {},
 };
 
 // ===== Signal Thresholds (prefer SignalEngine.thresholds when loaded) =====
@@ -80,15 +84,16 @@ const SIGNAL_THRESHOLDS = {
 const TRACKING_STORAGE_KEY = 'coinwatch_memecoin_signal_tracking_v1';
 
 // ===== DOM =====
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+const $ = (sel) =>document.querySelector(sel);
+const $$ = (sel) =>document.querySelectorAll(sel);
 
 const dom = {
   // Page Nav
   pageTabs: $$('.page-tab'),
   pageContents: {
     memecoin: $('#pageMemecoin'),
-    othercoin: $('#pageOthercoin'),
+    altcoin: $('#pageAltcoin'),
+    othercoin: $('#pageAltcoin'), // alias
     bitcoin: $('#pageBitcoin'),
   },
   logoSubtitle: $('#logoSubtitle'),
@@ -166,19 +171,75 @@ const dom = {
   btcTotalMarketCap: $('#btcTotalMarketCap'),
   btcTotalVolume: $('#btcTotalVolume'),
   btcMarketCapChange: $('#btcMarketCapChange'),
+  btcFearGreed: $('#btcFearGreed'),
+  btcRainbowBand: $('#btcRainbowBand'),
+  btcHalvingCycle: $('#btcHalvingCycle'),
+  btcMa200: $('#btcMa200'),
   btcSources: $('#btcSources'),
+  sentimentDataStatus: $('#sentimentDataStatus'),
+  sentimentDataHint: $('#sentimentDataHint'),
+  btcBiasStrip: $('#btcBiasStrip'),
+  btcBiasLabel: $('#btcBiasLabel'),
+  btcBiasScore: $('#btcBiasScore'),
+  btcBiasBar: $('#btcBiasBar'),
+  btcBiasSummary: $('#btcBiasSummary'),
+  btcFundingVenues: $('#btcFundingVenues'),
+  fundSelfAvg: $('#fundSelfAvg'),
+  btcSelfSourceMeta: $('#btcSelfSourceMeta'),
+  // BTC multi-timeframe venues
+  btcTfBar: $('#btcTfBar'),
+  btcTfBtns: $$('#btcTfBar .btc-tf-btn'),
+  periodVenueStatus: $('#periodVenueStatus'),
+  btcVenueTableBody: $('#btcVenueTableBody'),
+  btcAvgPeriodLabel: $('#btcAvgPeriodLabel'),
+  aggPrice: $('#aggPrice'),
+  aggFunding: $('#aggFunding'),
+  aggOi: $('#aggOi'),
+  aggOiEnd: $('#aggOiEnd'),
+  aggVol: $('#aggVol'),
+  aggVenues: $('#aggVenues'),
+  btcFundOutlierAlert: $('#btcFundOutlierAlert'),
+  btcFundOutlierList: $('#btcFundOutlierList'),
+  btcFundOutlierNote: $('#btcFundOutlierNote'),
+  btcStageGrid: $('#btcStageGrid'),
+  btcPeriodHint: $('#btcPeriodHint'),
   // BTC Source Selector
   btcSourceBtns: $$('#btcSourceBtns .btc-source-btn'),
   sourceStatusDot: $('#sourceStatusDot'),
   sourceStatusText: $('#sourceStatusText'),
 
-  // BTC - Long/Short Ratio
+  // BTC - 田字框架（多空 + 清算合并）
+  tianStatus: $('#tianStatus'),
+  tianFrame: $('#tianFrame'),
+  tianCanvas: $('#tianCanvas'),
+  tianShortVol: $('#tianShortVol'),
+  tianShortPct: $('#tianShortPct'),
+  tianLongOpen: $('#tianLongOpen'),
+  tianLongPct: $('#tianLongPct'),
+  tianPriceTag: $('#tianPriceTag'),
+  tianPriceTag2: $('#tianPriceTag2'),
+  tianPriceBelow: $('#tianPriceBelow'),
+  tianPriceWindow: $('#tianPriceWindow'),
+  tianOiTag: $('#tianOiTag'),
+  tianLongLiqList: $('#tianLongLiqList'),
+  tianShortLiqList: $('#tianShortLiqList'),
+  tianLongLiqUsd: $('#tianLongLiqUsd'),
+  tianShortLiqUsd: $('#tianShortLiqUsd'),
+  tianHint: $('#tianHint'),
+  tianReadout: $('#tianReadout'),
+  tianClickTip: $('#tianClickTip'),
+  // legacy hidden ids
   lsGrid: $('#lsGrid'),
   lsStatus: $('#lsStatus'),
   lsSignal: $('#lsSignal'),
-
-  // BTC - Liquidations
+  lsRatioValue: $('#lsRatioValue'),
+  lsLongPct: $('#lsLongPct'),
+  lsShortPct: $('#lsShortPct'),
+  lsLongBar: $('#lsLongBar'),
+  lsShortBar: $('#lsShortBar'),
   liqTotalUsd: $('#liqTotalUsd'),
+  liqLongUsd: $('#liqLongUsd'),
+  liqShortUsd: $('#liqShortUsd'),
   liqCount: $('#liqCount'),
   liqSignal: $('#liqSignal'),
   liqLongBar: $('#liqLongBar'),
@@ -188,23 +249,35 @@ const dom = {
   liqSources: $('#liqSources'),
   liqStatus: $('#liqStatus'),
 
-  // BTC - HyperLiquid
-  hlPrice: $('#hlPrice'),
-  hlFundingRate: $('#hlFundingRate'),
-  hlAnnualFunding: $('#hlAnnualFunding'),
-  hlPredictedFunding: $('#hlPredictedFunding'),
-  hlOpenInterest: $('#hlOpenInterest'),
-  hlStatus: $('#hlStatus'),
+  // BTC - 合约数据明细
+  contractDataStatus: $('#contractDataStatus'),
+  contractDataHint: $('#contractDataHint'),
+  btcContractNodes: $('#btcContractNodes'),
+  btcContractVol: $('#btcContractVol'),
+  btcContractStability: $('#btcContractStability'),
 
-  // BTC - Funding History
-  fundingHistoryStatus: $('#fundingHistoryStatus'),
-  fundingHistoryBody: $('#fundingHistoryBody'),
-  fundingSparkline: $('#fundingSparkline'),
-  fhCurrent: $('#fhCurrent'),
-  fhHigh: $('#fhHigh'),
-  fhLow: $('#fhLow'),
-  fhAvg: $('#fhAvg'),
-  fhSource: $('#fhSource'),
+  // BTC - 自信号源三量图（资金费率 / 成交量 / 合约开仓量）
+  selfTriStatus: $('#selfTriStatus'),
+  selfTriBody: $('#selfTriBody'),
+  selfTriShell: $('#selfTriShell'),
+  selfTriChart: $('#selfTriChart'),
+  selfTriTooltip: $('#selfTriTooltip'),
+  selfTriHint: $('#selfTriHint'),
+  selfTriHud: $('#selfTriHud'),
+  triHudPrice: $('#triHudPrice'),
+  triHudDate: $('#triHudDate'),
+  triHudFund: $('#triHudFund'),
+  triHudVol: $('#triHudVol'),
+  triHudOi: $('#triHudOi'),
+  btcSeriesUnitBar: $('#btcSeriesUnitBar'),
+  btcSeriesUnitBtns: $$('#btcSeriesUnitBar .btc-unit-btn'),
+  btcTriLegend: $('#btcTriLegend'),
+  triLegBtns: $$('#btcTriLegend .tri-leg-btn'),
+  triPrice: $('#triPrice'),
+  triFund: $('#triFund'),
+  triVol: $('#triVol'),
+  triOi: $('#triOi'),
+  triSource: $('#triSource'),
 
   // Toast
   toastContainer: $('#toastContainer'),
@@ -234,13 +307,13 @@ function formatCompact(num) {
 
 function formatChange(value) {
   if (value == null || isNaN(value)) return '--';
-  const sign = value > 0 ? '+' : '';
+  const sign = value >0 ? '+' : '';
   return `${sign}${value.toFixed(2)}%`;
 }
 
 function getChangeClass(value) {
   if (value == null || isNaN(value)) return 'neutral';
-  if (value > 0) return 'positive';
+  if (value >0) return 'positive';
   if (value < 0) return 'negative';
   return 'neutral';
 }
@@ -518,15 +591,40 @@ function getApiUrl(path) {
   return `${origin}${path}`;
 }
 
+/**
+ * Compact clock/date duration for UI (已追踪 etc).
+ * Uses d/h/m/s units, keeps at most 2 significant units, no spaces.
+ * e.g. 6224m31s → 4d7h ; 3h12m5s → 3h12m ; 45m → 45m ; 31s → 31s
+ */
 function formatDuration(ms) {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  let totalSec = Math.floor(Number(ms) / 1000);
+  if (!Number.isFinite(totalSec) || totalSec < 0) totalSec = 0;
+  if (totalSec < 60) return `${totalSec}s`;
+
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+
+  // Prefer largest units; at most 2 parts for minimal character width
+  if (days >= 1) {
+    if (hours >0) return `${days}d${hours}h`;
+    if (minutes >0 && days < 3) return `${days}d${minutes}m`;
+    return `${days}d`;
+  }
+  if (hours >= 1) {
+    if (minutes >0) return `${hours}h${minutes}m`;
+    return `${hours}h`;
+  }
+  // under 1h: show m, append s only when under 10m (still useful)
+  if (minutes >= 10) return `${minutes}m`;
+  if (seconds >0) return `${minutes}m${seconds}s`;
+  return `${minutes}m`;
 }
 
 // ===== Toast =====
 function showToast(message, type = 'info') {
-  const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+  const icons = { success: '', error: '', info: '', warning: '' };
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-message">${message}</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>`;
@@ -536,7 +634,7 @@ function showToast(message, type = 'info') {
       toast.style.opacity = '0';
       toast.style.transform = 'translateX(100%)';
       toast.style.transition = 'all 0.3s ease';
-      setTimeout(() => toast.remove(), 300);
+      setTimeout(() =>toast.remove(), 300);
     }
   }, 4000);
 }
@@ -561,26 +659,30 @@ function setStatus(type, _text) {
 // ====================================================================================
 
 function switchPage(page) {
+  // 主模块顺序：1 memecoin · 2 altcoin · 3 bitcoin（兼容旧 id othercoin）
+  if (page === 'othercoin') page = 'altcoin';
   if (page === state.currentPage) return;
   state.currentPage = page;
 
   // Update tabs
-  dom.pageTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.page === page));
+  dom.pageTabs.forEach((tab) => {
+    const id = tab.dataset.page === 'othercoin' ? 'altcoin' : tab.dataset.page;
+    tab.classList.toggle('active', id === page);
+  });
 
   // Show/hide page content
   Object.entries(dom.pageContents).forEach(([key, el]) => {
-    if (el) el.classList.toggle('active', key === page);
+    if (!el) return;
+    const id = key === 'othercoin' ? 'altcoin' : key;
+    el.classList.toggle('active', id === page);
   });
 
-  // Update header
-  const labels = {
-    memecoin: 'Meme 代币监控 · 含 Robinhood 链',
-    othercoin: '信号扫描 · CEX + Robinhood 链',
-    bitcoin: 'BTC 市场数据 · Coinglass',
-  };
-  dom.logoSubtitle.textContent = labels[page] || labels.memecoin;
+  // Update header brand line
+  if (dom.logoSubtitle) {
+    dom.logoSubtitle.textContent = 'multi trader';
+  }
 
-  // Chain tabs = Memecoin only (Othercoin is CEX multi-market, not per-chain)
+  // Chain tabs = Memecoin only (Altcoin is CEX multi-market, not per-chain)
   const chainNav = document.getElementById('chainTabs');
   if (chainNav) chainNav.style.display = page === 'memecoin' ? '' : 'none';
 
@@ -594,9 +696,8 @@ function switchPage(page) {
 
   // Load data for the page
   if (page === 'memecoin') {
-    // Always reload for the active chain so boards never stick on Solana data
     loadMemecoinData(state.currentChain);
-  } else if (page === 'othercoin') {
+  } else if (page === 'altcoin') {
     loadOthercoinData();
   } else if (page === 'bitcoin') {
     if (state.btcData) renderBitcoinData();
@@ -645,14 +746,14 @@ function hasRecentCapitalInflow(token = {}) {
   const smartNetInflow = Number(token.smartNetInflow5m ?? 0) + Number(token.smartNetInflow15m ?? 0);
   const shortVolume = Number(token.volume5m ?? 0) + Number(token.volume15m ?? 0);
   const buyVolume = Number(token.buyVolume5m ?? token.buy_volume_5m ?? 0) + Number(token.buyVolume15m ?? token.buy_volume_15m ?? 0);
-  return smartNetInflow > 0 || buyVolume > 0 || (shortVolume > 0 && buys > sells) || (buys > 0 && sells === 0);
+  return smartNetInflow >0 || buyVolume >0 || (shortVolume >0 && buys >sells) || (buys >0 && sells === 0);
 }
 
 function shouldCleanupZeroNoInflow(tracked = {}, now = Date.now()) {
   const lastPrice = getTrackedLastPrice(tracked);
   if (!(Number.isFinite(lastPrice) && lastPrice <= Number.EPSILON)) return false;
   const lastInflowAt = Number(tracked.lastCapitalInflowAt || tracked.signalAt || 0);
-  return lastInflowAt > 0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs;
+  return lastInflowAt >0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs;
 }
 
 /**
@@ -707,11 +808,11 @@ function recordSignalOutcome(tracked, extra = {}) {
   };
 
   // Replace existing same signal
-  const prevIdx = state.signalOutcomes.findIndex((o) => o.id === row.id || (o.key === key && o.signalAt === tracked.signalAt));
+  const prevIdx = state.signalOutcomes.findIndex((o) =>o.id === row.id || (o.key === key && o.signalAt === tracked.signalAt));
   if (prevIdx >= 0) state.signalOutcomes[prevIdx] = row;
   else state.signalOutcomes.unshift(row);
   // Cap in memory
-  if (state.signalOutcomes.length > 250) state.signalOutcomes = state.signalOutcomes.slice(0, 250);
+  if (state.signalOutcomes.length >250) state.signalOutcomes = state.signalOutcomes.slice(0, 250);
   return row;
 }
 
@@ -719,7 +820,7 @@ function getOutcomeStatsCached() {
   const engine = window.SignalEngine;
   if (engine?.computeOutcomeStats) return engine.computeOutcomeStats(state.signalOutcomes);
   const total = state.signalOutcomes.length;
-  const wins = state.signalOutcomes.filter((o) => o.isWin).length;
+  const wins = state.signalOutcomes.filter((o) =>o.isWin).length;
   return { total, wins, losses: total - wins, winRate: total ? wins / total : 0, byPattern: {}, byGrade: {} };
 }
 
@@ -731,7 +832,7 @@ function removeTrackedWithOutcome(key, tracked, { invalidReason = '', removeReas
     recordSignalOutcome(tracked, { invalidReason, removeReason });
   }
   delete state.trackedTokens[key];
-  state.signals = state.signals.filter((s) => getTrackingKey(s.tokenAddress, s.tokenChain) !== key);
+  state.signals = state.signals.filter((s) =>getTrackingKey(s.tokenAddress, s.tokenChain) !== key);
   delete state.aiExpanded[key];
   if (countInvalid) state.sessionRemovedInvalid = (state.sessionRemovedInvalid || 0) + 1;
 }
@@ -768,7 +869,7 @@ function getInvalidReasonForTracked(tracked, now = Date.now()) {
 }
 
 function pruneSignalTracking(now = Date.now()) {
-  state.signals = state.signals.filter((s) => s.active && (now - s.timestamp <= state.signalExpiryMs));
+  state.signals = state.signals.filter((s) =>s.active && (now - s.timestamp <= state.signalExpiryMs));
   for (const [key, tracked] of Object.entries(state.trackedTokens)) {
     if (!tracked) {
       delete state.trackedTokens[key];
@@ -787,7 +888,7 @@ function pruneSignalTracking(now = Date.now()) {
     }
 
     const retentionMs = getTrackedRetentionMs(tracked, now);
-    if (now - tracked.signalAt > retentionMs) {
+    if (now - tracked.signalAt >retentionMs) {
       // 24H 到期：强制结算胜负后移除
       removeTrackedWithOutcome(key, tracked, {
         removeReason: 'retention-expired',
@@ -798,10 +899,10 @@ function pruneSignalTracking(now = Date.now()) {
     tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
     const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = (tracked.priceHistory || [])
-      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+      .filter((p) =>p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
       .slice(-historyLimit);
     // 买入标注点始终保留
-    if (!tracked.priceHistory.some((p) => p.time === tracked.signalAt && p.price === tracked.priceAtSignal)) {
+    if (!tracked.priceHistory.some((p) =>p.time === tracked.signalAt && p.price === tracked.priceAtSignal)) {
       tracked.priceHistory.unshift({ time: tracked.signalAt, price: tracked.priceAtSignal, marker: 'buy' });
     }
 
@@ -964,7 +1065,7 @@ function detectSignals(tokens) {
     startTrackingToken(signal);
     // No long toast — ticker frame is the alert surface
   }
-  if (newSignals.length > 0) {
+  if (newSignals.length >0) {
     saveSignalTracking();
     // New signals → actively show the frame
     renderMemecoinSignals({ forceShow: true });
@@ -978,6 +1079,9 @@ function createSignal(token, reason, reasonText, scoreSnapshot = null) {
   const actualChain = normalizeChainId(token.chain || state.currentChain) || state.currentChain;
   const buyPercent = calculateBuyPercent(token);
   const signalScoreSnapshot = scoreSnapshot || window.SignalEngine?.scoreTokenSignal(token) || null;
+  const heatWindow =
+    signalScoreSnapshot?.heat?.primaryWindow ||
+    (String(reason || '').includes('5m') ? '5m' : String(reason || '').includes('1h') ? '1h' : '15m');
   return {
     id: 0,
     tokenAddress: token.address,
@@ -998,20 +1102,39 @@ function createSignal(token, reason, reasonText, scoreSnapshot = null) {
       liquidity: token.liquidity,
       fdv: token.fdv,
       txns24h: token.txns24h,
+      // Monitor Smart Net Inflow
       smartNetInflow5m: token.smartNetInflow5m,
       smartNetInflow15m: token.smartNetInflow15m,
+      smartNetInflow1h: token.smartNetInflow1h,
+      // Monitor KOL Net Inflow
+      kolNetInflow5m: token.kolNetInflow5m,
+      kolNetInflow15m: token.kolNetInflow15m,
+      kolNetInflow1h: token.kolNetInflow1h,
       volume5m: token.volume5m,
       volume15m: token.volume15m,
       newWallets5m: token.newWallets5m,
       newWallets15m: token.newWallets15m,
       smartWallets5m: token.smartWallets5m,
       smartWallets15m: token.smartWallets15m,
+      smartWallets1h: token.smartWallets1h,
       kolWallets5m: token.kolWallets5m,
       kolWallets15m: token.kolWallets15m,
+      kolWallets1h: token.kolWallets1h,
+      smartCount: token.smartCount ?? token.smart_degen_count,
+      top10Holders: token.top10Holders ?? token.top10,
+      isHoneypot: !!token.isHoneypot,
+      isRug: !!token.isRug,
+      isBan: !!token.isBan,
+      security: token.security || null,
+      kolSource: token.kolSource || null,
+      kolHandlesUnique: token.kolHandlesUnique || null,
+      // Top SM/KOL wallets on this token (1h) for 钱包画像
+      topWallets: Array.isArray(token.topWallets) ? token.topWallets.slice(0, 6) : [],
       buyPercent,
       dataQuality: token.dataQuality,
       hasSmartMoneyData: token.hasSmartMoneyData,
-      securityChecked: token.securityChecked,
+      securityChecked: !!token.securityChecked,
+      heatWindow,
       discoverySources: token.discoverySources,
       signalScoreSnapshot,
     },
@@ -1035,10 +1158,10 @@ function getSmartSellSnapshot(token = {}, previous = {}) {
   const buys = Number(token.smartBuys ?? token.smart_buy_count ?? token.smartBuys1h ?? txns.buys ?? 0);
   const sells = Number(token.smartSells ?? token.smart_sell_count ?? token.smartSells1h ?? txns.sells ?? 0);
   const total = buys + sells;
-  const sellPercent = total > 0 ? (sells / total) * 100 : Number(previous.sellPercent || 0);
+  const sellPercent = total >0 ? (sells / total) * 100 : Number(previous.sellPercent || 0);
   const smartCount = Number(token.smartCount ?? token.smart_degen_count ?? previous.smartCount ?? 0);
   const previousSmartCount = Number(previous.smartCount ?? smartCount);
-  const smartCountDrop = previousSmartCount > 0 ? ((previousSmartCount - smartCount) / previousSmartCount) * 100 : 0;
+  const smartCountDrop = previousSmartCount >0 ? ((previousSmartCount - smartCount) / previousSmartCount) * 100 : 0;
   const majoritySelling = (total >= 6 && sellPercent >= 60) || (smartCountDrop >= 35 && sellPercent >= 50);
   return { buys, sells, total, sellPercent, smartCount, previousSmartCount, smartCountDrop, majoritySelling, updatedAt: Date.now() };
 }
@@ -1061,7 +1184,7 @@ function getAbandonReasonForTracked(found, tracked, now = Date.now()) {
   if (hasRecentCapitalInflow(found)) tracked.lastCapitalInflowAt = now;
   const zeroPrice = !Number.isFinite(a.price) || a.price <= Number.EPSILON;
   const lastInflowAt = Number(tracked.lastCapitalInflowAt || tracked.signalAt || 0);
-  if (zeroPrice && lastInflowAt > 0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs) return '价格归零且4小时无资金流入';
+  if (zeroPrice && lastInflowAt >0 && now - lastInflowAt >= state.zeroNoInflowCleanupMs) return '价格归零且4小时无资金流入';
   if (!zeroPrice && a.liquidity <= 0 && a.volume <= 0) return '流动性和成交额均为 0';
   if (!zeroPrice && a.volume <= 0 && a.totalTxns <= 0) return '无成交量且无买卖交易';
   return '';
@@ -1073,14 +1196,14 @@ function abandonTrackedTarget(key, tracked, reason) {
     removeReason: 'abandon-refresh',
     countInvalid: true,
   });
-  if (tracked?.symbol) showToast(`🧹 已移除失效 ${tracked.symbol}: ${reason}`, 'warning');
+  if (tracked?.symbol) showToast(`已移除失效 ${tracked.symbol}: ${reason}`, 'warning');
 }
 
 function maybeRaiseMoonshotSelloffAlert(key, tracked, token, now = Date.now()) {
   if (!tracked?.moonshot?.active || tracked.moonshot.selloffAlertedAt) return false;
   const analysis = analyzeTrackedToken(tracked, false, now);
   const maxGain = Math.max(Number(tracked.moonshot.maxGain || 0), analysis.maxGain || 0);
-  const dropFromPeak = maxGain > 0 ? maxGain - analysis.currentChange : 0;
+  const dropFromPeak = maxGain >0 ? maxGain - analysis.currentChange : 0;
   const droppedHard = maxGain >= 500 && (dropFromPeak >= 250 || analysis.currentChange <= maxGain * 0.45);
   const smartSell = tracked.smartSellSnapshot?.majoritySelling;
   if (!droppedHard || !smartSell) return false;
@@ -1110,7 +1233,7 @@ function maybeRaiseMoonshotSelloffAlert(key, tracked, token, now = Date.now()) {
       smartSellSnapshot: tracked.smartSellSnapshot,
     },
   });
-  showToast(`⚠️ ${tracked.symbol} 高收益回撤：聪明钱多数卖出`, 'warning');
+  showToast(`${tracked.symbol} 高收益回撤：聪明钱多数卖出`, 'warning');
   return true;
 }
 
@@ -1170,9 +1293,9 @@ function normalizeChainId(chain) {
 /** Active signals for the currently selected network only */
 function getVisibleMemecoinSignals() {
   const want = normalizeChainId(state.currentChain);
-  const active = (state.signals || []).filter((s) => s && s.active);
+  const active = (state.signals || []).filter((s) =>s && s.active);
   if (!want || want === 'all') return active;
-  return active.filter((s) => normalizeChainId(s.tokenChain) === want);
+  return active.filter((s) =>normalizeChainId(s.tokenChain) === want);
 }
 
 /**
@@ -1192,7 +1315,7 @@ function formatBriefSignalText(signal) {
   const { name, pct } = getBriefSignalParts(signal);
   const parts = [name];
   if (Number.isFinite(pct) && pct !== 0) {
-    parts.push(`${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`);
+    parts.push(`${pct >0 ? '+' : ''}${pct.toFixed(1)}%`);
   }
   return parts.join(' · ');
 }
@@ -1264,7 +1387,7 @@ function buildSignalTickerList(signals) {
     let html = `<span class="signal-ticker-item-text">${name}</span>`;
     if (Number.isFinite(pct) && pct !== 0) {
       const cls = pct >= 0 ? 'signal-ticker-item-pct' : 'signal-ticker-item-pct down';
-      html += `<span class="${cls}">${pct > 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+      html += `<span class="${cls}">${pct >0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
     }
     btn.innerHTML = html;
     btn.addEventListener('click', () => {
@@ -1490,7 +1613,7 @@ function filterMemecoinTokens(tokens, chain) {
     const price = Number(t.priceUsd ?? t.price ?? 0);
     const vol = Number(t.volume24h || t.volume1h || 0);
     const liq = Number(t.liquidity || 0);
-    if (!(price > 0)) return false;
+    if (!(price >0)) return false;
     // Minimum activity — chain-specific floors (BSC = Binance DEX; RH kept active)
     if (chainKey === 'bsc') {
       if (vol < 2_000 && liq < 5_000) return false;
@@ -1554,7 +1677,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     setStatus(''); // green light only — no quality 说明
     dom.loadingState.style.display = 'none';
     if (stamped.length === 0) {
-      dom.tokenList.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>${requestChain} 暂无合格代币（已过滤低质/错链）</p></div>`;
+      dom.tokenList.innerHTML = `<div class="empty-state"><div class="empty-icon"></div><p>${requestChain} 暂无合格代币（已过滤低质/错链）</p></div>`;
     }
   } catch (err) {
     if (loadId !== state.memecoinLoadId) return;
@@ -1563,7 +1686,7 @@ async function loadMemecoinData(chain = state.currentChain, isRetry = false) {
     if (state.retryCount < state.maxRetries && !isRetry) {
       state.retryCount++;
       setStatus('loading');
-      setTimeout(() => loadMemecoinData(requestChain, true), 1500);
+      setTimeout(() =>loadMemecoinData(requestChain, true), 1500);
       return;
     }
     showToast(`数据加载失败: ${err.message}`, 'error');
@@ -1590,7 +1713,7 @@ function updateTrackedPrices(tokens) {
   let abandoned = 0;
   for (const key of Object.keys(state.trackedTokens)) {
     const tracked = state.trackedTokens[key];
-    const found = tokens.find((t) => getTrackingKey(t.address, t.chain || state.currentChain) === key);
+    const found = tokens.find((t) =>getTrackingKey(t.address, t.chain || state.currentChain) === key);
     const abandonReason = getAbandonReasonForTracked(found, tracked, now);
     if (abandonReason) {
       abandonTrackedTarget(key, tracked, abandonReason);
@@ -1600,12 +1723,12 @@ function updateTrackedPrices(tokens) {
 
     if (!found) {
       const lastKnown = tracked.currentPrice || tracked.priceAtSignal || 0;
-      if (lastKnown > 0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
+      if (lastKnown >0) tracked.priceHistory.push({ time: now, price: lastKnown, carried: true });
       tracked.historyStatus = now - tracked.signalAt <= state.signalExpiryMs ? 'active' : 'history';
       const retentionMs = getTrackedRetentionMs(tracked, now);
       const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
       tracked.priceHistory = tracked.priceHistory
-        .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+        .filter((p) =>p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
         .slice(-historyLimit);
       continue;
     }
@@ -1621,10 +1744,10 @@ function updateTrackedPrices(tokens) {
     const retentionMs = getTrackedRetentionMs(tracked, now);
     const historyLimit = tracked.moonshot?.active ? state.maxMoonshotPriceHistory : state.maxPriceHistory;
     tracked.priceHistory = tracked.priceHistory
-      .filter((p) => p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
+      .filter((p) =>p && (p.time === tracked.signalAt || now - p.time <= retentionMs))
       .slice(-historyLimit);
   }
-  if (abandoned > 0) {
+  if (abandoned >0) {
     renderMemecoinSignals();
   }
   saveSignalTracking();
@@ -1633,21 +1756,30 @@ function updateTrackedPrices(tokens) {
 // --- Token Rendering ---
 
 function renderMemecoinSortedTokens(tokens) {
-  const sorted = [...tokens].sort((a, b) => {
+  // Hard UI cap: never show more than Top 20
+  const capped = (tokens || []).slice(0, state.memecoinLimit || 20);
+  const sorted = [...capped].sort((a, b) => {
     switch (state.sortBy) {
+      case 'value': {
+        // Prefer explicit valueScore; fall back to server rank order
+        if (Number.isFinite(Number(a.valueScore)) || Number.isFinite(Number(b.valueScore))) {
+          return (Number(b.valueScore) || 0) - (Number(a.valueScore) || 0);
+        }
+        return (Number(a.rank) || 999) - (Number(b.rank) || 999);
+      }
       case 'volume': { return (b.volume24h || b.volume1h || 0) - (a.volume24h || a.volume1h || 0); }
       case 'priceChange': { return Math.abs(b.priceChange1h || 0) - Math.abs(a.priceChange1h || 0); }
       case 'buyRatio': { return calculateBuyPercent(b) - calculateBuyPercent(a); }
-      default: return 0;
+      default: return (Number(a.rank) || 999) - (Number(b.rank) || 999);
     }
   });
-  dom.hotCount.textContent = tokens.length;
+  dom.hotCount.textContent = sorted.length;
   renderMemecoinTokenRows(sorted);
 }
 
 function renderMemecoinTokenRows(tokens) {
   if (!tokens || tokens.length === 0) {
-    dom.tokenList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>暂无代币数据</p></div>';
+    dom.tokenList.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>暂无代币数据</p></div>';
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -1661,7 +1793,7 @@ function renderMemecoinTokenRows(tokens) {
     row.dataset.tokenAddress = token.address || '';
     row.dataset.tokenChain = tokenChain || '';
     row.dataset.tokenSymbol = token.symbol || '';
-    const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1;
+    const rankEmoji = index + 1;
     const iconHtml = getTokenIcon(token);
     const tokenForLink = { ...token, chain: tokenChain };
     const explorerUrl = getExplorerUrl(tokenChain, token.address);
@@ -1671,12 +1803,20 @@ function renderMemecoinTokenRows(tokens) {
     const buyPercent = calculateBuyPercent(token);
     const chainBadge = getChainBadgeHtml(tokenChain);
     const qualityBits = [];
-    if (token.isHoneypot || token.isRug) qualityBits.push('<span class="chain-badge multi" title="高风险">⚠风险</span>');
+    if (token.isHoneypot || token.isRug) qualityBits.push('<span class="chain-badge multi" title="高风险">风险</span>');
     else if (token.securityChecked) qualityBits.push('<span class="chain-badge base" title="已抽检 security">SEC</span>');
     if (token.hasSmartMoneyData) qualityBits.push('<span class="chain-badge sol" title="含聪明钱富化">SM</span>');
     else qualityBits.push('<span class="chain-badge multi" title="无聪明钱富化">无SM</span>');
     if (token.fromTrenches) qualityBits.push('<span class="chain-badge bsc" title="Trenches 新盘">新</span>');
     if (token.fromHotSearch) qualityBits.push('<span class="chain-badge robinhood" title="Hot Search">热搜</span>');
+    if (Number(token.valueScore) >0) {
+      const vs = Math.round(Number(token.valueScore));
+      const tip = (token.valueReasons || []).slice(0, 3).join(' · ') || '多源价值分';
+      qualityBits.push(`<span class="chain-badge sol" title="价值分 ${vs} · ${tip}">V${vs}</span>`);
+    }
+    if (Number(token.sourceHitCount) >= 2) {
+      qualityBits.push(`<span class="chain-badge multi" title="多平台命中 ${token.sourceHitCount}">×${token.sourceHitCount}</span>`);
+    }
     const qualityHtml = qualityBits.join('');
     row.innerHTML = `
       <div class="td ${index < 3 ? 'rank-cell top-3' : 'rank-cell'}">${rankEmoji}</div>
@@ -1685,7 +1825,7 @@ function renderMemecoinTokenRows(tokens) {
         <div class="token-info">
           <span class="token-symbol" title="${token.name || ''}">${token.symbol || 'Unknown'}</span>
           <span class="token-name">${token.name || shortAddress(token.address)} ${qualityHtml}</span>
-          <div class="token-links"><a href="${marketUrl}" target="_blank" rel="noopener" class="token-link" title="${marketUrl}">${marketLabel}</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">📋</button></div>
+          <div class="token-links"><a href="${marketUrl}" target="_blank" rel="noopener" class="token-link" title="${marketUrl}">${marketLabel}</a><button class="token-copy-btn" onclick="copyAddress('${token.address}', event)" title="复制合约地址">复制</button></div>
         </div>
         ${chainBadge}
       </div>
@@ -1718,10 +1858,10 @@ function copyAddress(address, event) {
         if (hint) hint.textContent = '复制';
       }, 1500);
     } else {
-      btn.textContent = '✅';
+      btn.textContent = '已复制';
       btn.classList.add('copied');
       setTimeout(() => {
-        btn.textContent = '📋';
+        btn.textContent = '复制';
         btn.classList.remove('copied');
       }, 1500);
     }
@@ -1754,7 +1894,7 @@ function formatTxns(num) {
 function updateMemecoinStats(tokens, timestamp) {
   if (!dom.statsBar || !dom.statCount) return;
   dom.statCount.textContent = tokens.length;
-  const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h != null ? t.volume24h : (t.volume1h ?? 0)), 0);
+  const totalVolume = tokens.reduce((sum, t) =>sum + (t.volume24h != null ? t.volume24h : (t.volume1h ?? 0)), 0);
   dom.statVolume.textContent = formatCompact(totalVolume);
   const newest = tokens.reduce((latest, t) => {
     if (!latest) return t;
@@ -1773,22 +1913,25 @@ function clampScore(value) {
 function getTrackedPerformance(tracked) {
   const base = Number(tracked.priceAtSignal || 0);
   const current = Number(tracked.currentPrice || 0);
-  const points = (tracked.priceHistory || []).filter((p) => p && p.price != null && Number(p.price) > 0);
-  const prices = points.map((p) => Number(p.price));
-  if (base > 0) prices.push(base);
-  if (current > 0) prices.push(current);
+  const points = (tracked.priceHistory || []).filter((p) =>p && p.price != null && Number(p.price) >0);
+  const prices = points.map((p) =>Number(p.price));
+  if (base >0) prices.push(base);
+  if (current >0) prices.push(current);
   const maxPrice = prices.length ? Math.max(...prices) : current;
   const minPrice = prices.length ? Math.min(...prices) : current;
-  const currentChange = base > 0 ? ((current - base) / base) * 100 : 0;
-  const maxGain = base > 0 ? ((maxPrice - base) / base) * 100 : 0;
-  const maxDrawdown = base > 0 ? ((minPrice - base) / base) * 100 : 0;
+  const currentChange = base >0 ? ((current - base) / base) * 100 : 0;
+  const maxGain = base >0 ? ((maxPrice - base) / base) * 100 : 0;
+  const maxDrawdown = base >0 ? ((minPrice - base) / base) * 100 : 0;
   return { base, current, currentChange, maxGain, maxDrawdown, maxPrice, minPrice };
 }
 
 function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
   const perf = getTrackedPerformance(tracked);
   const meta = tracked.signalMeta || {};
-  const buyPercent = Number(meta.buyPercent || 50);
+  const signalSnapshot = tracked.signalScoreSnapshot || meta.signalScoreSnapshot || null;
+  const buyPercent = Number(
+    signalSnapshot?.buyPercent ?? meta.buyPercent
+  );
   const volume = Number(meta.volume24h ?? meta.volume1h ?? 0);
   const liquidity = Number(meta.liquidity || 0);
   const priceChange1h = Number(meta.priceChange1h || 0);
@@ -1799,114 +1942,552 @@ function analyzeTrackedToken(tracked, isActive, now = Date.now()) {
   else if (perf.currentChange >= 30) phase = '突破加速';
   else if (perf.currentChange >= 8) phase = '趋势延续';
   else if (perf.currentChange <= -15) phase = '跌破买入点';
-  else if (!isActive && elapsed > state.signalExpiryMs) phase = '历史观察';
+  else if (!isActive && elapsed >state.signalExpiryMs) phase = '历史观察';
 
-  const riskFlags = [];
-  let riskScore = 25;
-  if (liquidity && liquidity < 10000) { riskScore += 28; riskFlags.push('流动性偏低'); }
-  else if (liquidity && liquidity < 50000) { riskScore += 14; riskFlags.push('流动性一般'); }
-  if (perf.maxDrawdown <= -40) { riskScore += 22; riskFlags.push('信号后回撤过大'); }
-  if (priceChange1h >= 80 || perf.currentChange >= 120) { riskScore += 18; riskFlags.push('短线涨幅过高'); }
-  if (buyPercent < 50) { riskScore += 15; riskFlags.push('买入占比不足'); }
-  if (!volume || volume < 100000) { riskScore += 10; riskFlags.push('成交量不足'); }
-  riskScore = clampScore(riskScore);
-  const riskLevel = riskScore >= 78 ? '极高' : riskScore >= 58 ? '高' : riskScore >= 38 ? '中' : '低';
+  // Rebuild security + resonance from snapshot / signal meta (GMGN real fields)
+  const engine = window.SignalEngine;
+  const tokenLike = {
+    ...meta,
+    security: meta.security || signalSnapshot?.security || null,
+    securityChecked: meta.securityChecked ?? signalSnapshot?.securityChecked,
+    isHoneypot: meta.isHoneypot ?? signalSnapshot?.security?.isHoneypot,
+    isRug: meta.isRug ?? signalSnapshot?.security?.isRug,
+    isBan: meta.isBan ?? signalSnapshot?.security?.isBan,
+    top10Holders: meta.top10Holders ?? signalSnapshot?.security?.top10Holders,
+    hasSmartMoneyData: meta.hasSmartMoneyData ?? signalSnapshot?.hasSmartMoneyData,
+    dataQuality: meta.dataQuality ?? signalSnapshot?.dataQuality,
+    smartCount: meta.smartCount ?? signalSnapshot?.monitor?.smartCount,
+    smartNetInflow5m: meta.smartNetInflow5m ?? signalSnapshot?.monitor?.smartNetInflow5m,
+    smartNetInflow15m: meta.smartNetInflow15m ?? signalSnapshot?.monitor?.smartNetInflow15m,
+    smartNetInflow1h: meta.smartNetInflow1h ?? signalSnapshot?.monitor?.smartNetInflow1h,
+    kolNetInflow5m: meta.kolNetInflow5m ?? signalSnapshot?.monitor?.kolNetInflow5m,
+    kolNetInflow15m: meta.kolNetInflow15m ?? signalSnapshot?.monitor?.kolNetInflow15m,
+    kolNetInflow1h: meta.kolNetInflow1h ?? signalSnapshot?.monitor?.kolNetInflow1h,
+    smartWallets5m: meta.smartWallets5m ?? signalSnapshot?.monitor?.smartWallets5m,
+    smartWallets15m: meta.smartWallets15m ?? signalSnapshot?.monitor?.smartWallets15m,
+    kolWallets5m: meta.kolWallets5m ?? signalSnapshot?.monitor?.kolWallets5m,
+    kolWallets15m: meta.kolWallets15m ?? signalSnapshot?.monitor?.kolWallets15m,
+    kolSource: meta.kolSource,
+    volume5m: meta.volume5m,
+    volume15m: meta.volume15m,
+    volume1h: meta.volume1h,
+    newWallets5m: meta.newWallets5m,
+    newWallets15m: meta.newWallets15m,
+  };
 
-  let resonanceScore = 0;
-  if ((tracked.signalReasonText || '').includes('买入占比')) resonanceScore += 35;
-  if ((tracked.signalReasonText || '').includes('交易量')) resonanceScore += 30;
-  if (buyPercent >= 75) resonanceScore += 20;
-  if (volume >= 1000000) resonanceScore += 15;
-  const resonanceLevel = resonanceScore >= 75 ? '强' : resonanceScore >= 50 ? '中' : resonanceScore >= 25 ? '弱' : '无';
+  const security =
+    signalSnapshot?.security && signalSnapshot.security.summary
+      ? signalSnapshot.security
+      : engine?.buildSecurityReport
+        ? engine.buildSecurityReport(tokenLike, {
+            riskScore: signalSnapshot?.riskScore,
+            riskLevel: signalSnapshot?.riskLevel,
+            riskFlags: signalSnapshot?.riskFlags || [],
+            securityChecked: tokenLike.securityChecked,
+          })
+        : null;
+
+  const resonance =
+    signalSnapshot?.resonance && signalSnapshot.resonance.summary
+      ? signalSnapshot.resonance
+      : engine?.buildResonanceReport
+        ? engine.buildResonanceReport(tokenLike, signalSnapshot?.monitor || null)
+        : null;
+
+  // Fallback only if engine helpers unavailable (legacy storage)
+  let riskFlags = security?.riskFlags?.length
+    ? security.riskFlags
+    : (signalSnapshot?.riskFlags || []);
+  let riskScore = security?.riskScore ?? signalSnapshot?.riskScore ?? 25;
+  let riskLevel = security?.riskLevel ?? signalSnapshot?.riskLevel ?? '中';
+  if (!security && !signalSnapshot) {
+    riskFlags = [];
+    riskScore = 25;
+    if (liquidity && liquidity < 10000) { riskScore += 28; riskFlags.push('流动性偏低'); }
+    else if (liquidity && liquidity < 50000) { riskScore += 14; riskFlags.push('流动性一般'); }
+    if (perf.maxDrawdown <= -40) { riskScore += 22; riskFlags.push('信号后回撤过大'); }
+    if (priceChange1h >= 80 || perf.currentChange >= 120) { riskScore += 18; riskFlags.push('短线涨幅过高'); }
+    if (Number.isFinite(buyPercent) && buyPercent < 50) { riskScore += 15; riskFlags.push('买入占比不足'); }
+    if (!volume || volume < 100000) { riskScore += 10; riskFlags.push('成交量不足'); }
+    riskScore = clampScore(riskScore);
+    riskLevel = riskScore >= 78 ? '极高' : riskScore >= 58 ? '高' : riskScore >= 38 ? '中' : '低';
+  }
+
+  // Post-signal path risk overlays (do not invent SM resonance from volume text)
+  if (perf.maxDrawdown <= -40 && !riskFlags.includes('信号后回撤过大')) {
+    riskFlags = riskFlags.concat(['信号后回撤过大']);
+  }
+
+  const resonanceScore = resonance?.score ?? signalSnapshot?.resonanceScore ?? 0;
+  const resonanceLevel = resonance?.level ?? signalSnapshot?.resonanceLevel ?? '未知';
+  const securitySummary = security?.summary
+    || (riskFlags.length ? riskFlags.join(' / ') : '未发现明显硬风险');
+  const resonanceSummary = resonance?.summary
+    || '缺少 Monitor Smart/KOL 富化数据';
 
   let action = '继续观察';
-  if (riskLevel === '极高') action = '禁止交易';
+  if (riskLevel === '极高' || security?.isHoneypot || security?.isRug) action = '禁止交易';
   else if (perf.currentChange <= -15) action = '信号失效';
   else if (perf.currentChange >= 80) action = '等待回踩';
-  else if (resonanceLevel === '强' && riskLevel !== '高') action = '重点观察';
+  else if (resonanceLevel === '强' && riskLevel !== '高' && riskLevel !== '极高') action = '重点观察';
 
-  const trackedModel = window.SignalEngine?.analyzeTrackedSignal({ ...tracked, signalScoreSnapshot: tracked.signalScoreSnapshot || meta.signalScoreSnapshot }) || {};
-  const signalSnapshot = tracked.signalScoreSnapshot || meta.signalScoreSnapshot || null;
-  const modelRiskScore = signalSnapshot?.riskScore ?? riskScore;
-  const modelRiskLevel = signalSnapshot?.riskLevel ?? riskLevel;
-  const modelRiskFlags = signalSnapshot?.riskFlags?.length ? signalSnapshot.riskFlags : riskFlags;
+  const trackedModel = engine?.analyzeTrackedSignal({
+    ...tracked,
+    signalScoreSnapshot: signalSnapshot,
+  }) || {};
+  const modelRiskScore = riskScore;
+  const modelRiskLevel = riskLevel;
+  const modelRiskFlags = riskFlags;
   const modelAction = trackedModel.entryAction || signalSnapshot?.suggestedAction || action;
   const entryGrade = trackedModel.entryGrade || signalSnapshot?.entryGrade || 'C';
   const signalLevel = signalSnapshot?.signalLevel || '观察';
-  const aiScore = signalSnapshot?.signalScore ?? clampScore(50 + Math.min(perf.currentChange, 80) * 0.25 + resonanceScore * 0.22 - riskScore * 0.25);
+  const aiScore = signalSnapshot?.signalScore
+    ?? clampScore(50 + Math.min(perf.currentChange, 80) * 0.25 + resonanceScore * 0.22 - riskScore * 0.25);
   const confidence = signalSnapshot?.confidence || (aiScore >= 75 ? '中高' : aiScore >= 55 ? '中' : '偏低');
-  const historyStatus = trackedModel.resultLabel || (perf.currentChange <= -15 ? '跌破买入点' : perf.maxGain >= 80 && perf.currentChange < perf.maxGain * 0.45 ? '疑似出货' : perf.currentChange >= 20 ? '趋势延续' : '高位观察');
-  const summary = `${tracked.symbol} 触发 ${tracked.signalReasonText || '交易信号'}。GMGN AI ${signalLevel} ${aiScore}/100，买点评级 ${entryGrade}，当前相对买入标注点 ${formatChange(perf.currentChange)}，风险等级${modelRiskLevel}。`;
-  const suggestion = modelAction === '禁止交易' ? '风险过高，仅保留观察，不建议进入策略订单。' : modelAction === '禁止追高' || modelAction === '等待回踩' ? '短线涨幅较高，不建议直接追高，等待回踩或二次放量确认。' : modelAction === '重点观察' ? '信号质量较好，可加入重点观察，策略订单仍需二次确认。' : '继续观察价格是否守住买入标注点。';
-  return { ...perf, ...trackedModel, phase, riskScore: modelRiskScore, riskLevel: modelRiskLevel, riskFlags: modelRiskFlags, resonanceScore, resonanceLevel, action: modelAction, entryAction: modelAction, entryGrade, signalLevel, aiScore, confidence, historyStatus, summary, suggestion, modelReasons: signalSnapshot?.reasons || [] };
+  const historyStatus = trackedModel.resultLabel
+    || (perf.currentChange <= -15
+      ? '跌破买入点'
+      : perf.maxGain >= 80 && perf.currentChange < perf.maxGain * 0.45
+        ? '疑似出货'
+        : perf.currentChange >= 20
+          ? '趋势延续'
+          : '高位观察');
+  const heatWin = meta.heatWindow || signalSnapshot?.heat?.primaryWindow || '';
+  const summary = `${tracked.symbol} 触发 ${tracked.signalReasonText || '交易信号'}${heatWin ? `（${heatWin}）` : ''}。GMGN AI ${signalLevel} ${aiScore}/100，买点 ${entryGrade}，相对买入点 ${formatChange(perf.currentChange)}，风险 ${modelRiskLevel}，共振 ${resonanceLevel}。`;
+  const suggestion = modelAction === '禁止交易'
+    ? '风险过高，仅保留观察，不建议进入策略订单。'
+    : modelAction === '禁止追高' || modelAction === '等待回踩'
+      ? '短线涨幅较高，不建议直接追高，等待回踩或二次放量确认。'
+      : modelAction === '重点观察'
+        ? '信号质量较好，可加入重点观察，策略订单仍需二次确认。'
+        : '继续观察价格是否守住买入标注点。';
+
+  return {
+    ...perf,
+    ...trackedModel,
+    phase,
+    riskScore: modelRiskScore,
+    riskLevel: modelRiskLevel,
+    riskFlags: modelRiskFlags,
+    security,
+    securitySummary,
+    securityChecked: !!(security?.checked ?? meta.securityChecked ?? signalSnapshot?.securityChecked),
+    resonance,
+    resonanceScore,
+    resonanceLevel,
+    resonanceSummary,
+    action: modelAction,
+    entryAction: modelAction,
+    entryGrade,
+    signalLevel,
+    aiScore,
+    confidence,
+    historyStatus,
+    summary,
+    suggestion,
+    modelReasons: signalSnapshot?.reasons || [],
+  };
 }
 
 function getLevelClass(level) {
   if (['低', '强', '重点观察', '趋势延续', '中高', '重点报警', '强报警', 'A', 'B', '高收益验证', '超级收益', '有效信号', '软胜', '软胜·到期', '超级收益·回撤', '胜'].includes(level)) return 'good';
-  if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中', '横盘到期', '平'].includes(level)) return 'warn';
-  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', '高收益回撤', 'D', '失败/跌破', '失效移除', '负'].includes(level)) return 'danger';
+  if (['中', '弱', '等待回踩', '高位观察', '历史观察', '普通报警', '观察', 'C', '小仓试探', '继续观察', '观察中', '横盘到期', '平', '未知'].includes(level)) return 'warn';
+  if (['高', '极高', '禁止交易', '禁止追高', '跌破买入点', '信号失效', '疑似出货', '高收益回撤', 'D', '失败/跌破', '失效移除', '负', '无'].includes(level)) return 'danger';
   return 'neutral';
+}
+
+function shortWalletAddr(addr = '') {
+  const a = String(addr || '');
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+}
+
+function formatUsdShort(n) {
+  const v = Number(n) || 0;
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  if (abs >= 1) return `$${Math.round(v)}`;
+  return '$0';
+}
+
+function getTrackedTopWallets(tracked = {}) {
+  const meta = tracked.signalMeta || {};
+  const list = meta.topWallets || tracked.topWallets || [];
+  return Array.isArray(list) ? list : [];
+}
+
+function renderWalletProfileCard(tracked, analysis) {
+  const wallets = getTrackedTopWallets(tracked);
+  const chain = tracked.chain || state.currentChain || 'solana';
+  if (!wallets.length) {
+    const sm = Number(tracked.signalMeta?.smartWallets5m || tracked.signalMeta?.smartWallets15m || 0);
+    const kol = Number(tracked.signalMeta?.kolWallets5m || tracked.signalMeta?.kolWallets15m || 0);
+    if (sm || kol) {
+      return `<div class="ai-mini-main neutral">有 SM ${sm} / KOL ${kol} 参与，但未解析到地址明细</div>
+        <p>刷新后若 GMGN Monitor 富化成功，将列出买入该币的聪明钱/KOL 钱包。</p>`;
+    }
+    return `<div class="ai-mini-main neutral">暂无钱包明细</div>
+      <p>信号未附带 SM/KOL 交易地址时无法画像。等待 Monitor 富化或切换有聪明钱的链。</p>`;
+  }
+  const rows = wallets.slice(0, 6).map((w, idx) => {
+    const role = w.role === 'kol' ? 'KOL' : 'SM';
+    const roleClass = w.role === 'kol' ? 'wallet-role-kol' : 'wallet-role-sm';
+    const side = w.side === 'sell' ? '卖' : w.side === 'mixed' ? '混' : '买';
+    const sideClass = w.side === 'sell' ? 'danger' : w.side === 'mixed' ? 'warn' : 'good';
+    const label = w.twitter ? `@${w.twitter}` : (w.name || shortWalletAddr(w.address));
+    const statsId = `wp-${String(tracked.address || '').slice(0, 8)}-${idx}`;
+    return `
+      <div class="wallet-profile-row" data-wallet="${w.address}" data-chain="${chain}" data-role="${w.role || 'smart'}" data-twitter="${w.twitter || ''}" data-name="${w.name || ''}" data-stats-id="${statsId}">
+        <button type="button" class="wallet-profile-main wallet-profile-load" title="加载 GMGN wallet stats">
+          <span class="wallet-role-badge ${roleClass}">${role}</span>
+          <span class="wallet-profile-name">${label}</span>
+          <span class="wallet-side ${sideClass}">${side} ${formatUsdShort(w.netUsd || w.buyUsd)}</span>
+          <span class="wallet-profile-meta">${w.tradeCount || 1}笔</span>
+        </button>
+        <div class="wallet-profile-stats" id="${statsId}" hidden></div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="ai-mini-main good">${wallets.length} 个关联钱包 · 1h Monitor</div>
+    <div class="wallet-profile-list">${rows}</div>
+    <p class="wallet-profile-hint">点击钱包加载 7d 胜率 / PnL / 交易风格（GMGN portfolio stats，懒加载防限流）。</p>`;
+}
+
+async function loadWalletProfileStats(btn) {
+  const row = btn.closest('.wallet-profile-row');
+  if (!row) return;
+  const wallet = row.dataset.wallet;
+  const chain = row.dataset.chain || 'solana';
+  const role = row.dataset.role || '';
+  const twitter = row.dataset.twitter || '';
+  const name = row.dataset.name || '';
+  const statsId = row.dataset.statsId;
+  const panel = statsId ? document.getElementById(statsId) : row.querySelector('.wallet-profile-stats');
+  if (!wallet || !panel) return;
+
+  // Toggle if already loaded
+  if (panel.dataset.loaded === '1') {
+    panel.hidden = !panel.hidden;
+    return;
+  }
+  if (panel.dataset.loading === '1') return;
+  panel.dataset.loading = '1';
+  panel.hidden = false;
+  panel.innerHTML = `<span class="wallet-stats-loading">加载 GMGN stats…</span>`;
+
+  try {
+    const qs = new URLSearchParams({
+      chain,
+      wallet,
+      period: '7d',
+      role,
+      twitter,
+      name,
+    });
+    const res = await fetch(getApiUrl(`/api/wallet-profile?${qs}`), {
+      headers: { Accept: 'application/json' },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!json.success || !json.data) {
+      const err = json.error || `HTTP ${res.status}`;
+      panel.innerHTML = `<span class="wallet-stats-error">${err}${json.rateLimited ? '（限流冷却中）' : ''}</span>`;
+      panel.dataset.loaded = '0';
+      return;
+    }
+    const p = json.data;
+    const wr = p.winratePct != null ? `${p.winratePct}%` : '—';
+    const realized = p.realizedProfit != null ? formatUsdShort(p.realizedProfit) : '—';
+    const pnl = p.pnlRatio != null ? `${p.pnlRatio >= 0 ? '+' : ''}${(p.pnlRatio * 100).toFixed(0)}%` : '—';
+    const style = p.style || {};
+    const gradeClass = getLevelClass(style.grade || 'C');
+    const tags = (p.tags || []).slice(0, 4).join(' · ') || '—';
+    const gmgn = p.gmgnUrl || '#';
+    panel.innerHTML = `
+      <div class="wallet-stats-grid">
+        <span class="wallet-stat"><em>胜率</em><strong class="${p.winrate != null && p.winrate >= 0.5 ? 'good' : ''}">${wr}</strong></span>
+        <span class="wallet-stat"><em>已实现</em><strong>${realized}</strong></span>
+        <span class="wallet-stat"><em>PnL</em><strong>${pnl}</strong></span>
+        <span class="wallet-stat"><em>买卖</em><strong>${p.buyCount || 0}/${p.sellCount || 0}</strong></span>
+        <span class="wallet-stat wide"><em>风格</em><strong class="${gradeClass}">${style.grade || '—'} · ${style.label || '—'}</strong></span>
+        <span class="wallet-stat wide"><em>标签</em><strong>${tags}</strong></span>
+      </div>
+      <a class="wallet-gmgn-link" href="${gmgn}" target="_blank" rel="noopener">在 GMGN 打开 ${p.short || shortWalletAddr(wallet)}</a>`;
+    panel.dataset.loaded = '1';
+  } catch (e) {
+    panel.innerHTML = `<span class="wallet-stats-error">${e.message || '加载失败'}</span>`;
+    panel.dataset.loaded = '0';
+  } finally {
+    panel.dataset.loading = '0';
+  }
+}
+
+function shortAiLine(text, max = 96) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
 }
 
 function renderAiDetailPanel(tracked, analysis, key, isOpen) {
   if (!isOpen) return '';
   const canTradePreview = !['禁止交易', '禁止追高', '信号失效'].includes(analysis.action) && analysis.entryGrade !== 'D';
-  const riskFlags = analysis.riskFlags.length ? analysis.riskFlags.join(' / ') : '未发现明显硬风险（仍需接入 GMGN security 完整校验）';
+  const sec = analysis.security || {};
+  const res = analysis.resonance || {};
+  const securityBadge = analysis.securityChecked
+    ? '已校验'
+    : (sec.source === 'rank-flags' ? 'Rank' : '未抽检');
+  const securityBody = analysis.securitySummary
+    || (analysis.riskFlags?.length ? analysis.riskFlags.join(' / ') : '未发现明显硬风险');
+  const resonanceBody = analysis.resonanceSummary
+    || '缺少 Monitor Smart/KOL 富化数据';
+  const resonanceSource = res.source === 'gmgn-monitor'
+    ? 'Monitor'
+    : res.source === 'gmgn-rank'
+      ? 'rank'
+      : res.source === 'unavailable'
+        ? '无数据'
+        : '—';
+  const reasons = (analysis.modelReasons || []).slice(0, 4);
+  const reasonChips = reasons.length
+    ? reasons.map((r) => `<span class="ai-reason-chip">${shortAiLine(r, 36)}</span>`).join('')
+    : '<span class="ai-reason-chip muted">等待 GMGN 富化</span>';
+  const walletCount = getTrackedTopWallets(tracked).length;
+
   return `
-    <div class="ai-detail-panel">
-      <div class="ai-detail-grid">
-        <div class="ai-mini-card ai-wide">
-          <div class="ai-mini-title">AI 信号解释</div>
-          <div class="ai-mini-main">${analysis.signalLevel} · 强度 ${analysis.aiScore}/100 · 置信度 ${analysis.confidence}</div>
-          <p>${analysis.summary}</p>
-          <p>${analysis.modelReasons.length ? analysis.modelReasons.join(' / ') : '等待更多 GMGN 数据进入评分模型。'}</p>
-          <p class="ai-suggestion">${analysis.suggestion}</p>
+    <div class="ai-detail-panel ai-detail-compact">
+      <!-- 摘要一行：默认只看这个，细节按需展开 -->
+      <div class="ai-summary-strip">
+        <span class="ai-summary-item ${getLevelClass(analysis.signalLevel)}"><em>AI</em><strong>${analysis.signalLevel} ${analysis.aiScore}</strong></span>
+        <span class="ai-summary-item ${getLevelClass(analysis.riskLevel)}"><em>风险</em><strong>${analysis.riskLevel}</strong></span>
+        <span class="ai-summary-item ${getLevelClass(analysis.resonanceLevel)}"><em>共振</em><strong>${analysis.resonanceLevel} ${analysis.resonanceScore}</strong></span>
+        <span class="ai-summary-item ${getLevelClass(analysis.entryGrade)}"><em>买点</em><strong>${analysis.entryGrade}</strong></span>
+        <span class="ai-summary-item ${getLevelClass(analysis.historyStatus)}"><em>追踪</em><strong>${shortAiLine(analysis.historyStatus, 8)}</strong></span>
+      </div>
+      <p class="ai-summary-one-liner">${shortAiLine(analysis.suggestion || analysis.summary, 110)}</p>
+      <div class="ai-reason-row">${reasonChips}</div>
+
+      <div class="ai-detail-grid ai-metric-grid">
+        <div class="ai-mini-card">
+          <div class="ai-mini-title">安全 <span class="ai-source-tag">${securityBadge}</span></div>
+          <div class="ai-mini-main ${getLevelClass(analysis.riskLevel)}">${analysis.riskLevel} · ${100 - analysis.riskScore}</div>
+          <p class="ai-line-clamp">${shortAiLine(securityBody, 72)}</p>
         </div>
         <div class="ai-mini-card">
-          <div class="ai-mini-title">Token 安全检查</div>
-          <div class="ai-mini-main ${getLevelClass(analysis.riskLevel)}">风险 ${analysis.riskLevel} · ${100 - analysis.riskScore}/100</div>
-          <p>${riskFlags}</p>
+          <div class="ai-mini-title">共振 <span class="ai-source-tag">${resonanceSource}</span></div>
+          <div class="ai-mini-main ${getLevelClass(analysis.resonanceLevel)}">${analysis.resonanceLevel} · ${analysis.resonanceScore}</div>
+          <p class="ai-line-clamp">${shortAiLine(resonanceBody, 72)}</p>
         </div>
         <div class="ai-mini-card">
-          <div class="ai-mini-title">Smart Money 共振</div>
-          <div class="ai-mini-main ${getLevelClass(analysis.resonanceLevel)}">${analysis.resonanceLevel}共振</div>
-          <p>当前 MVP 用买压、放量、信号组合估算；下一步接入 GMGN smartmoney/KOL 实时钱包。</p>
-        </div>
-        <div class="ai-mini-card">
-          <div class="ai-mini-title">买入点评估</div>
+          <div class="ai-mini-title">买点</div>
           <div class="ai-mini-main ${getLevelClass(analysis.entryGrade)}">${analysis.entryGrade} · ${analysis.entryAction}</div>
-          <p>报警不等于买入。买点会结合风险、动量、回撤和 24h 追踪结果单独评估。</p>
+          <p class="ai-line-clamp">报警≠买入 · 相对标注 ${formatChange(analysis.currentChange)}</p>
         </div>
         <div class="ai-mini-card">
-          <div class="ai-mini-title">钱包画像</div>
-          <div class="ai-mini-main neutral">点击钱包后展开</div>
-          <p>后续接入 wallet stats：胜率、PnL、平均持仓、交易风格评级。</p>
-        </div>
-        <div class="ai-mini-card ai-wide">
-          <div class="ai-mini-title">AI 历史追踪总结</div>
+          <div class="ai-mini-title">表现</div>
           <div class="ai-mini-main ${getLevelClass(analysis.historyStatus)}">${analysis.historyStatus}</div>
-          <p>信号后最高 ${formatChange(analysis.maxGain)}，最大回撤 ${formatChange(analysis.maxDrawdown)}，当前 ${formatChange(analysis.currentChange)}。${tracked.moonshot?.active ? '该项目已进入 500%+ 特色观察池，买入标注点和状态保留 1 个月。' : '买入标注点将持续保留 24 小时。'}</p>
-          ${tracked.moonshot?.selloffReason ? `<p class="ai-suggestion danger">提醒原因：${tracked.moonshot.selloffReason}</p>` : ''}
+          <p class="ai-line-clamp">峰 ${formatChange(analysis.maxGain)} · 回撤 ${formatChange(analysis.maxDrawdown)}</p>
         </div>
       </div>
-      <div class="strategy-preview-box ${canTradePreview ? '' : 'blocked'}">
-        <div>
-          <strong>策略订单预览</strong>
-          <span>${canTradePreview ? '限价买入 + 止盈/止损，仅生成预览，不自动下单' : '风险过高，交易入口已拦截'}</span>
+
+      <!-- 次级信息默认折叠，避免一屏塞满 -->
+      <details class="ai-fold">
+        <summary>钱包画像 <span class="ai-fold-meta">${walletCount ? `${walletCount} 个` : '无'} · 点击展开</span></summary>
+        <div class="ai-fold-body">${renderWalletProfileCard(tracked, analysis)}</div>
+      </details>
+      <details class="ai-fold">
+        <summary>完整说明 <span class="ai-fold-meta">摘要 / 风险明细</span></summary>
+        <div class="ai-fold-body">
+          <p>${analysis.summary || '—'}</p>
+          <p class="ai-suggestion">${analysis.suggestion || ''}</p>
+          <p><strong>安全</strong> ${securityBody}</p>
+          <p><strong>共振</strong> ${resonanceBody}</p>
+          ${tracked.moonshot?.selloffReason ? `<p class="ai-suggestion danger">${tracked.moonshot.selloffReason}</p>` : ''}
         </div>
-        <button class="monitor-action-btn primary strategy-preview-btn" data-tracked-key="${key}" ${canTradePreview ? '' : 'disabled'}>策略预览</button>
+      </details>
+
+      <div class="strategy-preview-box strategy-preview-compact ${canTradePreview ? '' : 'blocked'}">
+        <div>
+          <strong>策略预览</strong>
+          <span>${canTradePreview ? '点击生成报价 · 默认不展开' : '已拦截'}</span>
+        </div>
+        <button class="monitor-action-btn primary strategy-preview-btn" data-tracked-key="${key}" ${canTradePreview ? '' : 'disabled'}>报价</button>
       </div>
     </div>`;
 }
 
-function showStrategyPreview(tracked, analysis) {
-  if (['禁止交易', '禁止追高', '信号失效'].includes(analysis.action) || analysis.entryGrade === 'D') {
-    showToast(`买点评级 ${analysis.entryGrade}：${analysis.action}，当前仅允许观察，不生成策略订单`, 'error');
+function openStrategyModal(html) {
+  // Only called after explicit user click on 策略预览/报价 — never auto-open
+  const modal = document.getElementById('strategyModal');
+  const body = document.getElementById('strategyModalBody');
+  if (!modal || !body) {
+    showToast(String(html).replace(/<[^>]+>/g, ' ').slice(0, 180), 'info');
     return;
   }
-  const entry = analysis.current > 0 ? analysis.current * 0.9 : 0;
-  const text = `策略预览：${tracked.symbol} · 限价买入 ${formatPrice(entry)} · 标准模板：+100%卖50%，+300%卖剩余，-50%止损。当前仅为预览，不执行真实交易。`;
-  showToast(text, 'info');
+  body.innerHTML = html;
+  modal.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('strategy-modal-open');
+}
+
+function closeStrategyModal() {
+  const modal = document.getElementById('strategyModal');
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  document.body.classList.remove('strategy-modal-open');
+}
+
+function renderStrategyQuoteHtml(quote, tracked) {
+  if (!quote) {
+    return `<p class="strategy-quote-error">无法生成预览</p>`;
+  }
+  if (quote.blocked) {
+    return `
+      <div class="strategy-quote-blocked">
+        <div class="ai-mini-main danger">已拦截 · ${quote.blockReason || '风险过高'}</div>
+        <p>${tracked?.symbol || quote.symbol} 买点 ${quote.entryGrade} · ${quote.entryAction}</p>
+        <p class="strategy-disclaimer">${quote.disclaimer || '仅预览，不执行交易。'}</p>
+      </div>`;
+  }
+  const m = quote.market || {};
+  const s = quote.sizing || {};
+  const r = quote.risk || {};
+  const legs = Array.isArray(quote.legs) ? quote.legs : [];
+  const legRows = legs.map((leg) => `
+    <tr>
+      <td><span class="strategy-leg-side ${leg.side}">${leg.label || leg.id}</span></td>
+      <td>${formatPrice(leg.price)}</td>
+      <td>$${Number(leg.sizeUsd || 0).toFixed(0)}</td>
+      <td>${leg.pctOfPosition != null ? `${leg.pctOfPosition}%` : '—'}</td>
+      <td class="muted">${leg.note || leg.type || ''}</td>
+    </tr>`).join('');
+  return `
+    <div class="strategy-quote-head">
+      <div>
+        <strong>${quote.symbol || tracked?.symbol || 'TOKEN'}</strong>
+        <span class="strategy-chain">${quote.chain || tracked?.chain || ''}</span>
+      </div>
+      <div class="ai-mini-main ${getLevelClass(quote.entryGrade)}">${quote.entryGrade} · ${quote.entryAction}</div>
+    </div>
+    <div class="strategy-quote-meta">
+      <span>市价 <strong>${formatPrice(m.price)}</strong> <em>(${m.source || '—'})</em></span>
+      <span>买入标注 <strong>${formatPrice(m.signalPrice || tracked?.priceAtSignal)}</strong></span>
+      <span>建议仓位 <strong>$${s.sizeUsd ?? s.suggestedUsd ?? 0}</strong> <em>${s.label || ''}</em></span>
+    </div>
+    <p class="strategy-template">${quote.templateName || quote.templateId || '标准阶梯'}</p>
+    <div class="strategy-table-wrap">
+      <table class="strategy-legs-table">
+        <thead>
+          <tr><th>腿</th><th>价格</th><th>名义</th><th>仓位</th><th>说明</th></tr>
+        </thead>
+        <tbody>${legRows || '<tr><td colspan="5">无订单腿</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="strategy-risk-row">
+      <span>最大亏损 <strong class="danger">$${Number(r.maxLossUsd || 0).toFixed(0)}</strong></span>
+      <span>双止盈兑现 <strong class="good">+$${Number(r.fullSuccessPnl || 0).toFixed(0)}</strong></span>
+      <span>R:R <strong>${r.riskReward != null ? r.riskReward : '—'}</strong></span>
+    </div>
+    <p class="strategy-disclaimer">${quote.disclaimer || '预览 only · 不执行真实交易。'}</p>
+    <p class="strategy-no-exec">未开放执行 · 不会请求 GMGN 交易/签名接口 · 不存储私钥</p>`;
+}
+
+/** Client-side fallback quote (mirrors server template math). */
+function buildLocalStrategyQuote(tracked, analysis) {
+  const marketPrice = Number(analysis.current || tracked.currentPrice || 0);
+  const signalPrice = Number(tracked.priceAtSignal || 0);
+  const entryGrade = String(analysis.entryGrade || 'C').toUpperCase().slice(0, 1);
+  const entryAction = analysis.entryAction || analysis.action || '继续观察';
+  const sizeMap = { A: 100, B: 50, C: 25, D: 0 };
+  const maxMap = { A: 300, B: 150, C: 75, D: 0 };
+  const blocked = ['禁止交易', '禁止追高', '信号失效'].includes(entryAction) || entryGrade === 'D' || !(marketPrice >0 || signalPrice >0);
+  let mult = 0.9;
+  if (entryAction === '等待回踩' || entryAction === '禁止追高') mult = 0.85;
+  else if (entryAction === '重点观察' || entryGrade === 'A') mult = 0.95;
+  else if (entryGrade === 'B') mult = 0.92;
+  else if (entryGrade === 'C') mult = 0.88;
+  const ref = marketPrice >0 ? marketPrice : signalPrice;
+  let entryPrice = ref * mult;
+  if (signalPrice >0 && marketPrice >signalPrice * 1.15) entryPrice = Math.min(entryPrice, signalPrice * 1.02);
+  const sizeUsd = sizeMap[entryGrade] || 25;
+  const sizeTokens = entryPrice >0 ? sizeUsd / entryPrice : 0;
+  const legs = blocked ? [] : [
+    { id: 'entry', side: 'buy', type: 'limit', label: '限价买入', price: entryPrice, sizeUsd, sizeTokens, pctOfPosition: 100, note: '本地回退报价' },
+    { id: 'tp1', side: 'sell', type: 'limit', label: '止盈1 · +100%', price: entryPrice * 2, sizeUsd: sizeUsd * 0.5, sizeTokens: sizeTokens * 0.5, pctOfPosition: 50, note: '卖出 50% 仓位' },
+    { id: 'tp2', side: 'sell', type: 'limit', label: '止盈2 · +300%', price: entryPrice * 4, sizeUsd: sizeUsd * 0.5, sizeTokens: sizeTokens * 0.5, pctOfPosition: 50, note: '卖出剩余 50%' },
+    { id: 'sl', side: 'sell', type: 'stop', label: '止损 · -50%', price: entryPrice * 0.5, sizeUsd, sizeTokens, pctOfPosition: 100, note: '跌破止损清仓' },
+  ];
+  return {
+    templateId: 'standard-ladder-v1',
+    templateName: '标准阶梯 · 限价买入 + 双止盈 + 止损',
+    executionEnabled: false,
+    previewOnly: true,
+    blocked,
+    blockReason: blocked ? (entryGrade === 'D' ? '买点评级 D / 禁止交易' : entryAction) : '',
+    symbol: tracked.symbol,
+    chain: tracked.chain,
+    address: tracked.address,
+    entryGrade,
+    entryAction,
+    sizing: { grade: entryGrade, label: sizeMap[entryGrade] ? '建议仓' : '—', suggestedUsd: sizeUsd, maxUsd: maxMap[entryGrade] || 0, sizeUsd: blocked ? 0 : sizeUsd },
+    market: { price: marketPrice, signalPrice, source: 'client-local' },
+    legs,
+    risk: {
+      maxLossUsd: blocked ? 0 : sizeUsd * 0.5,
+      fullSuccessUsd: blocked ? 0 : sizeUsd * 0.5 * 2 + sizeUsd * 0.5 * 4,
+      fullSuccessPnl: blocked ? 0 : (sizeUsd * 0.5 * 2 + sizeUsd * 0.5 * 4) - sizeUsd,
+      riskReward: blocked ? null : 5,
+    },
+    disclaimer: '此为策略订单预览，不创建链上/交易所订单，不连接钱包私钥。真实下单必须单独二次确认（当前版本未开放执行）。',
+  };
+}
+
+async function showStrategyPreview(tracked, analysis) {
+  if (['禁止交易', '禁止追高', '信号失效'].includes(analysis.action) || analysis.entryGrade === 'D') {
+    const blocked = buildLocalStrategyQuote(tracked, analysis);
+    openStrategyModal(renderStrategyQuoteHtml(blocked, tracked));
+    showToast(`买点评级 ${analysis.entryGrade}：${analysis.action}，交易预览已拦截`, 'error');
+    return;
+  }
+
+  openStrategyModal(`<p class="wallet-stats-loading">正在生成策略报价…</p>`);
+
+  const qs = new URLSearchParams({
+    chain: tracked.chain || state.currentChain || 'solana',
+    address: tracked.address || '',
+    symbol: tracked.symbol || '',
+    price: String(analysis.current || tracked.currentPrice || 0),
+    signalPrice: String(tracked.priceAtSignal || 0),
+    entryGrade: analysis.entryGrade || 'C',
+    entryAction: analysis.entryAction || analysis.action || '继续观察',
+  });
+
+  let quote = null;
+  try {
+    const res = await fetch(getApiUrl(`/api/strategy-preview?${qs}`), {
+      headers: { Accept: 'application/json' },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (json.success && json.data) {
+      quote = json.data;
+      // Hard safety: never trust a server that claims execution
+      if (json.executionEnabled === true || quote.executionEnabled === true) {
+        quote = { ...quote, executionEnabled: false, previewOnly: true };
+      }
+    }
+  } catch (e) {
+    console.warn('strategy-preview API failed, local fallback', e);
+  }
+
+  if (!quote) quote = buildLocalStrategyQuote(tracked, analysis);
+  openStrategyModal(renderStrategyQuoteHtml(quote, tracked));
+  showToast(
+    quote.blocked
+      ? `策略预览已拦截：${quote.blockReason || quote.entryAction}`
+      : `策略预览已生成 · ${quote.symbol} · 建议 $${quote.sizing?.sizeUsd ?? 0} · 仅预览不下单`,
+    quote.blocked ? 'error' : 'info'
+  );
 }
 
 // --- Monitoring ---
@@ -1927,9 +2508,9 @@ function renderSignalOutcomeStatsBar() {
   const avgPeak = stats.total ? formatChange(stats.avgMaxGain) : '—';
   // Best pattern tip for selection
   let bestTip = '样本积累中 · 胜率将反馈选标';
-  const patterns = Object.values(stats.byPattern || {}).filter((p) => p.total >= 3);
+  const patterns = Object.values(stats.byPattern || {}).filter((p) =>p.total >= 3);
   if (patterns.length) {
-    patterns.sort((a, b) => b.winRate - a.winRate || b.total - a.total);
+    patterns.sort((a, b) =>b.winRate - a.winRate || b.total - a.total);
     const top = patterns[0];
     bestTip = `优选模式 ${(top.winRate * 100).toFixed(0)}% · ${top.key}（${top.wins}/${top.total}）`;
   }
@@ -1938,7 +2519,7 @@ function renderSignalOutcomeStatsBar() {
   }
   if (!el) return;
   el.innerHTML = `
-    <div class="outcome-stat"><span class="outcome-stat-label">胜率</span><strong class="outcome-stat-value ${stats.winRate >= 0.45 ? 'good' : stats.winRate > 0 && stats.winRate < 0.3 ? 'danger' : ''}">${wr}</strong><em>${stats.wins || 0}胜/${stats.losses || 0}负</em></div>
+    <div class="outcome-stat"><span class="outcome-stat-label">胜率</span><strong class="outcome-stat-value ${stats.winRate >= 0.45 ? 'good' : stats.winRate >0 && stats.winRate < 0.3 ? 'danger' : ''}">${wr}</strong><em>${stats.wins || 0}胜/${stats.losses || 0}负</em></div>
     <div class="outcome-stat"><span class="outcome-stat-label">强胜≥35%</span><strong class="outcome-stat-value">${strongWr}</strong><em>${stats.strongWins || 0}次</em></div>
     <div class="outcome-stat"><span class="outcome-stat-label">均峰值</span><strong class="outcome-stat-value ${getChangeClass(stats.avgMaxGain || 0)}">${avgPeak}</strong><em>自买入点</em></div>
     <div class="outcome-stat"><span class="outcome-stat-label">追踪中</span><strong class="outcome-stat-value">${live}</strong><em>24H</em></div>
@@ -1948,7 +2529,7 @@ function renderSignalOutcomeStatsBar() {
 
 function renderMemecoinMonitoring() {
   pruneSignalTracking();
-  const activeAddresses = new Set(state.signals.filter((s) => s.active).map((s) => getTrackingKey(s.tokenAddress, s.tokenChain)));
+  const activeAddresses = new Set(state.signals.filter((s) =>s.active).map((s) =>getTrackingKey(s.tokenAddress, s.tokenChain)));
   const now = Date.now();
   const remainingKeys = Object.keys(state.trackedTokens);
   dom.trackedCount.textContent = remainingKeys.length;
@@ -1988,7 +2569,7 @@ function renderMemecoinMonitoring() {
     const analysis = analyzeTrackedToken(tracked, isActive, now);
     const liveOutcome = window.SignalEngine?.evaluateSignalOutcome?.(tracked, { now }) || {};
     const priceChange = analysis.currentChange;
-    const statusLabel = isActive ? '🟢 5分钟信号中' : '📜 历史追踪';
+    const statusLabel = isActive ? '5分钟信号中' : '历史追踪';
     const statusClass = isActive ? 'active' : 'history';
     const outcomeLabel = tracked.outcomeTier || liveOutcome.tier || analysis.historyStatus || '观察中';
     const outcomeClass = liveOutcome.isWin || tracked.outcomeStatus === 'win' || tracked.outcomeStatus === 'soft_win'
@@ -2024,8 +2605,8 @@ function renderMemecoinMonitoring() {
         <span class="monitor-status-badge ${statusClass}">${statusLabel}</span>
       </div>
       <div class="ai-chip-row">
-        ${tracked.moonshot?.active ? `<span class="ai-chip moonshot">🚀 500%+ · 保留1个月</span>` : ''}
-        ${tracked.moonshot?.selloffAlertedAt ? `<span class="ai-chip danger">⚠️ ${tracked.moonshot.selloffReason || '高收益回撤'}</span>` : ''}
+        ${tracked.moonshot?.active ? `<span class="ai-chip moonshot">500%+ · 保留1个月</span>` : ''}
+        ${tracked.moonshot?.selloffAlertedAt ? `<span class="ai-chip danger">${tracked.moonshot.selloffReason || '高收益回撤'}</span>` : ''}
         <span class="ai-chip ${outcomeClass}">结果：${outcomeLabel}</span>
         <span class="ai-chip ${getLevelClass(analysis.signalLevel)}">AI：${analysis.signalLevel} ${analysis.aiScore}/100</span>
         <span class="ai-chip ${getLevelClass(analysis.riskLevel)}">风险：${analysis.riskLevel}</span>
@@ -2061,14 +2642,14 @@ function renderMemecoinMonitoring() {
     const tracked = state.trackedTokens[key];
     const analysis = analyzeTrackedToken(tracked, false, now);
     const displayName = getTokenDisplayName(tracked);
-    const isDuplicateName = nameCounts[displayName.toLowerCase()] > 1;
+    const isDuplicateName = nameCounts[displayName.toLowerCase()] >1;
     const fingerprint = uniqueTokenFingerprint(tracked.address || '');
     const moonshot = !!tracked.moonshot?.active || analysis.maxGain >= 500 || analysis.currentChange >= 500;
     const alertReason = tracked.moonshot?.selloffReason || '';
     return `
       <div class="archive-token-row ${moonshot ? 'moonshot-row' : ''} ${alertReason ? 'moonshot-alert-row' : ''}" title="${tracked.address || ''}">
         <span class="archive-token-id">
-          <strong>${moonshot ? '🚀 ' : ''}${displayName}</strong>
+          <strong>${displayName}</strong>
           <button class="archive-address-copy" type="button" data-copy-address="${tracked.address || ''}" title="左键点击复制完整合约地址">
             ${isDuplicateName ? '同名·' : ''}${fingerprint}${moonshot ? ' · 500%+保留1月' : ''}
             <span class="archive-copy-hint">复制</span>
@@ -2091,7 +2672,7 @@ function renderMemecoinMonitoring() {
   const emptyArchive = '<div class="archive-empty-row">当前只追踪了最新 8 个以内，暂无额外历史记录</div>';
   archiveCard.innerHTML = `
     <button class="archive-toggle" type="button">
-      <span>📦 已追踪历史 + 胜负台账</span>
+      <span>已追踪历史 + 胜负台账</span>
       <strong>${archivedKeys.length + recentOutcomes.length}</strong>
       <em>${state.archiveExpanded ? '收起' : '点击查看'}</em>
     </button>
@@ -2109,7 +2690,7 @@ function renderMemecoinMonitoring() {
     });
   });
   dom.monitorCards.querySelectorAll('.archive-address-copy').forEach((btn) => {
-    btn.addEventListener('click', (e) => copyAddress(e.currentTarget.dataset.copyAddress, e));
+    btn.addEventListener('click', (e) =>copyAddress(e.currentTarget.dataset.copyAddress, e));
   });
   dom.monitorCards.querySelectorAll('.ai-detail-toggle').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -2123,8 +2704,15 @@ function renderMemecoinMonitoring() {
       const key = e.currentTarget.dataset.trackedKey;
       const tracked = state.trackedTokens[key];
       if (!tracked) return;
-      const isActive = state.signals.some((s) => s.active && getTrackingKey(s.tokenAddress, s.tokenChain) === key);
+      const isActive = state.signals.some((s) =>s.active && getTrackingKey(s.tokenAddress, s.tokenChain) === key);
       showStrategyPreview(tracked, analyzeTrackedToken(tracked, isActive));
+    });
+  });
+  dom.monitorCards.querySelectorAll('.wallet-profile-load').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      loadWalletProfileStats(e.currentTarget);
     });
   });
   requestAnimationFrame(() => {
@@ -2150,10 +2738,10 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, height);
 
-  const validPricePoints = priceHistory.filter((p) => p.price != null);
+  const validPricePoints = priceHistory.filter((p) =>p.price != null);
   if (validPricePoints.length === 0) return;
   const buyPoint = tracked?.buyMarker || { time: tracked?.signalAt, price: tracked?.priceAtSignal, label: '信号买入点' };
-  const allPrices = validPricePoints.map((p) => p.price);
+  const allPrices = validPricePoints.map((p) =>p.price);
   if (buyPoint.price != null) allPrices.push(buyPoint.price);
   const min = Math.min(...allPrices);
   const max = Math.max(...allPrices);
@@ -2168,7 +2756,7 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
     const denom = Math.max(1, total - 1);
     return padding.left + (index / denom) * chartWidth;
   };
-  const yFor = (price) => hasPriceRange ? padding.top + (1 - (price - min) / range) * chartHeight : padding.top + chartHeight / 2;
+  const yFor = (price) =>hasPriceRange ? padding.top + (1 - (price - min) / range) * chartHeight : padding.top + chartHeight / 2;
   const isUp = validPricePoints[validPricePoints.length - 1].price >= (tracked?.priceAtSignal ?? validPricePoints[0].price);
   const lineColor = isUp ? '#22c55e' : '#ef4444';
   const fillColor = isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
@@ -2292,7 +2880,7 @@ const SIGNAL_BADGE_LABELS = {
 
 function renderOthercoinTokenRows(tokens) {
   if (!tokens || tokens.length === 0) {
-    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>暂无信号数据</p></div>';
+    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>暂无信号数据</p></div>';
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -2300,7 +2888,7 @@ function renderOthercoinTokenRows(tokens) {
     const row = document.createElement('div');
     row.className = 'token-row othercoin-token-row';
     row.style.animationDelay = `${index * 0.03}s`;
-    const rankEmoji = index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1;
+    const rankEmoji = index + 1;
     const iconHtml = getTokenIcon(token);
     const chainBadge = getChainBadgeHtml(token.chain || 'multi');
     // 详情：Solana→GMGN，其余 EVM→DexScreener（与 Memecoin 同一规则）
@@ -2321,7 +2909,7 @@ function renderOthercoinTokenRows(tokens) {
     // Build signal badges
     let badgesHtml = '';
     const signals = token.signals || [];
-    if (signals.length > 0) {
+    if (signals.length >0) {
       badgesHtml = '<div class="signal-badge-row">';
       if (signals.length >= 3) {
         badgesHtml += `<span class="signal-badge multi">+${signals.length} 信号</span>`;
@@ -2335,7 +2923,7 @@ function renderOthercoinTokenRows(tokens) {
 
     // Signal detail text
     let detailText = '';
-    if (signals.length > 0) {
+    if (signals.length >0) {
       detailText = signals[0].detail || signals[0].label || '';
     }
 
@@ -2376,10 +2964,10 @@ function renderOthercoinTokenRows(tokens) {
 function updateOthercoinStats(tokens, timestamp) {
   if (!dom.statsBarOther) return;
   if (dom.statCountOther) dom.statCountOther.textContent = tokens.length;
-  const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h || 0), 0);
+  const totalVolume = tokens.reduce((sum, t) =>sum + (t.volume24h || 0), 0);
   if (dom.statVolOther) dom.statVolOther.textContent = formatCompact(totalVolume);
-  const totalScore = tokens.reduce((sum, t) => sum + (t.signalScore ?? t.score ?? 0), 0);
-  const avgScore = tokens.length > 0 ? (totalScore / tokens.length).toFixed(1) : '--';
+  const totalScore = tokens.reduce((sum, t) =>sum + (t.signalScore ?? t.score ?? 0), 0);
+  const avgScore = tokens.length >0 ? (totalScore / tokens.length).toFixed(1) : '--';
   if (dom.statCapOther) dom.statCapOther.textContent = avgScore;
   if (dom.statUpdatedOther) dom.statUpdatedOther.textContent = formatTime(timestamp || Date.now());
 }
@@ -2388,39 +2976,68 @@ function updateOthercoinStats(tokens, timestamp) {
 // BITCOIN PAGE
 // ====================================================================================
 
-async function fetchBitcoinApi(source = 'auto') {
-  const path = source && source !== 'auto' ? `/api/bitcoin?source=${source}` : '/api/bitcoin';
-  const response = await fetch(getApiUrl(path), { headers: { 'Accept': 'application/json' } });
-  if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error || `API错误: ${response.status}`); }
+async function fetchBitcoinApi(source = 'auto', period = '1d', seriesUnit = 'day') {
+  const qs = new URLSearchParams();
+  if (source && source !== 'auto') qs.set('source', source);
+  if (period) qs.set('period', period);
+  if (seriesUnit) qs.set('seriesUnit', seriesUnit);
+  const q = qs.toString();
+  const path = q ? `/api/bitcoin?${q}` : '/api/bitcoin';
+  const response = await fetch(getApiUrl(path), { headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `API错误: ${response.status}`);
+  }
   return response.json();
 }
 
 async function loadBitcoinData() {
   state.btcLoading = true;
   state.btcError = null;
-  dom.btcHeroLoading.style.display = 'flex';
-  dom.btcHeroContent.style.display = 'none';
-  setStatus('loading');
-  updateSourceStatus('loading', '连接中...');
+  const hasCache = !!state.btcData;
+  // Soft refresh: keep last snapshot visible (no full-page flash)
+  if (!hasCache) {
+    dom.btcHeroLoading.style.display = 'flex';
+    dom.btcHeroContent.style.display = 'none';
+    setStatus('loading');
+    updateSourceStatus('loading', '连接中...');
+  } else {
+    updateSourceStatus('loading', '刷新中...');
+    if (dom.btcUpdated) dom.btcUpdated.textContent = '刷新…';
+  }
   try {
-    const result = await fetchBitcoinApi(state.btcPreferredSource);
+    const result = await fetchBitcoinApi(
+      state.btcPreferredSource,
+      state.btcPeriod || '1h',
+      state.btcSeriesUnit || 'day'
+    );
     if (!result.success || !result.data) throw new Error('BTC API返回数据异常');
     state.btcData = result.data;
-    // Track source info
-    const sourceInfo = result.source || { active: 'auto', label: '自动', autoFallback: false };
+    state.btcSourceMeta = result.source || { active: 'auto', label: '自动', autoFallback: false };
+    state.btcSourceHealth = result.sourceHealth || {};
+    // Keep period selector in sync with server-resolved key
+    if (result.data.periodBoard?.period) {
+      state.btcPeriod = result.data.periodBoard.period;
+    }
+    if (result.data.selfTriSeries?.unit) {
+      state.btcSeriesUnit = result.data.selfTriSeries.unit;
+    }
     // Add to price history for sparkline
     const price = result.data.price?.index || result.data.price?.spot || 0;
-    if (price > 0) {
-      state.btcPriceHistory.push({ time: Date.now(), price });
-      if (state.btcPriceHistory.length > 50) state.btcPriceHistory = state.btcPriceHistory.slice(-50);
+    if (price >0) {
+      const last = state.btcPriceHistory[state.btcPriceHistory.length - 1];
+      // Avoid duplicate flat points within 8s
+      if (!last || Date.now() - last.time >8000 || Math.abs(last.price - price) >0.01) {
+        state.btcPriceHistory.push({ time: Date.now(), price });
+      }
+      if (state.btcPriceHistory.length >80) state.btcPriceHistory = state.btcPriceHistory.slice(-80);
     }
     renderBitcoinData();
     setStatus('');
     dom.btcHeroLoading.style.display = 'none';
     dom.btcHeroContent.style.display = 'block';
     state.btcSourceRetryCount = 0;
-    // Update source status
-    updateSourceStatus(sourceInfo, result.sourceHealth);
+    updateSourceStatus(state.btcSourceMeta, state.btcSourceHealth);
   } catch (err) {
     console.error('BTC load error:', err);
     state.btcError = err.message;
@@ -2430,17 +3047,22 @@ async function loadBitcoinData() {
       const sourceName = state.btcPreferredSource.charAt(0).toUpperCase() + state.btcPreferredSource.slice(1);
       showToast(`${sourceName} 无响应，自动回退到其他数据源...`, 'warning');
       state.btcPreferredSource = 'auto';
-      // Update UI to show auto mode
       dom.btcSourceBtns.forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.source === 'auto');
       });
-      setTimeout(() => loadBitcoinData(), 1000);
+      setTimeout(() =>loadBitcoinData(), 1000);
       return;
     }
-    showToast(`BTC数据加载失败: ${err.message}`, 'error');
-    dom.btcHeroLoading.innerHTML = `<div class="error-icon">⚠️</div><p style="color:var(--accent-red)">BTC 数据加载失败</p><button class="retry-btn" onclick="loadBitcoinData()" style="margin-top:12px">重试</button>`;
-    updateSourceStatus('error', '所有数据源不可用');
-    setStatus('error');
+    if (!hasCache) {
+      showToast(`BTC数据加载失败: ${err.message}`, 'error');
+      dom.btcHeroLoading.innerHTML = `<div class="error-icon"></div><p style="color:var(--accent-red)">BTC 数据加载失败</p><button class="retry-btn" onclick="loadBitcoinData()" style="margin-top:12px">重试</button>`;
+      updateSourceStatus('error', '所有数据源不可用');
+      setStatus('error');
+    } else {
+      showToast(`BTC 刷新失败，保留上次数据: ${err.message}`, 'warning');
+      updateSourceStatus('error', '刷新失败 · 显示缓存');
+      if (dom.btcUpdated) dom.btcUpdated.textContent = '缓存';
+    }
   } finally {
     state.btcLoading = false;
   }
@@ -2453,25 +3075,19 @@ function updateSourceStatus(status, detail) {
     const si = status;
     const health = detail || {};
     const label = si.label || '未知';
-    const isAuto = si.active === 'auto';
-    const hadFallback = si.autoFallback;
+    // 统一自信号源文案，不展示 Binance/Bybit 等单所名
+    const ok = health && typeof health === 'object'
+      ? Object.values(health).filter((h) =>h && h.available && h.healthy && !h.stale).length
+      : 0;
+    const total = health && typeof health === 'object'
+      ? Object.values(health).filter((h) =>h && h.available).length
+      : 0;
     dom.sourceStatusDot.className = 'source-status-dot healthy';
-    if (hadFallback) {
-      dom.sourceStatusText.innerHTML = `<span class="fallback">⚠ 已回退</span> · <span class="source-name">${label}</span>`;
-    } else if (isAuto) {
-      dom.sourceStatusText.innerHTML = `🤖 自动 · <span class="source-name">${label}</span>`;
-    } else {
-      dom.sourceStatusText.textContent = `✓ ${label}`;
-    }
-    // Check if any sources are unhealthy
-    let unhealthyCount = 0;
-    if (health && typeof health === 'object') {
-      for (const [key, h] of Object.entries(health)) {
-        if (h && !h.healthy) unhealthyCount++;
-      }
-    }
-    if (unhealthyCount > 1) {
+    if (total >0 && ok < total) {
       dom.sourceStatusDot.className = 'source-status-dot warning';
+      dom.sourceStatusText.textContent = `自信号源 · ${ok}/${total} 有效`;
+    } else {
+      dom.sourceStatusText.textContent = total >0 ? `自信号源 · 全量` : `自信号源 · ${label || '就绪'}`;
     }
     return;
   }
@@ -2482,27 +3098,304 @@ function updateSourceStatus(status, detail) {
     dom.sourceStatusText.innerHTML = `<span class="fallback">⟳ ${detail || '请求中'}</span>`;
   } else if (status === 'error') {
     dom.sourceStatusDot.classList.add('error');
-    dom.sourceStatusText.textContent = `✗ ${detail || '错误'}`;
+    dom.sourceStatusText.textContent = detail || '错误';
   } else {
     dom.sourceStatusDot.classList.add('healthy');
     dom.sourceStatusText.textContent = detail || '正常';
   }
 }
 
+function formatFundingChip(rate) {
+  if (rate == null || !Number.isFinite(Number(rate))) return '--';
+  const r = Number(rate);
+  const sign = r >0 ? '+' : '';
+  return `${sign}${(r * 100).toFixed(4)}%`;
+}
+
+function renderBtcMarketBias(bias) {
+  if (!dom.btcBiasStrip) return;
+  if (!bias || bias.score == null) {
+    dom.btcBiasStrip.hidden = true;
+    return;
+  }
+  dom.btcBiasStrip.hidden = false;
+  const score = Math.max(0, Math.min(100, Number(bias.score) || 50));
+  // 无中性：仅 bull / bear
+  const tone = bias.tone === 'bull' || bias.label === '看多' ? 'bull' : 'bear';
+  if (dom.btcBiasLabel) {
+    dom.btcBiasLabel.textContent = bias.label === '看多' || tone === 'bull' ? '看多' : '看空';
+    dom.btcBiasLabel.className = `btc-bias-value tone-${tone}`;
+  }
+  if (dom.btcBiasScore) dom.btcBiasScore.textContent = `${score}`;
+  if (dom.btcBiasBar) {
+    dom.btcBiasBar.style.width = `${score}%`;
+    dom.btcBiasBar.className = `btc-bias-bar-fill tone-${tone}`;
+  }
+  if (dom.btcBiasSummary) {
+    const drivers = Array.isArray(bias.drivers) ? bias.drivers.slice(0, 2).join(' · ') : '';
+    dom.btcBiasSummary.textContent =
+      drivers || bias.summary || (tone === 'bull' ? '资金费率正数 · 看多' : '资金费率非正 · 看空');
+  }
+}
+
+function renderBtcFundingVenues(futures = {}, periodAgg = null) {
+  // 页面只展示自信号源均费率，不列出单所
+  const fromAgg = periodAgg?.fundingCurrentAvg ?? periodAgg?.fundingAvg;
+  const v = futures.fundingVenues || {};
+  const samples = [v.binance, v.bybit, v.okx, v.bitget, v.hyperLiquid]
+    .map(Number)
+    .filter((n) =>Number.isFinite(n));
+  const mean =
+    fromAgg != null && Number.isFinite(Number(fromAgg))
+      ? Number(fromAgg)
+      : samples.length
+        ? samples.reduce((a, b) =>a + b, 0) / samples.length
+        : null;
+  const hasAny = mean != null;
+  if (dom.btcFundingVenues) dom.btcFundingVenues.hidden = !hasAny;
+  if (dom.fundSelfAvg) {
+    dom.fundSelfAvg.textContent = `均费率 ${formatFundingChip(mean)}`;
+    dom.fundSelfAvg.className = 'btc-fund-chip';
+    if (mean != null) {
+      dom.fundSelfAvg.classList.add(mean >0 ? 'pos' : mean < 0 ? 'neg' : 'flat');
+    }
+  }
+}
+
+function formatOiChange(pct) {
+  if (pct == null || !Number.isFinite(Number(pct))) return '—';
+  const n = Number(pct);
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+}
+
+function formatUsdPrice(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '—';
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function renderStageAverages(stages = []) {
+  if (!dom.btcStageGrid) return;
+  const byKey = Object.fromEntries((stages || []).map((s) => [s.period, s]));
+  dom.btcStageGrid.querySelectorAll('.btc-stage-card').forEach((card) => {
+    const key = card.dataset.stage;
+    const s = byKey[key];
+    const agg = s?.aggregate || {};
+    const set = (sel, text, cls) => {
+      const el = card.querySelector(sel);
+      if (!el) return;
+      el.textContent = text;
+      el.className = sel.replace('.', '') + (cls ? ` ${cls}` : '');
+    };
+    set('.st-price', formatUsdPrice(agg.priceAvg));
+    // 必须用窗口内结算均值，禁止用现价 current 冒充各周期
+    const fund = agg.fundingAvg;
+    const fundN = agg.sample?.fundingInlierN ?? agg.sample?.fundingN ?? s?.fundingSampleN;
+    set(
+      '.st-fund',
+      fund != null && Number.isFinite(Number(fund)) ? formatFundingChip(fund) : '—',
+      Number(fund) > 0 ? 'pos' : Number(fund) < 0 ? 'neg' : ''
+    );
+    set('.st-fund-n', fundN != null ? String(fundN) : '—');
+    set('.st-vol', agg.volumeQuoteAvg != null ? formatCompact(agg.volumeQuoteAvg) : '—');
+    card.classList.toggle('active-stage', key === (state.btcPeriod || '1h'));
+    card.classList.toggle('empty-stage', !s?.available);
+  });
+}
+
+function renderPeriodVenueBoard(board) {
+  const status = dom.periodVenueStatus;
+  const body = dom.btcVenueTableBody;
+  if (!body) return;
+
+  // Sync TF buttons
+  const period = board?.period || state.btcPeriod || '1h';
+  if (dom.btcTfBtns?.length) {
+    dom.btcTfBtns.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.period === period);
+    });
+  }
+
+  if (!board || !board.venues || !Object.keys(board.venues).length) {
+    if (status) {
+      status.textContent = board?.error ? '自信号源异常' : '自信号源暂无';
+      status.style.background = 'rgba(255,193,7,0.1)';
+      status.style.color = '#fbbf24';
+    }
+    body.innerHTML = `<tr><td colspan="8" class="btc-venue-empty">${board?.error || '自信号源暂不可用'}</td></tr>`;
+    renderStageAverages(board?.stageAverages || []);
+    return;
+  }
+
+  // 自信号源均值（某节点延误/丢失时仅用有效节点）
+  const agg = board.fiveVenueAvg || board.aggregate || {};
+  const n = agg.venueCount || Object.keys(board.venues).length;
+  const expected = agg.expectedVenues || 5;
+  const quality = agg.qualityLabel || (n >= expected ? '自信号源 · 全量' : `自信号源 · ${n}/${expected} 有效`);
+
+  if (status) {
+    status.textContent = quality;
+    status.style.background = agg.degraded ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.1)';
+    status.style.color = agg.degraded ? '#fbbf24' : '#22c55e';
+  }
+  if (dom.btcAvgPeriodLabel) dom.btcAvgPeriodLabel.textContent = board.label || period;
+  if (dom.btcSelfSourceMeta) {
+    dom.btcSelfSourceMeta.textContent = agg.degraded
+      ? `${quality} · 延误节点已剔除`
+      : `${quality} · 多节点聚合均值`;
+  }
+
+  if (dom.aggPrice) dom.aggPrice.textContent = formatUsdPrice(agg.priceAvg);
+  if (dom.aggFunding) {
+    // 计费窗均费率 = 窗口内结算样本稳健均值（fundingAvg），绝不用现价顶替
+    const f = agg.fundingAvg;
+    const n = agg.sample?.fundingInlierN ?? agg.sample?.fundingN;
+    if (f != null && Number.isFinite(Number(f))) {
+      dom.aggFunding.textContent = formatFundingChip(f);
+      dom.aggFunding.className = Number(f) > 0 ? 'pos' : Number(f) < 0 ? 'neg' : '';
+      const raw = agg.fundingAvgRaw;
+      dom.aggFunding.title =
+        raw != null && Math.abs(Number(raw) - Number(f)) > 1e-12
+          ? `计费窗结算样本稳健均值（n=${n ?? '?'}）；未剔除前 ${formatFundingChip(raw)}`
+          : `计费窗内资金费结算样本均值（n=${n ?? '?'}）；负值=空头付多`;
+    } else {
+      dom.aggFunding.textContent = '—';
+      dom.aggFunding.className = '';
+      dom.aggFunding.title = '本计费窗内无足够结算样本，不显示伪造均值';
+    }
+  }
+  if (dom.aggOiEnd) {
+    dom.aggOiEnd.textContent = agg.oiEndAvg != null ? formatCompact(agg.oiEndAvg) : '—';
+  }
+  if (dom.aggOi) {
+    dom.aggOi.textContent = formatOiChange(agg.oiChangePctAvg);
+    dom.aggOi.className = Number(agg.oiChangePctAvg) > 0 ? 'pos' : Number(agg.oiChangePctAvg) < 0 ? 'neg' : '';
+  }
+  if (dom.aggVol) {
+    dom.aggVol.textContent = agg.volumeQuoteAvg != null ? formatCompact(agg.volumeQuoteAvg) : '—';
+  }
+  if (dom.aggVenues) {
+    const fIn = agg.sample?.fundingInlierN;
+    const fAll = agg.sample?.fundingN;
+    dom.aggVenues.textContent =
+      fIn != null && fAll != null ? `${n}/${expected} · 费率${fIn}/${fAll}` : `${n}/${expected}`;
+    dom.aggVenues.title = '有效节点 / 期望节点；费率入均数 / 费率样本数';
+  }
+
+  // 特别提醒：偏离全样本均值 ±10% 的资金费率节点
+  renderFundingOutlierAlert(agg);
+
+  // 1h / 1d / 1w 阶段平均
+  renderStageAverages(board.stageAverages || []);
+
+  // 汇总行：均费率=计费窗样本；现费率=最新快照（可与窗均不同）
+  const fAvg = agg.fundingAvg;
+  const fCur = agg.fundingCurrentAvg;
+  const outliers = Array.isArray(agg.fundingOutliers) ? agg.fundingOutliers : [];
+  const fAvgTxt =
+    fAvg != null && Number.isFinite(Number(fAvg)) ? formatFundingChip(fAvg) : '—';
+  const fCurTxt =
+    fCur != null && Number.isFinite(Number(fCur)) ? formatFundingChip(fCur) : '—';
+  let rows = `
+    <tr class="btc-venue-avg-row">
+      <td class="venue-name">自信号源（计费窗）</td>
+      <td>${formatUsdPrice(agg.priceAvg)}</td>
+      <td class="${Number(fAvg) > 0 ? 'pos' : Number(fAvg) < 0 ? 'neg' : ''}">${fAvgTxt}</td>
+      <td class="${Number(fCur) > 0 ? 'pos' : Number(fCur) < 0 ? 'neg' : ''}">${fCurTxt}</td>
+      <td class="${Number(agg.oiChangePctAvg) > 0 ? 'pos' : Number(agg.oiChangePctAvg) < 0 ? 'neg' : ''}">${formatOiChange(agg.oiChangePctAvg)}</td>
+      <td>${agg.oiEndAvg != null ? formatCompact(agg.oiEndAvg) : '—'}</td>
+      <td>${agg.volumeQuoteAvg != null ? formatCompact(agg.volumeQuoteAvg) : '—'}</td>
+      <td class="${Number(agg.priceChangePctAvg) > 0 ? 'pos' : Number(agg.priceChangePctAvg) < 0 ? 'neg' : ''}">${agg.priceChangePctAvg != null ? `${agg.priceChangePctAvg >= 0 ? '+' : ''}${Number(agg.priceChangePctAvg).toFixed(2)}%` : '—'}</td>
+    </tr>`;
+  for (const o of outliers) {
+    const cls = Number(o.rate8h) > 0 ? 'pos' : Number(o.rate8h) < 0 ? 'neg' : '';
+    const side = Number(o.deviation) > 0 ? '偏高' : '偏低';
+    rows += `
+    <tr class="btc-fund-outlier-row">
+      <td class="venue-name">异常 · ${o.label || o.key}</td>
+      <td colspan="1">—</td>
+      <td class="${cls}" colspan="2">${formatFundingChip(o.rate8h)} <span class="outlier-tag">偏离${side} ${Math.abs(o.deviationPct || 0).toFixed(0)}%</span></td>
+      <td colspan="4" class="outlier-explain">未计入计费窗均值 · 原生 ${formatFundingChip(o.raw)}</td>
+    </tr>`;
+  }
+  body.innerHTML = rows;
+
+  if (dom.btcPeriodHint) {
+    const n = agg.sample?.fundingN ?? 0;
+    const fundNote =
+      fAvg == null
+        ? '本计费窗无足够资金费结算样本，均费率不显示'
+        : outliers.length > 0
+          ? `计费窗均费率：${n} 源样本，剔除 ${outliers.length} 异常后重均`
+          : `计费窗均费率：${n} 源结算样本相加取平均`;
+    dom.btcPeriodHint.textContent = `计费窗 ${board.label || period} · ${quality} · ${fundNote} · 1h/2h/4h 各自独立计算`;
+  }
+}
+
+function renderFundingOutlierAlert(agg = {}) {
+  const box = dom.btcFundOutlierAlert;
+  const list = dom.btcFundOutlierList;
+  const note = dom.btcFundOutlierNote;
+  if (!box || !list) return;
+  const outliers = Array.isArray(agg.fundingOutliers) ? agg.fundingOutliers : [];
+  if (!outliers.length) {
+    box.hidden = true;
+    list.innerHTML = '';
+    if (note) note.textContent = '';
+    return;
+  }
+  box.hidden = false;
+  list.innerHTML = outliers
+    .map((o) => {
+      const cls = Number(o.rate8h) > 0 ? 'pos' : Number(o.rate8h) < 0 ? 'neg' : '';
+      const side = Number(o.deviation) > 0 ? '高于' : '低于';
+      return `<span class="btc-fund-outlier-chip ${cls}" title="8h等价 ${formatFundingChip(o.rate8h)} · 原生 ${formatFundingChip(o.raw)}">
+        <b>${o.label || o.key}</b>
+        ${formatFundingChip(o.rate8h)}
+        <em>${side}均值 ${Math.abs(o.deviationPct || 0).toFixed(0)}%</em>
+      </span>`;
+    })
+    .join('');
+  if (note) {
+    const raw = agg.fundingAvgRaw ?? agg.fundingCurrentAvgRaw;
+    const clean = agg.fundingAvg ?? agg.fundingCurrentAvg;
+    note.textContent =
+      agg.fundingRobust?.windowAvg?.note ||
+      agg.fundingRobust?.current?.note ||
+      `计费窗：未剔除前 ${formatFundingChip(raw)} → 剔除后 ${formatFundingChip(clean)}`;
+  }
+}
+
+function setBtcPeriod(period) {
+  const next = String(period || '1h');
+  if (state.btcPeriod === next && state.btcData?.periodBoard) return;
+  state.btcPeriod = next;
+  if (dom.btcTfBtns?.length) {
+    dom.btcTfBtns.forEach((btn) =>btn.classList.toggle('active', btn.dataset.period === next));
+  }
+  // Soft reload with new timeframe
+  loadBitcoinData();
+}
+
 function renderBitcoinData() {
   if (!state.btcData) return;
   const d = state.btcData;
 
-  // Sync source buttons with actual active source from API
-  if (d.source && d.source.active) {
+  // Sync source buttons with preferred mode (not only API active)
+  const preferred = state.btcPreferredSource || state.btcSourceMeta?.preferred || 'auto';
+  if (dom.btcSourceBtns?.length) {
     dom.btcSourceBtns.forEach((btn) => {
-      const isActive = btn.dataset.source === d.source.active;
-      btn.classList.toggle('active', isActive);
+      btn.classList.toggle('active', btn.dataset.source === preferred);
     });
   }
 
-  // Price hero
-  const price = d.price?.index || d.price?.spot || 0;
+  // Price hero：优先自信号源均价；缺源时回退合成价
+  const selfAvg = d.periodBoard?.fiveVenueAvg || d.periodBoard?.aggregate || {};
+  const price =
+    (selfAvg.priceAvg >0 ? selfAvg.priceAvg : 0) ||
+    d.price?.index ||
+    d.price?.spot ||
+    0;
   const change = d.changes?.priceChange24h || 0;
   if (dom.btcPrice) dom.btcPrice.textContent = `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (dom.btc24hChange) {
@@ -2514,231 +3407,1527 @@ function renderBitcoinData() {
   if (dom.btcVolume24h) dom.btcVolume24h.textContent = formatCompact(d.changes?.volume24h || 0);
   if (dom.btcUpdated) dom.btcUpdated.textContent = formatTime(Date.now());
 
+  // Composite bias + 自信号源费率/周期看板
+  renderBtcMarketBias(d.marketBias);
+  renderBtcFundingVenues(d.futures, selfAvg);
+  renderPeriodVenueBoard(d.periodBoard);
+
   // Sparkline
   if (dom.btcSparkline && state.btcPriceHistory.length >= 2) {
     drawSparkline(dom.btcSparkline, state.btcPriceHistory);
   }
 
-  // Futures card
-  const fundingRate = d.futures?.fundingRate || 0;
-  const annualRate = d.futures?.annualFundingRate || 0;
+  // 合约数据卡：优先自信号源多节点均值（CEX + DEX Perps）
+  // 合约卡费率：优先计费窗样本均值，其次现价稳健均
+  const fundMean =
+    selfAvg.fundingAvg != null
+      ? Number(selfAvg.fundingAvg)
+      : selfAvg.fundingCurrentAvg != null
+        ? Number(selfAvg.fundingCurrentAvg)
+        : Number(d.futures?.avgFundingRate ?? d.futures?.fundingRate) || 0;
+  const annualMean =
+    fundMean !== 0
+      ? fundMean * 3 * 365 * 100
+      : Number(d.futures?.annualFundingRate) || 0;
   if (dom.btcFundingRate) {
-    const frText = fundingRate !== 0 ? `${(fundingRate * 100).toFixed(4)}%` : '--';
+    const frText = fundMean !== 0 ? `${(fundMean * 100).toFixed(4)}%` : '--';
     dom.btcFundingRate.textContent = frText;
-    dom.btcFundingRate.className = `btc-metric-value ${getChangeClass(fundingRate)}`;
+    dom.btcFundingRate.className = `btc-metric-value ${getChangeClass(fundMean)}`;
   }
   if (dom.btcAnnualFunding) {
-    const afText = annualRate !== 0 ? `${annualRate.toFixed(2)}%` : '--';
+    const afText = annualMean !== 0 ? `${annualMean.toFixed(2)}%` : '--';
     dom.btcAnnualFunding.textContent = afText;
-    dom.btcAnnualFunding.className = `btc-metric-value ${getChangeClass(annualRate)}`;
+    dom.btcAnnualFunding.className = `btc-metric-value ${getChangeClass(annualMean)}`;
   }
-  const oi = d.futures?.openInterestUsd || d.futures?.openInterest || 0;
-  const isOiUsd = d.futures?.openInterestUsd > 0;
-  if (dom.btcOpenInterest) dom.btcOpenInterest.textContent = isOiUsd ? formatCompact(oi) : `${(oi || 0).toLocaleString()} BTC`;
-  if (dom.btcMarkPrice) dom.btcMarkPrice.textContent = d.price?.mark ? `$${d.price.mark.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '$--';
+  const oiMean =
+    selfAvg.oiEndAvg != null
+      ? Number(selfAvg.oiEndAvg)
+      : Number(d.futures?.openInterestUsd || d.futures?.openInterest || 0);
+  if (dom.btcOpenInterest) {
+    dom.btcOpenInterest.textContent =
+      oiMean > 0 ? formatCompact(oiMean) : '--';
+  }
+  const markPx =
+    selfAvg.priceAvg != null
+      ? Number(selfAvg.priceAvg)
+      : Number(d.price?.mark || d.price?.index || 0);
+  if (dom.btcMarkPrice) {
+    dom.btcMarkPrice.textContent = markPx
+      ? `$${markPx.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : '$--';
+  }
   if (dom.btcNextFundingTime) {
     if (d.futures?.nextFundingTime) {
-      const remaining = d.futures.nextFundingTime - Date.now();
+      let nextTs = Number(d.futures.nextFundingTime);
+      if (nextTs > 0 && nextTs < 1e12) nextTs *= 1000;
+      const remaining = nextTs - Date.now();
       dom.btcNextFundingTime.textContent = remaining > 0 ? formatDuration(remaining) : '即将';
     } else {
       dom.btcNextFundingTime.textContent = '--';
     }
   }
+  // 有效节点 / 均量 / 稳定性
+  const nOk = selfAvg.venueCount != null ? Number(selfAvg.venueCount) : null;
+  const nExp = selfAvg.expectedVenues || 6;
+  if (dom.btcContractNodes) {
+    dom.btcContractNodes.textContent =
+      nOk != null ? `${nOk}/${nExp}` : '--';
+  }
+  if (dom.btcContractVol) {
+    const v =
+      selfAvg.volumeQuoteAvg != null ? Number(selfAvg.volumeQuoteAvg) : null;
+    dom.btcContractVol.textContent = v != null && v > 0 ? formatCompact(v) : '--';
+  }
+  const stab = selfAvg.stability || d.periodBoard?.venueStability || null;
+  if (dom.btcContractStability) {
+    if (stab) {
+      const on = (stab.online || []).length;
+      const off = (stab.offline || []).length;
+      dom.btcContractStability.textContent =
+        off === 0
+          ? `全量在线 ${on}`
+          : `在线 ${on} · 离线 ${off}（已剔除）`;
+    } else {
+      dom.btcContractStability.textContent =
+        nOk != null ? (nOk >= nExp ? '全量' : `降级 ${nOk}/${nExp}`) : '检测中';
+    }
+  }
+  if (dom.contractDataStatus) {
+    const q = selfAvg.qualityLabel || '自信号源';
+    dom.contractDataStatus.textContent = q;
+    dom.contractDataStatus.style.background =
+      nOk != null && nOk >= nExp
+        ? 'rgba(34,197,94,0.1)'
+        : 'rgba(255,193,7,0.1)';
+    dom.contractDataStatus.style.color =
+      nOk != null && nOk >= nExp ? '#22c55e' : '#fbbf24';
+  }
+  if (dom.contractDataHint) {
+    dom.contractDataHint.textContent =
+      stab?.policy ||
+      'CEX + DEX Perps 有效节点报价/费率/OI/成交量 · 相加取平均 · 缺源剔除 · 恢复后重新纳入';
+  }
 
-  // Sentiment card
-  if (dom.btcDominance) dom.btcDominance.textContent = `${(d.sentiment?.btcDominance || 0).toFixed(1)}%`;
-  if (dom.btcTotalMarketCap) dom.btcTotalMarketCap.textContent = formatCompact(d.sentiment?.totalMarketCap || 0);
-  if (dom.btcTotalVolume) dom.btcTotalVolume.textContent = formatCompact(d.sentiment?.totalVolume24h || 0);
+  // 市场情绪卡（与合约数据栏对齐：指标 + 状态徽标 + ETF 流）
+  const sent = d.sentiment || {};
+  const domPct = Number(sent.btcDominance) || 0;
+  const mcap = Number(sent.totalMarketCap) || 0;
+  const tvol = Number(sent.totalVolume24h) || 0;
+  const mcChange = Number(sent.marketCapChange24h) || 0;
+  const sentOk = domPct > 0 || mcap > 0 || tvol > 0;
+
+  if (dom.btcDominance) {
+    dom.btcDominance.textContent = domPct > 0 ? `${domPct.toFixed(1)}%` : '--';
+  }
+  if (dom.btcTotalMarketCap) {
+    dom.btcTotalMarketCap.textContent = mcap > 0 ? formatCompact(mcap) : '--';
+  }
+  if (dom.btcTotalVolume) {
+    dom.btcTotalVolume.textContent = tvol > 0 ? formatCompact(tvol) : '--';
+  }
   if (dom.btcMarketCapChange) {
-    const mcChange = d.sentiment?.marketCapChange24h || 0;
-    dom.btcMarketCapChange.textContent = formatChange(mcChange);
-    dom.btcMarketCapChange.className = `btc-metric-value ${getChangeClass(mcChange)}`;
+    if (sentOk || mcChange !== 0) {
+      dom.btcMarketCapChange.textContent = formatChange(mcChange);
+      dom.btcMarketCapChange.className = `btc-metric-value ${getChangeClass(mcChange)}`;
+    } else {
+      dom.btcMarketCapChange.textContent = '--';
+      dom.btcMarketCapChange.className = 'btc-metric-value';
+    }
   }
 
-  // Sources
-  const sources = d.sources || [];
-  if (dom.btcSources) dom.btcSources.textContent = sources.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
+  // 恐惧贪婪
+  if (dom.btcFearGreed) {
+    const fg = sent.fearGreed;
+    const fgl = sent.fearGreedLabel;
+    if (fg != null && Number.isFinite(Number(fg))) {
+      dom.btcFearGreed.textContent = fgl ? `${fg} · ${fgl}` : `${fg}`;
+      const n = Number(fg);
+      dom.btcFearGreed.className = `btc-metric-value ${
+        n >= 55 ? 'positive' : n <= 45 ? 'negative' : ''
+      }`.trim();
+    } else {
+      dom.btcFearGreed.textContent = '--';
+      dom.btcFearGreed.className = 'btc-metric-value';
+    }
+  }
 
-  // ---- Long/Short Ratio ----
-  renderLongShortRatio(d.longShortRatio);
+  // 彩虹图 / 减半 / 200DMA
+  const cycle = sent.cycle || {};
+  const rainbow = cycle.rainbow || null;
+  const halving = cycle.halving || null;
+  const ma200 = cycle.ma200 || null;
 
-  // ---- Liquidations ----
-  renderLiquidations(d.liquidations);
+  if (dom.btcRainbowBand) {
+    if (rainbow?.bandLabel) {
+      const dist =
+        rainbow.distancePct != null
+          ? ` ${rainbow.distancePct >= 0 ? '+' : ''}${rainbow.distancePct}%`
+          : '';
+      dom.btcRainbowBand.textContent = `${rainbow.bandLabel}${dist}`;
+      dom.btcRainbowBand.style.color = rainbow.bandColor || '';
+      dom.btcRainbowBand.title = `色带 ${rainbow.bandIndex + 1}/9 · 创世+${rainbow.daysSinceGenesis}d`;
+    } else {
+      dom.btcRainbowBand.textContent = '--';
+      dom.btcRainbowBand.style.color = '';
+    }
+  }
 
-  // ---- HyperLiquid ----
-  renderHyperLiquid(d.hyperLiquid);
+  if (dom.btcHalvingCycle) {
+    if (halving && (halving.progressPct != null || halving.cycleLabel)) {
+      const prog = halving.progressPct != null ? `${halving.progressPct}%` : '--';
+      const left =
+        halving.daysLeft != null
+          ? ` · 约${halving.daysLeft}天`
+          : '';
+      const since =
+        halving.daysSinceHalving != null ? ` · 已过${halving.daysSinceHalving}天` : '';
+      dom.btcHalvingCycle.textContent = `${halving.cycleLabel || ''} ${prog}${since}${left}`.trim();
+      dom.btcHalvingCycle.title = [
+        halving.height != null ? `高度 ${halving.height}` : null,
+        halving.nextHalvingHeight != null ? `下次 ${halving.nextHalvingHeight}` : null,
+        halving.blocksLeft != null ? `剩余 ${halving.blocksLeft} 块` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    } else {
+      dom.btcHalvingCycle.textContent = '--';
+    }
+  }
 
-  // ---- Historical Funding Rate ----
-  renderFundingHistory(d.fundingHistory);
+  if (dom.btcMa200) {
+    if (ma200?.available && ma200.ma200 != null) {
+      const ma = Number(ma200.ma200);
+      const vs = ma200.vsPct;
+      const side = ma200.side === 'above' ? '上' : ma200.side === 'below' ? '下' : '';
+      const vsTxt =
+        vs != null ? ` ${vs >= 0 ? '+' : ''}${vs}%` : '';
+      dom.btcMa200.textContent = `$${ma.toLocaleString('en-US', {
+        maximumFractionDigits: 0,
+      })}${side ? ` · 价${side}` : ''}${vsTxt}`;
+      dom.btcMa200.className = `btc-metric-value ${
+        ma200.side === 'above' ? 'positive' : ma200.side === 'below' ? 'negative' : ''
+      }`.trim();
+    } else {
+      dom.btcMa200.textContent = '--';
+      dom.btcMa200.className = 'btc-metric-value';
+    }
+  }
+
+  // 信号源：简洁一行（全局 + 周期模型）
+  if (dom.btcSources) {
+    const mkt = sent.source || 'global';
+    const cycOk = !!(rainbow || (ma200 && ma200.available) || (halving && halving.progressPct != null));
+    dom.btcSources.textContent = cycOk
+      ? `${mkt} · 彩虹/减半/MA200`
+      : `${mkt} · 周期计算中`;
+  }
+
+  if (dom.sentimentDataStatus) {
+    const cycOk = !!(rainbow && ma200?.available);
+    if (sentOk && cycOk) {
+      dom.sentimentDataStatus.textContent = '周期就绪';
+      dom.sentimentDataStatus.style.background = 'rgba(34,197,94,0.1)';
+      dom.sentimentDataStatus.style.color = '#22c55e';
+    } else if (sentOk) {
+      dom.sentimentDataStatus.textContent = '全局就绪';
+      dom.sentimentDataStatus.style.background = 'rgba(34,197,94,0.1)';
+      dom.sentimentDataStatus.style.color = '#22c55e';
+    } else {
+      dom.sentimentDataStatus.textContent = '加载中';
+      dom.sentimentDataStatus.style.background = 'rgba(255,193,7,0.1)';
+      dom.sentimentDataStatus.style.color = '#fbbf24';
+    }
+  }
+  if (dom.sentimentDataHint) {
+    const mkt = sent.source || 'multi';
+    const band = rainbow?.bandLabel || '--';
+    const prog = halving?.progressPct != null ? `${halving.progressPct}%` : '--';
+    const ma = ma200?.ma200 != null ? `$${Number(ma200.ma200).toFixed(0)}` : '--';
+    dom.sentimentDataHint.textContent = `${mkt} · 彩虹 ${band} · 减半 ${prog} · MA200 ${ma}`;
+  }
+
+  // ---- 田字框架：多空 + 清算（自信号源综合）----
+  renderTianFrame(d);
+
+  // ---- 自信号源三量直角坐标图 ----
+  renderSelfTriSeries(d.selfTriSeries);
 }
 
-// ===== Long/Short Ratio Rendering =====
-function renderLongShortRatio(lsr) {
-  if (!dom.lsGrid || !dom.lsStatus) return;
-  if (!lsr || !lsr.summary || !lsr.summary.available) {
-    dom.lsStatus.textContent = '⏸ 数据不可用';
-    dom.lsStatus.style.background = 'rgba(255,193,7,0.1)';
-    dom.lsStatus.style.color = '#fbbf24';
-    dom.lsGrid.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)"><p>多空比数据不可用</p></div>';
+/**
+ * 田字清算蜡烛图
+ * - 竖线：当前价格在图中的定位（左右移动）
+ * - 蜡烛柱：清算量（高矮=金额）
+ * - 点击：短暂显示清算金额总量
+ * - 横线：看多/看空 OI 比例（上下移动）+ OI 量
+ * - 填充：上红看空 · 下绿看多（浅底，不压蜡烛）
+ */
+const tianMapState = {
+  bound: false,
+  clickBound: false,
+  dpr: 1,
+  layout: null,
+  lastPayload: null,
+  tipTimer: null,
+};
+
+/** 多源清算回执 → 按单价聚合（综合均值）左→右序列 */
+function buildTianCandleSeries(longList, shortList) {
+  const map = new Map();
+  const push = (rows, side) => {
+    for (const r of rows || []) {
+      const price = Number(r.price);
+      const usd = Number(r.usd) || 0;
+      if (!(price > 0) || !(usd > 0)) continue;
+      const key = price.toFixed(1);
+      const prev = map.get(key) || {
+        price: Number(key),
+        longSum: 0,
+        shortSum: 0,
+        longN: 0,
+        shortN: 0,
+      };
+      if (side === 'long') {
+        prev.longSum += usd;
+        prev.longN += 1;
+      } else {
+        prev.shortSum += usd;
+        prev.shortN += 1;
+      }
+      map.set(key, prev);
+    }
+  };
+  push(longList, 'long');
+  push(shortList, 'short');
+
+  const candles = [...map.values()]
+    .map((b) => {
+      // 同价多源：各自侧取均值后再合成
+      const longAvg = b.longN ? b.longSum / b.longN : 0;
+      const shortAvg = b.shortN ? b.shortSum / b.shortN : 0;
+      const usd = longAvg + shortAvg;
+      let side = 'mixed';
+      if (longAvg > 0 && shortAvg <= 0) side = 'long';
+      else if (shortAvg > 0 && longAvg <= 0) side = 'short';
+      else if (longAvg >= shortAvg) side = 'long';
+      else side = 'short';
+      return {
+        price: b.price,
+        usd,
+        longUsd: longAvg,
+        shortUsd: shortAvg,
+        side,
+        // 蜡烛 open/close 用侧别拆分，高=总金额
+        open: Math.min(longAvg, shortAvg) || 0,
+        close: usd,
+        high: usd,
+        low: 0,
+      };
+    })
+    .filter((c) => c.usd > 0)
+    .sort((a, b) => a.price - b.price);
+
+  return candles;
+}
+
+function renderTianFrame(d) {
+  if (!dom.tianFrame && !dom.tianStatus) return;
+
+  const stages = Array.isArray(d.periodBoard?.stageAverages) ? d.periodBoard.stageAverages : [];
+  const stage4h = stages.find((s) => s.period === '4h') || null;
+  const agg4h =
+    stage4h?.aggregate ||
+    (d.periodBoard?.period === '4h'
+      ? d.periodBoard?.fiveVenueAvg || d.periodBoard?.aggregate
+      : null) ||
+    d.periodBoard?.fiveVenueAvg ||
+    d.periodBoard?.aggregate ||
+    {};
+
+  const lsr = d.longShortRatio;
+  const liq = d.liquidations;
+  const w4 = liq?.summary?.window4h || null;
+  const sum = liq?.summary || {};
+  const venues = Array.isArray(liq?.venues) ? liq.venues : Object.keys(liq?.sources || {});
+
+  if (dom.tianStatus) {
+    if (!venues.length && !sum.available) {
+      dom.tianStatus.textContent = '…';
+      dom.tianStatus.style.background = 'rgba(255,193,7,0.1)';
+      dom.tianStatus.style.color = '#fbbf24';
+    } else {
+      dom.tianStatus.textContent = venues.length ? venues.join('+') : '4h';
+      dom.tianStatus.style.background = 'rgba(34,197,94,0.1)';
+      dom.tianStatus.style.color = '#22c55e';
+    }
+  }
+
+  const price =
+    Number(d.price?.mark) ||
+    Number(d.price?.index) ||
+    Number(d.price?.spot) ||
+    Number(d.futures?.priceAvg) ||
+    0;
+  const oiUsd =
+    Number(agg4h.oiEndAvg) ||
+    Number(d.futures?.openInterestUsd) ||
+    Number(d.openInterest?.totalOiUsd) ||
+    0;
+
+  const sources = Object.values(lsr?.sources || {}).filter((s) => s && Number(s.ratio) > 0);
+  let ratio = Number(lsr?.summary?.avgRatio) || 0;
+  if ((!Number.isFinite(ratio) || ratio <= 0) && sources.length) {
+    ratio = sources.reduce((a, s) => a + Number(s.ratio), 0) / sources.length;
+  }
+  let longPct = 0;
+  let shortPct = 0;
+  if (sources.length) {
+    longPct = sources.reduce((a, s) => a + (parseFloat(s.longPct) || 0), 0) / sources.length;
+    shortPct = sources.reduce((a, s) => a + (parseFloat(s.shortPct) || 0), 0) / sources.length;
+  }
+  if (longPct + shortPct < 1 && ratio > 0) {
+    longPct = (ratio / (1 + ratio)) * 100;
+    shortPct = (1 / (1 + ratio)) * 100;
+  }
+  if (longPct + shortPct < 1) {
+    longPct = 50;
+    shortPct = 50;
+  }
+
+  const longList = Array.isArray(sum.longPrices) ? sum.longPrices : [];
+  const shortList = Array.isArray(sum.shortPrices) ? sum.shortPrices : [];
+  const candles = buildTianCandleSeries(longList, shortList);
+
+  const hasWindowTotals =
+    w4 &&
+    (w4.source === 'exchange_force_orders_4h' || w4.source === 'oi_ls_report_4h') &&
+    (Number(w4.totalLong) > 0 || Number(w4.totalShort) > 0);
+  const longTotal = hasWindowTotals
+    ? Number(w4.totalLong) || 0
+    : candles.reduce((a, c) => a + (c.longUsd || 0), 0);
+  const shortTotal = hasWindowTotals
+    ? Number(w4.totalShort) || 0
+    : candles.reduce((a, c) => a + (c.shortUsd || 0), 0);
+
+  const priceTxt = price
+    ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '--';
+  if (dom.tianPriceTag) dom.tianPriceTag.textContent = priceTxt;
+  if (dom.tianPriceTag2) dom.tianPriceTag2.textContent = priceTxt;
+  if (dom.tianOiTag) dom.tianOiTag.textContent = oiUsd > 0 ? formatCompact(oiUsd) : '--';
+  if (dom.tianLongLiqUsd) {
+    dom.tianLongLiqUsd.textContent = longTotal > 0 ? formatCompact(longTotal) : '--';
+  }
+  if (dom.tianShortLiqUsd) {
+    dom.tianShortLiqUsd.textContent = shortTotal > 0 ? formatCompact(shortTotal) : '--';
+  }
+
+  // 市场偏向：优先 API marketBias；否则 OI 多空比（多>空→看多）
+  const biasLabel =
+    d.marketBias?.label === '看多' || d.marketBias?.label === '看空'
+      ? d.marketBias.label
+      : longPct >= shortPct
+        ? '看多'
+        : '看空';
+
+  const payload = {
+    price,
+    oiUsd,
+    longPct,
+    shortPct,
+    longOpen: oiUsd > 0 ? oiUsd * (longPct / 100) : 0,
+    shortOpen: oiUsd > 0 ? oiUsd * (shortPct / 100) : 0,
+    candles,
+    longTotal,
+    shortTotal,
+    liqTotal: longTotal + shortTotal,
+    biasLabel,
+  };
+  tianMapState.lastPayload = payload;
+  drawTianLiquidationMap(payload);
+  bindTianCanvasInteractions();
+}
+
+function bindTianCanvasInteractions() {
+  if (tianMapState.bound) return;
+  tianMapState.bound = true;
+  let timer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (tianMapState.lastPayload) drawTianLiquidationMap(tianMapState.lastPayload);
+    }, 80);
+  });
+
+  const canvas = dom.tianCanvas;
+  if (!canvas || tianMapState.clickBound) return;
+  tianMapState.clickBound = true;
+  canvas.addEventListener('click', (ev) => {
+    const p = tianMapState.lastPayload;
+    const layout = tianMapState.layout;
+    if (!p || !layout) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    showTianLiqTip(x, y, p);
+  });
+}
+
+/** 点击短暂显示清算金额总量 */
+function showTianLiqTip(x, y, p) {
+  const tip = dom.tianClickTip;
+  if (!tip) return;
+  const total = Number(p.liqTotal) || Number(p.longTotal) + Number(p.shortTotal) || 0;
+  const longT = Number(p.longTotal) || 0;
+  const shortT = Number(p.shortTotal) || 0;
+  tip.innerHTML = `清算总量 <b>${total > 0 ? formatCompact(total) : '--'}</b>
+    <span style="color:#4ade80;margin-left:8px">多 ${longT > 0 ? formatCompact(longT) : '--'}</span>
+    <span style="color:#f87171;margin-left:6px">空 ${shortT > 0 ? formatCompact(shortT) : '--'}</span>`;
+  tip.hidden = false;
+  tip.style.left = `${Math.max(40, Math.min((dom.tianCanvas?.clientWidth || 300) - 40, x))}px`;
+  tip.style.top = `${Math.max(24, y)}px`;
+  tip.classList.add('show');
+  clearTimeout(tianMapState.tipTimer);
+  tianMapState.tipTimer = setTimeout(() => {
+    tip.classList.remove('show');
+    setTimeout(() => {
+      tip.hidden = true;
+    }, 160);
+  }, 2200);
+}
+
+/**
+ * 竖线 = 现价定位 · 蜡烛 = 清算量 · 横线+填充 = OI 看多看空比例
+ */
+function drawTianLiquidationMap(p) {
+  const canvas = dom.tianCanvas;
+  if (!canvas || typeof canvas.getContext !== 'function') return;
+  const parent = canvas.parentElement || canvas;
+  const cssW = Math.max(320, parent.clientWidth || 960);
+  const cssH = Math.max(260, parseInt(getComputedStyle(canvas).height, 10) || 400);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  tianMapState.dpr = dpr;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const W = cssW;
+  const H = cssH;
+  const pad = { t: 18, r: 14, b: 28, l: 48 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  // 底
+  ctx.fillStyle = '#0b0f16';
+  ctx.fillRect(0, 0, W, H);
+
+  const price = Number(p.price) || 0;
+  let candles = Array.isArray(p.candles) ? p.candles.slice() : [];
+  if (!candles.length && price > 0) {
+    candles = [
+      { price: price * 0.995, usd: 1, side: 'long', longUsd: 1, shortUsd: 0, high: 1, low: 0, open: 0, close: 1 },
+      { price: price * 1.005, usd: 1, side: 'short', longUsd: 0, shortUsd: 1, high: 1, low: 0, open: 0, close: 1 },
+    ];
+  }
+
+  let pMin = candles.length ? candles[0].price : price || 0;
+  let pMax = candles.length ? candles[candles.length - 1].price : price || 1;
+  if (price > 0) {
+    pMin = Math.min(pMin, price);
+    pMax = Math.max(pMax, price);
+  }
+  if (!(pMax > pMin)) {
+    pMin = (price || 1) * 0.99;
+    pMax = (price || 1) * 1.01;
+  }
+  const pPad = (pMax - pMin) * 0.04 || 1;
+  pMin -= pPad;
+  pMax += pPad;
+
+  const maxUsd = Math.max(1, ...candles.map((c) => c.usd || 0));
+  const xOfPrice = (px) => pad.l + ((px - pMin) / (pMax - pMin)) * plotW;
+  const yOfUsd = (usd) =>
+    pad.t + plotH - Math.sqrt(Math.max(0, usd) / maxUsd) * plotH * 0.88;
+
+  // —— OI 看多/看空填充（先画，浅色不压蜡烛）——
+  // 上 = 空/看空 红 · 下 = 多/看多 绿 · 分界 = 横线
+  const shortShare = Math.max(0.06, Math.min(0.94, (Number(p.shortPct) || 50) / 100));
+  const longShare = Math.max(0.06, Math.min(0.94, 1 - shortShare));
+  const yOi = pad.t + shortShare * plotH;
+
+  // 上红（看空 OI）
+  {
+    const h = Math.max(0, yOi - pad.t);
+    const g = ctx.createLinearGradient(0, pad.t, 0, yOi);
+    g.addColorStop(0, 'rgba(239, 68, 68, 0.14)');
+    g.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
+    ctx.fillStyle = g;
+    ctx.fillRect(pad.l, pad.t, plotW, h);
+  }
+  // 下绿（看多 OI）
+  {
+    const h = Math.max(0, pad.t + plotH - yOi);
+    const g = ctx.createLinearGradient(0, yOi, 0, pad.t + plotH);
+    g.addColorStop(0, 'rgba(34, 197, 94, 0.07)');
+    g.addColorStop(1, 'rgba(34, 197, 94, 0.16)');
+    ctx.fillStyle = g;
+    ctx.fillRect(pad.l, yOi, plotW, h);
+  }
+
+  // 细网格（不抢戏）
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const y = pad.t + (plotH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + plotW, y);
+    ctx.stroke();
+  }
+
+  // 蜡烛柱：清算量
+  const n = Math.max(1, candles.length);
+  const slot = plotW / n;
+  const bodyW = Math.max(3, Math.min(16, slot * 0.58));
+
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const x = xOfPrice(c.price);
+    const yTop = yOfUsd(c.high || c.usd);
+    const yBot = pad.t + plotH;
+    const bodyTop = yOfUsd(c.close || c.usd);
+    const bodyBot = yOfUsd(Math.max(0, (c.open || 0) * 0.15));
+    const isLong = c.side === 'long' || (c.longUsd || 0) >= (c.shortUsd || 0);
+    const col = isLong ? '#22c55e' : '#ef4444';
+    const colDim = isLong ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)';
+
+    ctx.strokeStyle = colDim;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, yTop);
+    ctx.lineTo(x, yBot);
+    ctx.stroke();
+
+    const top = Math.min(bodyTop, bodyBot);
+    const h = Math.max(3, Math.abs(bodyBot - bodyTop));
+    const g = ctx.createLinearGradient(0, top, 0, top + h);
+    if (isLong) {
+      g.addColorStop(0, 'rgba(74,222,128,0.98)');
+      g.addColorStop(1, 'rgba(22,163,74,0.82)');
+    } else {
+      g.addColorStop(0, 'rgba(248,113,113,0.98)');
+      g.addColorStop(1, 'rgba(220,38,38,0.82)');
+    }
+    ctx.fillStyle = g;
+    ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
+  }
+
+  // 竖线：当前价格定位
+  const xPrice = price > 0 ? xOfPrice(price) : pad.l + plotW / 2;
+  ctx.save();
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(xPrice, pad.t);
+  ctx.lineTo(xPrice, pad.t + plotH);
+  ctx.stroke();
+  ctx.restore();
+
+  // 竖线顶部小三角（现价）
+  ctx.fillStyle = '#e2e8f0';
+  ctx.beginPath();
+  ctx.moveTo(xPrice, pad.t - 1);
+  ctx.lineTo(xPrice - 5, pad.t + 8);
+  ctx.lineTo(xPrice + 5, pad.t + 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // 横线：OI 比例分界（看多/看空）
+  ctx.save();
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.9)';
+  ctx.lineWidth = 1.35;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yOi);
+  ctx.lineTo(pad.l + plotW, yOi);
+  ctx.stroke();
+  ctx.restore();
+
+  // 横线标签：比例 + OI 量
+  const bias = p.biasLabel === '看多' ? '看多' : p.biasLabel === '看空' ? '看空' : longShare >= shortShare ? '看多' : '看空';
+  const oiTxt = p.oiUsd > 0 ? formatCompact(p.oiUsd) : '--';
+  const ratioTxt = `空 ${(shortShare * 100).toFixed(0)}% · 多 ${(longShare * 100).toFixed(0)}% · OI ${oiTxt}`;
+  ctx.font = 'bold 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'left';
+  const tagPadX = 6;
+  const tagW = Math.min(plotW - 8, ctx.measureText(ratioTxt).width + 14);
+  const tagX = pad.l + 6;
+  const tagY = Math.max(pad.t + 12, Math.min(pad.t + plotH - 8, yOi - 2));
+  ctx.fillStyle = 'rgba(8, 12, 20, 0.78)';
+  ctx.fillRect(tagX, tagY - 12, tagW, 16);
+  ctx.fillStyle = bias === '看多' ? '#86efac' : '#fca5a5';
+  ctx.fillText(ratioTxt, tagX + tagPadX, tagY);
+
+  // 交点
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.arc(xPrice, yOi, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // X 价格刻度
+  ctx.fillStyle = '#64748b';
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 4; i++) {
+    const px = pMin + ((pMax - pMin) * i) / 4;
+    ctx.fillText(px.toLocaleString('en-US', { maximumFractionDigits: 0 }), xOfPrice(px), H - 8);
+  }
+
+  // Y 清算量刻度
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 3; i++) {
+    const usd = maxUsd * (i / 3);
+    const y = yOfUsd(usd);
+    ctx.fillText(i === 0 ? '0' : formatCompact(usd), pad.l - 6, y + 3);
+  }
+
+  tianMapState.layout = {
+    pad,
+    plotW,
+    plotH,
+    pMin,
+    pMax,
+    xPrice,
+    yOi,
+    W,
+    H,
+    maxUsd,
+  };
+}
+
+// ===== 自信号源三量图：TradingView 式主图 + 十字准星 =====
+// Design read: crypto terminal chart · clean hierarchy · price-primary · low clutter
+const selfTriChartState = {
+  series: [],
+  unit: 'day',
+  hoverIdx: null,
+  pinIdx: null,
+  bound: false,
+  layout: null,
+  visible: { price: true, volume: true, funding: true, oi: false },
+};
+
+function formatTriAxisPrice(v) {
+  if (!Number.isFinite(v)) return '--';
+  const abs = Math.abs(v);
+  if (abs >= 100000) return `$${(v / 1000).toFixed(0)}k`;
+  if (abs >= 10000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  if (abs >= 1000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  if (abs >= 1) return `$${v.toFixed(2)}`;
+  return `$${v.toFixed(4)}`;
+}
+
+function formatTriExactPrice(v) {
+  if (v == null || !Number.isFinite(Number(v))) return '--';
+  const n = Number(v);
+  return `$${n.toLocaleString('en-US', {
+    minimumFractionDigits: n >= 1000 ? 2 : 2,
+    maximumFractionDigits: n >= 1000 ? 2 : 4,
+  })}`;
+}
+
+function formatFundingDelta(curr, prev) {
+  if (curr == null || prev == null || !Number.isFinite(Number(curr)) || !Number.isFinite(Number(prev))) {
+    return { text: '—', cls: '', dir: 0 };
+  }
+  const d = Number(curr) - Number(prev);
+  if (Math.abs(d) < 1e-12) return { text: '0', cls: '', dir: 0 };
+  const sign = d >0 ? '+' : '';
+  return {
+    text: `${sign}${(d * 100).toFixed(4)}%`,
+    cls: d >0 ? 'pos' : 'neg',
+    dir: d >0 ? 1 : -1,
+  };
+}
+
+function applySelfTriReadout(point, labelFallback = '', prevPoint = null) {
+  if (!point) {
+    if (dom.triHudPrice) dom.triHudPrice.textContent = '--';
+    if (dom.triHudDate) dom.triHudDate.textContent = '样本不足';
+    return;
+  }
+  const priceTxt = formatTriExactPrice(point.price);
+  const fundTxt = formatFundingChip(point.funding);
+  const delta = formatFundingDelta(point.funding, prevPoint?.funding);
+  const fundWithDelta =
+    delta.text !== '—' ? `${fundTxt} (${delta.dir >0 ? '↑' : delta.dir < 0 ? '↓' : '→'}${delta.text})` : fundTxt;
+  const volTxt = point.volume != null ? formatCompact(point.volume) : '—';
+  const oiTxt = point.oi != null ? formatCompact(point.oi) : '—';
+  const dateTxt = point.label || labelFallback || '';
+  const fundSign = Number(point.funding);
+  const fundPolar = fundSign >0 ? '多付空' : fundSign < 0 ? '空付多' : '中性';
+
+  if (dom.triHudPrice) dom.triHudPrice.textContent = priceTxt;
+  if (dom.triHudDate) {
+    const pinned = selfTriChartState.pinIdx != null;
+    const hover = selfTriChartState.hoverIdx != null;
+    const tag = pinned ? '已锁定' : hover ? '悬停' : '最新';
+    dom.triHudDate.textContent = dateTxt
+      ? `${tag} · ${dateTxt} · 费率${fundPolar}`
+      : `${tag} · 费率${fundPolar}`;
+  }
+  if (dom.triHudFund) {
+    dom.triHudFund.textContent = fundWithDelta;
+    dom.triHudFund.className =
+      fundSign >0 ? 'pos' : fundSign < 0 ? 'neg' : delta.cls || '';
+  }
+  if (dom.triHudVol) dom.triHudVol.textContent = volTxt;
+  if (dom.triHudOi) dom.triHudOi.textContent = oiTxt;
+
+  if (dom.triPrice) dom.triPrice.textContent = priceTxt;
+  if (dom.triFund) {
+    dom.triFund.textContent = fundWithDelta;
+    dom.triFund.className =
+      fundSign >0 ? 'pos' : fundSign < 0 ? 'neg' : delta.cls || '';
+  }
+  if (dom.triVol) dom.triVol.textContent = volTxt;
+  if (dom.triOi) dom.triOi.textContent = oiTxt;
+}
+
+function activeSelfTriIndex() {
+  const n = selfTriChartState.series.length;
+  if (!n) return null;
+  if (selfTriChartState.pinIdx != null) {
+    return Math.max(0, Math.min(n - 1, selfTriChartState.pinIdx));
+  }
+  if (selfTriChartState.hoverIdx != null) {
+    return Math.max(0, Math.min(n - 1, selfTriChartState.hoverIdx));
+  }
+  return n - 1;
+}
+
+function renderSelfTriSeries(tri) {
+  if (dom.btcSeriesUnitBtns?.length) {
+    const u = tri?.unit || state.btcSeriesUnit || 'day';
+    dom.btcSeriesUnitBtns.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.unit === u);
+    });
+  }
+
+  // sync legend buttons
+  if (dom.triLegBtns?.length) {
+    dom.triLegBtns.forEach((btn) => {
+      const key = btn.dataset.series;
+      const on = !!selfTriChartState.visible[key];
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  if (!tri || !Array.isArray(tri.series) || tri.series.length < 2) {
+    if (dom.selfTriStatus) {
+      dom.selfTriStatus.textContent = tri?.error ? '异常' : '样本不足';
+      dom.selfTriStatus.style.background = 'rgba(255,193,7,0.1)';
+      dom.selfTriStatus.style.color = '#fbbf24';
+    }
+    selfTriChartState.series = [];
+    selfTriChartState.hoverIdx = null;
+    selfTriChartState.pinIdx = null;
+    applySelfTriReadout(null);
+    if (dom.selfTriTooltip) dom.selfTriTooltip.hidden = true;
+    paintSelfTriChart();
     return;
   }
 
-  dom.lsStatus.textContent = '✅ 已连接';
-  dom.lsStatus.style.background = 'rgba(34,197,94,0.1)';
-  dom.lsStatus.style.color = '#22c55e';    // Clear grid
-    dom.lsGrid.innerHTML = '';
-
-  // Render each source
-  const sources = lsr.sources || {};
-  for (const [key, src] of Object.entries(sources)) {
-    if (!src || !src.ratio) continue;
-
-    const card = document.createElement('div');
-    card.className = 'ls-source-card';
-
-    const ratio = src.ratio;
-    const longPct = parseFloat(src.longPct) || 0;
-    const shortPct = parseFloat(src.shortPct) || 0;
-    const totalPct = longPct + shortPct;
-    const longWidth = totalPct > 0 ? (longPct / totalPct * 100) : 50;
-    const shortWidth = totalPct > 0 ? (shortPct / totalPct * 100) : 50;
-
-    const signalClass = ratio > 1.2 ? 'bullish' : ratio < 0.8 ? 'bearish' : 'neutral';
-    const signalText = ratio > 1.2 ? '偏多' : ratio < 0.8 ? '偏空' : '中性';
-
-    const sourceLabel = { binance: 'Binance 全网账户', bybit: 'Bybit 账户' }[key] || key;
-
-    card.innerHTML = `
-      <div class="ls-source-header">
-        <span class="ls-source-name">${sourceLabel}</span>
-        <span class="ls-ratio-value">${ratio.toFixed(3)}</span>
-      </div>
-      <div class="ls-bar-container">
-        <div class="ls-bar-label">多 ${longPct.toFixed(1)}%</div>
-        <div class="ls-bar-track">
-          <div class="ls-bar-fill long" style="width:${longWidth}%"></div>
-          <div class="ls-bar-fill short" style="width:${shortWidth}%"></div>
-        </div>
-        <div class="ls-bar-label right">空 ${shortPct.toFixed(1)}%</div>
-      </div>
-      <span class="ls-signal-tag ${signalClass}">${signalText}</span>`;
-    dom.lsGrid.appendChild(card);
+  if (dom.selfTriStatus) {
+    dom.selfTriStatus.textContent = `自信号源 · ${tri.unitLabel || tri.unit || '日'}`;
+    dom.selfTriStatus.style.background = 'rgba(34,197,94,0.1)';
+    dom.selfTriStatus.style.color = '#22c55e';
   }
 
-  // Summary signal
-  if (dom.lsSignal) {
-    const signalText = lsr.summary.signal || '中性';
-    dom.lsSignal.textContent = signalText;
-    dom.lsSignal.className = 'ls-summary-value';
-    const signalClass = signalText.includes('偏多') ? 'bullish' : signalText.includes('偏空') ? 'bearish' : 'neutral';
-    dom.lsSignal.classList.add(signalClass);
+  selfTriChartState.series = tri.series;
+  selfTriChartState.unit = tri.unit || 'day';
+  // keep pin if still in range
+  if (selfTriChartState.pinIdx != null && selfTriChartState.pinIdx >= tri.series.length) {
+    selfTriChartState.pinIdx = null;
   }
+
+  const latest = tri.latest
+    ? { ...tri.series[tri.series.length - 1], ...tri.latest }
+    : tri.series[tri.series.length - 1];
+  if (dom.triSource) dom.triSource.textContent = tri.signalSource || '自信号源';
+  if (dom.selfTriHint) {
+    dom.selfTriHint.textContent =
+      '上图单价 · 中图费率零轴正绿负红(↑增↓减) · 下图成交量 · 十字准星对照价格与费率周期';
+  }
+
+  const idx = activeSelfTriIndex();
+  const cur = idx != null ? selfTriChartState.series[idx] : latest;
+  const prev = idx != null && idx >0 ? selfTriChartState.series[idx - 1] : null;
+  applySelfTriReadout(cur, '', prev);
+  ensureSelfTriChartBound();
+  paintSelfTriChart();
 }
 
-// ===== Liquidations Rendering =====
-function renderLiquidations(liq) {
-  if (!dom.liqTotalUsd || !dom.liqStatus) return;
-  if (!liq || !liq.summary || !liq.summary.available) {
-    dom.liqStatus.textContent = '⏸ 数据加载中';
-    dom.liqStatus.style.background = 'rgba(255,193,7,0.1)';
-    dom.liqStatus.style.color = '#fbbf24';
+function ensureSelfTriChartBound() {
+  const canvas = dom.selfTriChart;
+  if (!canvas || selfTriChartState.bound) return;
+  selfTriChartState.bound = true;
+
+  const pickIndexFromEvent = (e) => {
+    const layout = selfTriChartState.layout;
+    const series = selfTriChartState.series;
+    if (!layout || !series.length) return null;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const x = clientX - rect.left;
+    const { pad, plotW } = layout;
+    const rel = (x - pad.left) / Math.max(1, plotW);
+    const idx = Math.round(rel * (series.length - 1));
+    return Math.max(0, Math.min(series.length - 1, idx));
+  };
+
+  const onMove = (e) => {
+    if (selfTriChartState.pinIdx != null) return; // locked: only click to move
+    const idx = pickIndexFromEvent(e);
+    if (idx == null) return;
+    if (selfTriChartState.hoverIdx === idx) {
+      positionSelfTriTooltip(e);
+      return;
+    }
+    selfTriChartState.hoverIdx = idx;
+    const prev = idx >0 ? selfTriChartState.series[idx - 1] : null;
+    applySelfTriReadout(selfTriChartState.series[idx], '', prev);
+    paintSelfTriChart();
+    positionSelfTriTooltip(e);
+  };
+
+  const onLeave = () => {
+    if (selfTriChartState.pinIdx != null) {
+      if (dom.selfTriTooltip) dom.selfTriTooltip.hidden = true;
+      return;
+    }
+    selfTriChartState.hoverIdx = null;
+    const n = selfTriChartState.series.length;
+    const last = selfTriChartState.series[n - 1];
+    const prev = n >1 ? selfTriChartState.series[n - 2] : null;
+    applySelfTriReadout(last, '', prev);
+    if (dom.selfTriTooltip) dom.selfTriTooltip.hidden = true;
+    paintSelfTriChart();
+  };
+
+  const onClick = (e) => {
+    const idx = pickIndexFromEvent(e);
+    if (idx == null) return;
+    // toggle unlock if same point, else pin new
+    if (selfTriChartState.pinIdx === idx) {
+      selfTriChartState.pinIdx = null;
+      selfTriChartState.hoverIdx = idx;
+    } else {
+      selfTriChartState.pinIdx = idx;
+      selfTriChartState.hoverIdx = idx;
+    }
+    const prev = idx >0 ? selfTriChartState.series[idx - 1] : null;
+    applySelfTriReadout(selfTriChartState.series[idx], '', prev);
+    paintSelfTriChart();
+    positionSelfTriTooltip(e);
+  };
+
+  canvas.addEventListener('mousemove', onMove);
+  canvas.addEventListener('mouseleave', onLeave);
+  canvas.addEventListener('click', onClick);
+  canvas.addEventListener(
+    'touchstart',
+    (e) => {
+      onClick(e);
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+  canvas.addEventListener(
+    'touchmove',
+    (e) => {
+      selfTriChartState.pinIdx = pickIndexFromEvent(e);
+      selfTriChartState.hoverIdx = selfTriChartState.pinIdx;
+      if (selfTriChartState.pinIdx != null) {
+        const i = selfTriChartState.pinIdx;
+        const prev = i >0 ? selfTriChartState.series[i - 1] : null;
+        applySelfTriReadout(selfTriChartState.series[i], '', prev);
+        paintSelfTriChart();
+        positionSelfTriTooltip(e);
+      }
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  window.addEventListener('resize', () => {
+    if (selfTriChartState.series.length) paintSelfTriChart();
+  });
+}
+
+function positionSelfTriTooltip(e) {
+  const tip = dom.selfTriTooltip;
+  const wrap = dom.selfTriChart?.parentElement;
+  const series = selfTriChartState.series;
+  const idx = activeSelfTriIndex();
+  if (!tip || !wrap || idx == null || !series[idx]) {
+    if (tip) tip.hidden = true;
+    return;
+  }
+  const p = series[idx];
+  const prev = idx >0 ? series[idx - 1] : null;
+  const fund = Number(p.funding);
+  const fundCls = fund >0 ? 'pos' : fund < 0 ? 'neg' : '';
+  const polar = fund >0 ? '正 · 多付空' : fund < 0 ? '负 · 空付多' : '零轴';
+  const delta = formatFundingDelta(p.funding, prev?.funding);
+  tip.innerHTML = `
+    <div class="tt-date">${p.label || ''}${selfTriChartState.pinIdx != null ? ' · 锁定' : ''}</div>
+    <div class="tt-row price"><span>单价</span><b>${formatTriExactPrice(p.price)}</b></div>
+    <div class="tt-row"><span>费率</span><b class="${fundCls}">${formatFundingChip(p.funding)}</b></div>
+    <div class="tt-row"><span>正负</span><b class="${fundCls}">${polar}</b></div>
+    <div class="tt-row"><span>较上点</span><b class="${delta.cls}">${delta.dir >0 ? '↑ 增 ' : delta.dir < 0 ? '↓ 减 ' : '→ '}${delta.text}</b></div>
+    <div class="tt-row"><span>成交量</span><b>${p.volume != null ? formatCompact(p.volume) : '—'}</b></div>
+    <div class="tt-row"><span>开仓量</span><b>${p.oi != null ? formatCompact(p.oi) : '—'}</b></div>
+  `;
+  tip.hidden = false;
+
+  const wrapRect = wrap.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  let left = clientX - wrapRect.left + 14;
+  let top = clientY - wrapRect.top + 14;
+  const tw = tip.offsetWidth || 180;
+  const th = tip.offsetHeight || 140;
+  if (left + tw >wrapRect.width - 8) left = clientX - wrapRect.left - tw - 14;
+  if (top + th >wrapRect.height - 8) top = clientY - wrapRect.top - th - 10;
+  tip.style.left = `${Math.max(8, left)}px`;
+  tip.style.top = `${Math.max(8, top)}px`;
+}
+
+function formatFundAxisPct(rate) {
+  if (!Number.isFinite(rate)) return '--';
+  const pct = rate * 100;
+  const abs = Math.abs(pct);
+  const digits = abs >= 0.1 ? 3 : 4;
+  const sign = pct >0 ? '+' : '';
+  return `${sign}${pct.toFixed(digits)}%`;
+}
+
+/**
+ * 三窗格：上=单价 · 中=资金费率(零轴正绿负红+增减) · 下=成交量
+ * 十字准星贯穿，便于费率周期与价格对照。
+ */
+function paintSelfTriChart() {
+  const canvas = dom.selfTriChart;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(rect.width || 900, 320);
+  const height = Math.max(rect.height || 420, 280);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.fillStyle = 'rgba(6, 10, 18, 0.35)';
+  ctx.fillRect(0, 0, width, height);
+
+  const series = selfTriChartState.series;
+  const vis = selfTriChartState.visible;
+  const unit = selfTriChartState.unit || 'day';
+
+  const pad = { top: 12, right: 14, bottom: 28, left: 64 };
+  const gap = 6;
+  const totalPlotH = height - pad.top - pad.bottom;
+
+  // layout weights: price / funding / volume
+  let wPrice = 1;
+  let wFund = vis.funding ? 0.55 : 0;
+  let wVol = vis.volume ? 0.32 : 0;
+  const wSum = wPrice + wFund + wVol || 1;
+  const nGaps = (wFund >0 ? 1 : 0) + (wVol >0 ? 1 : 0);
+  const usable = totalPlotH - nGaps * gap;
+  const priceH = Math.round((usable * wPrice) / wSum);
+  const fundH = wFund >0 ? Math.round((usable * wFund) / wSum) : 0;
+  const volH = wVol >0 ? totalPlotH - priceH - fundH - nGaps * gap : 0;
+  const plotW = width - pad.left - pad.right;
+  const priceTop = pad.top;
+  const fundTop = priceTop + priceH + (fundH ? gap : 0);
+  const volTop = fundTop + fundH + (volH ? gap : 0);
+
+  selfTriChartState.layout = {
+    pad,
+    plotW,
+    priceH,
+    fundH,
+    volH,
+    priceTop,
+    fundTop,
+    volTop,
+    width,
+    height,
+  };
+
+  if (!series || series.length < 2) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('自信号源样本不足', pad.left, height / 2);
     return;
   }
 
-  dom.liqStatus.textContent = '✅ 已连接';
-  dom.liqStatus.style.background = 'rgba(34,197,94,0.1)';
-  dom.liqStatus.style.color = '#22c55e';
+  const prices = series.map((p) =>Number(p.price)).filter((n) =>Number.isFinite(n) && n >0);
+  const funds = series.map((p) =>Number(p.funding)).filter((n) =>Number.isFinite(n));
+  const vols = series.map((p) =>Number(p.volume)).filter((n) =>Number.isFinite(n) && n >0);
+  const ois = series.map((p) =>Number(p.oi)).filter((n) =>Number.isFinite(n) && n >0);
 
-  const s = liq.summary;
-  dom.liqTotalUsd.textContent = formatCompact(s.totalUsd || 0);
-  dom.liqCount.textContent = (s.count || 0).toString();
-  dom.liqSignal.textContent = s.side || '均衡';
+  const minP = prices.length ? Math.min(...prices) : 0;
+  const maxP = prices.length ? Math.max(...prices) : 1;
+  const pPad = (maxP - minP) * 0.1 || maxP * 0.02 || 1;
+  let yMin = minP - pPad;
+  let yMax = maxP + pPad;
+  if (yMax <= yMin) yMax = yMin + 1;
 
-  const longPct = parseFloat(s.longPct) || 0;
-  const shortPct = parseFloat(s.shortPct) || 0;
-  dom.liqLongBar.style.width = Math.max(longPct, 5) + '%';
-  dom.liqShortBar.style.width = Math.max(shortPct, 5) + '%';
-  dom.liqLongPct.textContent = longPct.toFixed(1) + '%';
-  dom.liqShortPct.textContent = shortPct.toFixed(1) + '%';
+  // funding scale: always include 0, slight pad, prefer symmetric if both sides
+  let fMin = funds.length ? Math.min(...funds) : -0.0001;
+  let fMax = funds.length ? Math.max(...funds) : 0.0001;
+  if (fMin >0) fMin = 0;
+  if (fMax < 0) fMax = 0;
+  if (fMin === fMax) {
+    fMin = -0.0001;
+    fMax = 0.0001;
+  }
+  // soft symmetry for readable zero midline
+  const fAbs = Math.max(Math.abs(fMin), Math.abs(fMax));
+  if (fMin < 0 && fMax >0) {
+    fMin = -fAbs;
+    fMax = fAbs;
+  }
+  const fPad = (fMax - fMin) * 0.12 || 0.00005;
+  fMin -= fPad;
+  fMax += fPad;
 
-  // Sources info
-  if (dom.liqSources) {
-    const sourceKeys = Object.keys(liq.sources || {});
-    if (sourceKeys.length > 0) {
-      dom.liqSources.textContent = '来源: ' + sourceKeys.map(k => k === 'binance' ? 'Binance' : 'Bybit').join(' · ');
+  const maxVol = vols.length ? Math.max(...vols) : 1;
+
+  const normRange = (arr, v) => {
+    if (v == null || !Number.isFinite(Number(v)) || !arr.length) return null;
+    const lo = Math.min(...arr);
+    const hi = Math.max(...arr);
+    if (hi === lo) return 0.5;
+    return (Number(v) - lo) / (hi - lo);
+  };
+
+  const xAt = (i) =>pad.left + (i / Math.max(1, series.length - 1)) * plotW;
+  const yPrice = (p) =>priceTop + (1 - (p - yMin) / (yMax - yMin)) * priceH;
+  const yFund = (r) =>fundTop + (1 - (r - fMin) / (fMax - fMin)) * fundH;
+  const yZero = yFund(0);
+
+  // —— Price pane ——
+  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const v = yMin + ((yMax - yMin) * i) / ticks;
+    const y = yPrice(v);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.07)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(formatTriAxisPrice(v), pad.left - 8, y);
+  }
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+  ctx.beginPath();
+  ctx.moveTo(pad.left, priceTop);
+  ctx.lineTo(pad.left, priceTop + priceH);
+  ctx.stroke();
+
+  // pane separator
+  if (fundH >0 || volH >0) {
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
+    ctx.beginPath();
+    ctx.moveTo(pad.left, priceTop + priceH + gap / 2);
+    ctx.lineTo(pad.left + plotW, priceTop + priceH + gap / 2);
+    ctx.stroke();
+  }
+
+  // price area + line
+  if (vis.price) {
+    const pts = [];
+    for (let i = 0; i < series.length; i++) {
+      const pr = Number(series[i].price);
+      if (!Number.isFinite(pr) || pr <= 0) continue;
+      pts.push({ x: xAt(i), y: yPrice(pr) });
+    }
+    if (pts.length >= 2) {
+      const baseY = priceTop + priceH;
+      const grad = ctx.createLinearGradient(0, priceTop, 0, baseY);
+      grad.addColorStop(0, 'rgba(148, 163, 184, 0.2)');
+      grad.addColorStop(1, 'rgba(148, 163, 184, 0.01)');
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, baseY);
+      ctx.lineTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[pts.length - 1].x, baseY);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = 'rgba(241, 245, 249, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+  }
+
+  // OI thin overlay on price (optional)
+  if (vis.oi && ois.length) {
+    const oiPts = [];
+    for (let i = 0; i < series.length; i++) {
+      const n = normRange(ois, series[i].oi);
+      if (n == null) continue;
+      oiPts.push({
+        x: xAt(i),
+        y: priceTop + (1 - n) * priceH * 0.9 + priceH * 0.05,
+      });
+    }
+    if (oiPts.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(oiPts[0].x, oiPts[0].y);
+      for (let i = 1; i < oiPts.length; i++) ctx.lineTo(oiPts[i].x, oiPts[i].y);
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // —— Funding pane: zero-axis histogram + cycle line ——
+  if (vis.funding && fundH >0) {
+    // tint bands: above zero green wash, below red wash
+    if (yZero >fundTop && yZero < fundTop + fundH) {
+      ctx.fillStyle = 'rgba(52, 211, 153, 0.04)';
+      ctx.fillRect(pad.left, fundTop, plotW, Math.max(0, yZero - fundTop));
+      ctx.fillStyle = 'rgba(248, 113, 113, 0.05)';
+      ctx.fillRect(pad.left, yZero, plotW, Math.max(0, fundTop + fundH - yZero));
+    }
+
+    // funding ticks (include 0)
+    const fTicks = [fMin, fMin * 0.5, 0, fMax * 0.5, fMax];
+    const uniqF = [];
+    for (const t of fTicks) {
+      if (!Number.isFinite(t)) continue;
+      if (uniqF.every((u) =>Math.abs(u - t) > (fMax - fMin) * 0.08)) uniqF.push(t);
+    }
+    if (!uniqF.includes(0) && fMin < 0 && fMax >0) uniqF.push(0);
+    uniqF.sort((a, b) =>a - b);
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    for (const t of uniqF) {
+      const y = yFund(t);
+      if (y < fundTop - 1 || y >fundTop + fundH + 1) continue;
+      ctx.strokeStyle =
+        Math.abs(t) < 1e-12 ? 'rgba(226, 232, 240, 0.35)' : 'rgba(148, 163, 184, 0.08)';
+      ctx.lineWidth = Math.abs(t) < 1e-12 ? 1.25 : 1;
+      ctx.setLineDash(Math.abs(t) < 1e-12 ? [3, 3] : []);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(pad.left + plotW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = Math.abs(t) < 1e-12 ? '#e2e8f0' : '#64748b';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(formatFundAxisPct(t), pad.left - 8, y);
+    }
+
+    // zero label badge
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('资金费率  绿正/红负  ↑增↓减', pad.left + 2, fundTop + 2);
+
+    const barW = Math.max(2, Math.min(14, (plotW / series.length) * 0.7));
+    const linePts = [];
+
+    for (let i = 0; i < series.length; i++) {
+      const r = Number(series[i].funding);
+      if (!Number.isFinite(r)) continue;
+      const x = xAt(i);
+      const y = yFund(r);
+      linePts.push({ x, y, r, i });
+
+      // bar from zero
+      const top = Math.min(y, yZero);
+      const h = Math.max(1.5, Math.abs(y - yZero));
+      const prev = i >0 ? Number(series[i - 1].funding) : null;
+      const rising = prev != null && Number.isFinite(prev) && r >prev + 1e-12;
+      const falling = prev != null && Number.isFinite(prev) && r < prev - 1e-12;
+
+      if (r >= 0) {
+        ctx.fillStyle = rising
+          ? 'rgba(16, 185, 129, 0.78)'
+          : falling
+            ? 'rgba(52, 211, 153, 0.38)'
+            : 'rgba(52, 211, 153, 0.55)';
+      } else {
+        ctx.fillStyle = falling
+          ? 'rgba(239, 68, 68, 0.78)'
+          : rising
+            ? 'rgba(248, 113, 113, 0.38)'
+            : 'rgba(248, 113, 113, 0.55)';
+      }
+      ctx.fillRect(x - barW / 2, top, barW, h);
+
+      // delta tip mark: small triangle above/below bar end
+      if (rising || falling) {
+        ctx.beginPath();
+        if (rising) {
+          ctx.moveTo(x, y - 5);
+          ctx.lineTo(x - 3.5, y - 1);
+          ctx.lineTo(x + 3.5, y - 1);
+          ctx.fillStyle = r >= 0 ? '#6ee7b7' : '#fca5a5';
+        } else {
+          ctx.moveTo(x, y + 5);
+          ctx.lineTo(x - 3.5, y + 1);
+          ctx.lineTo(x + 3.5, y + 1);
+          ctx.fillStyle = r >= 0 ? '#34d399' : '#f87171';
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // cycle polyline (step-friendly)
+    if (linePts.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(linePts[0].x, linePts[0].y);
+      for (let i = 1; i < linePts.length; i++) {
+        // horizontal-then-vertical step to emphasize funding settle cycles
+        const midX = (linePts[i - 1].x + linePts[i].x) / 2;
+        ctx.lineTo(midX, linePts[i - 1].y);
+        ctx.lineTo(midX, linePts[i].y);
+        ctx.lineTo(linePts[i].x, linePts[i].y);
+      }
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.72)';
+      ctx.lineWidth = 1.4;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+
+    // spine
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+    ctx.beginPath();
+    ctx.moveTo(pad.left, fundTop);
+    ctx.lineTo(pad.left, fundTop + fundH);
+    ctx.stroke();
+  }
+
+  // —— Volume pane ——
+  if (vis.volume && volH >0) {
+    if (fundH >0) {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
+      ctx.beginPath();
+      ctx.moveTo(pad.left, fundTop + fundH + gap / 2);
+      ctx.lineTo(pad.left + plotW, fundTop + fundH + gap / 2);
+      ctx.stroke();
+    }
+    const barW = Math.max(1.5, (plotW / series.length) * 0.62);
+    for (let i = 0; i < series.length; i++) {
+      const vol = Number(series[i].volume);
+      if (!Number.isFinite(vol) || vol <= 0) continue;
+      const h = Math.max(1, (vol / maxVol) * (volH - 2));
+      const x = xAt(i);
+      const y = volTop + volH - h;
+      // tint volume by funding polarity of same bar for correlation glance
+      const fr = Number(series[i].funding);
+      if (Number.isFinite(fr) && fr < 0) {
+        ctx.fillStyle = 'rgba(248, 113, 113, 0.22)';
+      } else if (Number.isFinite(fr) && fr >0) {
+        ctx.fillStyle = 'rgba(52, 211, 153, 0.26)';
+      } else {
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
+      }
+      ctx.fillRect(x - barW / 2, y, barW, h);
+    }
+    ctx.fillStyle = '#64748b';
+    ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('成交量（色随费率正负）', pad.left + 2, volTop + 1);
+  }
+
+  // X labels
+  const maxLabels = unit === 'hour' ? 7 : 6;
+  const labelStep = Math.max(1, Math.floor(series.length / maxLabels));
+  ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i < series.length; i += labelStep) {
+    ctx.fillText(String(series[i].label || ''), xAt(i), height - 18);
+  }
+  if ((series.length - 1) % labelStep !== 0) {
+    ctx.fillText(String(series[series.length - 1].label || ''), xAt(series.length - 1), height - 18);
+  }
+
+  // —— Crosshair through all panes ——
+  const focus = activeSelfTriIndex();
+  if (focus != null && series[focus]) {
+    const px = xAt(focus);
+    const pr = Number(series[focus].price);
+    const fr = Number(series[focus].funding);
+    const py = Number.isFinite(pr) && pr >0 ? yPrice(pr) : priceTop + priceH / 2;
+    const chartBottom =
+      volH >0 ? volTop + volH : fundH >0 ? fundTop + fundH : priceTop + priceH;
+
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(px, priceTop);
+    ctx.lineTo(px, chartBottom);
+    ctx.stroke();
+
+    if (vis.price && Number.isFinite(pr) && pr >0) {
+      ctx.beginPath();
+      ctx.moveTo(pad.left, py);
+      ctx.lineTo(pad.left + plotW, py);
+      ctx.stroke();
+    }
+    // funding horizontal at selected rate
+    if (vis.funding && fundH >0 && Number.isFinite(fr)) {
+      const fy = yFund(fr);
+      ctx.strokeStyle =
+        fr >0 ? 'rgba(52, 211, 153, 0.45)' : fr < 0 ? 'rgba(248, 113, 113, 0.45)' : 'rgba(226,232,240,0.4)';
+      ctx.beginPath();
+      ctx.moveTo(pad.left, fy);
+      ctx.lineTo(pad.left + plotW, fy);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // price focus dot
+    if (vis.price && Number.isFinite(pr) && pr >0) {
+      ctx.beginPath();
+      ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#f8fafc';
+      ctx.stroke();
+    }
+
+    // funding focus dot on zero-axis pane
+    if (vis.funding && fundH >0 && Number.isFinite(fr)) {
+      const fy = yFund(fr);
+      ctx.beginPath();
+      ctx.arc(px, fy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = fr >= 0 ? '#10b981' : '#ef4444';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#f8fafc';
+      ctx.stroke();
+    }
+
+    // price tag
+    if (vis.price && Number.isFinite(pr) && pr >0) {
+      const tag = formatTriExactPrice(pr);
+      ctx.font = 'bold 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      const tw = ctx.measureText(tag).width;
+      const tagW = tw + 12;
+      const tagH = 20;
+      let tagY = py - tagH / 2;
+      tagY = Math.max(priceTop, Math.min(priceTop + priceH - tagH, tagY));
+      const tagX = pad.left - tagW - 4;
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.96)';
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(tagX + r, tagY);
+      ctx.arcTo(tagX + tagW, tagY, tagX + tagW, tagY + tagH, r);
+      ctx.arcTo(tagX + tagW, tagY + tagH, tagX, tagY + tagH, r);
+      ctx.arcTo(tagX, tagY + tagH, tagX, tagY, r);
+      ctx.arcTo(tagX, tagY, tagX + tagW, tagY, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tag, tagX + tagW / 2, tagY + tagH / 2);
+    }
+
+    // funding rate tag on left of fund pane
+    if (vis.funding && fundH >0 && Number.isFinite(fr)) {
+      const tag = formatFundAxisPct(fr);
+      ctx.font = 'bold 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      const tw = ctx.measureText(tag).width;
+      const tagW = tw + 10;
+      const tagH = 18;
+      const fy = yFund(fr);
+      let tagY = fy - tagH / 2;
+      tagY = Math.max(fundTop, Math.min(fundTop + fundH - tagH, tagY));
+      const tagX = pad.left - tagW - 4;
+      ctx.fillStyle = fr >= 0 ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)';
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(tagX + r, tagY);
+      ctx.arcTo(tagX + tagW, tagY, tagX + tagW, tagY + tagH, r);
+      ctx.arcTo(tagX + tagW, tagY + tagH, tagX, tagY + tagH, r);
+      ctx.arcTo(tagX, tagY + tagH, tagX, tagY, r);
+      ctx.arcTo(tagX, tagY, tagX + tagW, tagY, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tag, tagX + tagW / 2, tagY + tagH / 2);
     }
   }
 }
 
-// ===== HyperLiquid Rendering =====
-function renderHyperLiquid(hl) {
-  if (!dom.hlPrice || !dom.hlStatus) return;
-  if (!hl || !hl.price) {
-    dom.hlStatus.textContent = '⏸ 未连接';
-    dom.hlStatus.style.background = 'rgba(255,193,7,0.1)';
-    dom.hlStatus.style.color = '#fbbf24';
-    return;
+// legacy name used by older call sites
+function drawSelfTriChart(canvas, series, unit = 'day') {
+  if (Array.isArray(series)) {
+    selfTriChartState.series = series;
+    selfTriChartState.unit = unit;
   }
-
-  dom.hlStatus.textContent = '✅ 已连接';
-  dom.hlStatus.style.background = 'rgba(34,197,94,0.1)';
-  dom.hlStatus.style.color = '#22c55e';
-
-  dom.hlPrice.textContent = hl.price ? `$${hl.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$--';
-
-  const fr = hl.fundingRate || 0;
-  dom.hlFundingRate.textContent = fr !== 0 ? `${(fr * 100).toFixed(4)}%` : '--';
-  dom.hlFundingRate.className = `btc-metric-value ${getChangeClass(fr)}`;
-
-  const af = hl.annualFundingRate || (fr * 3 * 365 * 100);
-  dom.hlAnnualFunding.textContent = af !== 0 ? `${af.toFixed(2)}%` : '--';
-  dom.hlAnnualFunding.className = `btc-metric-value ${getChangeClass(af)}`;
-
-  const pf = hl.predictedFundingRate || 0;
-  dom.hlPredictedFunding.textContent = pf !== 0 ? `${(pf * 100).toFixed(4)}%` : '--';
-  dom.hlPredictedFunding.className = `btc-metric-value ${getChangeClass(pf)}`;
-
-  const oi = hl.openInterestUsd || (hl.openInterest * (hl.price || 1)) || 0;
-  dom.hlOpenInterest.textContent = oi > 0 ? formatCompact(oi) : '--';
+  ensureSelfTriChartBound();
+  paintSelfTriChart();
 }
 
-// ===== Historical Funding Rate Rendering =====
-function renderFundingHistory(fh) {
-  if (!dom.fundingHistoryStatus) return;
-
-  if (!fh || fh.current === undefined || !fh.history) {
-    dom.fundingHistoryStatus.textContent = '⏸ 数据不可用';
-    dom.fundingHistoryStatus.style.background = 'rgba(255,193,7,0.1)';
-    dom.fundingHistoryStatus.style.color = '#fbbf24';
-    return;
+function setBtcSeriesUnit(unit) {
+  const next = String(unit || 'day');
+  if (state.btcSeriesUnit === next && state.btcData?.selfTriSeries) return;
+  state.btcSeriesUnit = next;
+  if (dom.btcSeriesUnitBtns?.length) {
+    dom.btcSeriesUnitBtns.forEach((btn) =>btn.classList.toggle('active', btn.dataset.unit === next));
   }
-
-  dom.fundingHistoryStatus.textContent = '✅ 已连接';
-  dom.fundingHistoryStatus.style.background = 'rgba(34,197,94,0.1)';
-  dom.fundingHistoryStatus.style.color = '#22c55e';
-
-  // Current funding rate
-  const currentFr = fh.current != null ? fh.current : 0;
-  if (dom.fhCurrent) {
-    dom.fhCurrent.textContent = currentFr !== 0 ? `${(currentFr * 100).toFixed(4)}%` : '0.0000%';
-    dom.fhCurrent.className = `btc-metric-value ${getChangeClass(currentFr)}`;
-  }
-
-  // Stats
-  const stats = fh.stats || {};
-  if (dom.fhHigh) dom.fhHigh.textContent = `${(stats.high24h * 100).toFixed(4)}%`;
-  if (dom.fhLow) dom.fhLow.textContent = `${(stats.low24h * 100).toFixed(4)}%`;
-  if (dom.fhAvg) dom.fhAvg.textContent = `${(stats.avg24h * 100).toFixed(4)}%`;
-  if (dom.fhSource) dom.fhSource.textContent = `Binance Futures · ${stats.count || 0} 条记录`;
-
-  // Draw funding history sparkline
-  const history = fh.history || [];
-  if (dom.fundingSparkline && history.length >= 2) {
-    drawFundingSparkline(dom.fundingSparkline, history);
-  }
+  loadBitcoinData();
 }
 
 function drawFundingSparkline(canvas, history) {
+  // legacy no-op kept if any old calls remain
   if (!canvas || !history || history.length < 2) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -2750,7 +4939,7 @@ function drawFundingSparkline(canvas, history) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, height);
 
-  const rates = history.map(h => h.rate).filter(r => r != null);
+  const rates = history.map(h =>h.rate).filter(r =>r != null);
   if (rates.length < 2) return;
 
   const min = Math.min(...rates);
@@ -2849,9 +5038,9 @@ function drawFundingSparkline(canvas, history) {
 function switchChain(chain) {
   // Chain tabs only control Memecoin boards
   if (state.currentPage !== 'memecoin') return;
-  if (chain === state.currentChain && state.tokens.length > 0 && !state.isLoading) return;
+  if (chain === state.currentChain && state.tokens.length >0 && !state.isLoading) return;
   state.currentChain = chain;
-  dom.chainTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.chain === chain));
+  dom.chainTabs.forEach((tab) =>tab.classList.toggle('active', tab.dataset.chain === chain));
   // Show only this network's 实时信号 immediately (before fetch completes)
   renderMemecoinSignals();
   // Always force a new load (loadId invalidates in-flight previous chain)
@@ -2871,7 +5060,7 @@ function startAutoRefresh() {
     if (shouldSkip) return;
     if (state.currentPage === 'memecoin' && !state.isLoading) {
       loadMemecoinData(state.currentChain);
-    } else if (state.currentPage === 'othercoin' && !state.otherLoading) {
+    } else if ((state.currentPage === 'altcoin' || state.currentPage === 'othercoin') && !state.otherLoading) {
       loadOthercoinData();
     } else if (state.currentPage === 'bitcoin' && !state.btcLoading) {
       loadBitcoinData();
@@ -2889,19 +5078,19 @@ function stopAutoRefresh() {
 
 // Page tabs
 dom.pageTabs.forEach((tab) => {
-  tab.addEventListener('click', () => switchPage(tab.dataset.page));
+  tab.addEventListener('click', () =>switchPage(tab.dataset.page));
 });
 
 // Chain tabs
 dom.chainTabs.forEach((tab) => {
-  tab.addEventListener('click', () => switchChain(tab.dataset.chain));
+  tab.addEventListener('click', () =>switchChain(tab.dataset.chain));
 });
 
 // Refresh
 dom.refreshBtn.addEventListener('click', () => {
   dom.refreshBtn.classList.add('spinning');
   if (state.currentPage === 'memecoin') loadMemecoinData(state.currentChain);
-  else if (state.currentPage === 'othercoin') loadOthercoinData();
+  else if (state.currentPage === 'altcoin' || state.currentPage === 'othercoin') loadOthercoinData();
   else if (state.currentPage === 'bitcoin') loadBitcoinData();
   showToast('正在刷新...', 'info');
 });
@@ -2915,7 +5104,7 @@ dom.autoRefreshToggle.addEventListener('change', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && dom.autoRefreshToggle.checked) {
     if (state.currentPage === 'memecoin' && !state.isLoading) loadMemecoinData(state.currentChain);
-    else if (state.currentPage === 'othercoin' && !state.otherLoading) loadOthercoinData();
+    else if ((state.currentPage === 'altcoin' || state.currentPage === 'othercoin') && !state.otherLoading) loadOthercoinData();
     else if (state.currentPage === 'bitcoin' && !state.btcLoading) loadBitcoinData();
   }
 });
@@ -2933,7 +5122,7 @@ dom.retryBtn.addEventListener('click', () => {
     const host = location.host || '';
     const res = await fetch(getApiUrl('/api/chains'), { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-    const ids = (data.data || data.chains || []).map((c) => c.id || c).filter(Boolean);
+    const ids = (data.data || data.chains || []).map((c) =>c.id || c).filter(Boolean);
     const badge = document.getElementById('buildBadge');
     if (badge) {
       badge.textContent = `API host: ${host || 'local'} · chains: ${ids.join(', ') || 'unknown'}`;
@@ -2956,20 +5145,20 @@ dom.retryBtn.addEventListener('click', () => {
 // Memecoin sort
 dom.sortBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
-    dom.sortBtns.forEach((b) => b.classList.remove('active'));
+    dom.sortBtns.forEach((b) =>b.classList.remove('active'));
     btn.classList.add('active');
     state.sortBy = btn.dataset.sort;
-    if (state.tokens.length > 0) renderMemecoinSortedTokens(state.tokens);
+    if (state.tokens.length >0) renderMemecoinSortedTokens(state.tokens);
   });
 });
 
 // Othercoin sort
 dom.otherSortBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
-    dom.otherSortBtns.forEach((b) => b.classList.remove('active'));
+    dom.otherSortBtns.forEach((b) =>b.classList.remove('active'));
     btn.classList.add('active');
     state.otherSortBy = btn.dataset.sort;
-    if (state.otherTokens.length > 0) renderOthercoinSortedTokens(state.otherTokens);
+    if (state.otherTokens.length >0) renderOthercoinSortedTokens(state.otherTokens);
   });
 });
 
@@ -3040,7 +5229,7 @@ dom.btcSourceBtns.forEach((btn) => {
     const source = btn.dataset.source;
     if (source === state.btcPreferredSource) return;
     // Update button states
-    dom.btcSourceBtns.forEach((b) => b.classList.remove('active'));
+    dom.btcSourceBtns.forEach((b) =>b.classList.remove('active'));
     btn.classList.add('active');
     // Update state
     state.btcPreferredSource = source;
@@ -3051,12 +5240,288 @@ dom.btcSourceBtns.forEach((btn) => {
   });
 });
 
+// BTC timeframe: 1h / 4h / 1d / 3d / 1w / 3w
+if (dom.btcTfBtns?.length) {
+  dom.btcTfBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const period = btn.dataset.period;
+      if (!period || period === state.btcPeriod) return;
+      showToast(`切换周期 ${btn.textContent.trim()} · 加载自信号源均值`, 'info');
+      setBtcPeriod(period);
+    });
+  });
+}
+
+// 三量图时间单位：时 / 日 / 月 / 年
+if (dom.btcSeriesUnitBtns?.length) {
+  dom.btcSeriesUnitBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const unit = btn.dataset.unit;
+      if (!unit || unit === state.btcSeriesUnit) return;
+      showToast(`横轴单位：${btn.textContent.trim()} · 重绘自信号源三量图`, 'info');
+      setBtcSeriesUnit(unit);
+    });
+  });
+}
+
+// 三量图图例：开关系列（单价不可关，避免空图）
+if (dom.triLegBtns?.length) {
+  dom.triLegBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.series;
+      if (!key || !(key in selfTriChartState.visible)) return;
+      if (key === 'price') {
+        // 单价始终显示
+        selfTriChartState.visible.price = true;
+        btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+        return;
+      }
+      selfTriChartState.visible[key] = !selfTriChartState.visible[key];
+      btn.classList.toggle('active', selfTriChartState.visible[key]);
+      btn.setAttribute('aria-pressed', selfTriChartState.visible[key] ? 'true' : 'false');
+      paintSelfTriChart();
+    });
+  });
+}
+
 // ====================================================================================
 // INITIALIZE
 // ====================================================================================
 
+function initStrategyModal() {
+  const modal = document.getElementById('strategyModal');
+  if (!modal || modal.dataset.bound === '1') return;
+  modal.dataset.bound = '1';
+  modal.querySelectorAll('[data-strategy-close]').forEach((el) => {
+    el.addEventListener('click', () =>closeStrategyModal());
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.hidden) closeStrategyModal();
+  });
+}
+
+/**
+ * Local design preview: inject sample tracked cards so AI / wallet / strategy UI
+ * can be reviewed without waiting for live Monitor heat signals.
+ * Does NOT place trades. Marked with signalMeta.designDemo = true.
+ */
+function seedDesignDemoTracking() {
+  const now = Date.now();
+  const samples = [
+    {
+      key: 'demo:solana:DemoAlpha1111111111111111111111111',
+      address: 'DemoAlpha1111111111111111111111111',
+      symbol: 'ALPHA',
+      name: 'Alpha Heat Demo',
+      chain: 'solana',
+      signalAt: now - 18 * 60 * 1000,
+      priceAtSignal: 0.0012,
+      currentPrice: 0.00156,
+      signalReason: 'monitor-hot-5m',
+      signalReasonText: 'Monitor 5m 火热 · 分78/100 · Smart Net Inflow',
+      entryGrade: 'B',
+      priceHistory: [
+        { time: now - 18 * 60 * 1000, price: 0.0012, marker: 'buy' },
+        { time: now - 12 * 60 * 1000, price: 0.00138 },
+        { time: now - 6 * 60 * 1000, price: 0.00162 },
+        { time: now, price: 0.00156 },
+      ],
+      signalMeta: {
+        designDemo: true,
+        heatWindow: '5m',
+        priceChange1h: 28,
+        volume1h: 420000,
+        liquidity: 92000,
+        buyPercent: 68,
+        hasSmartMoneyData: true,
+        dataQuality: 'gmgn-enriched',
+        securityChecked: true,
+        security: { renounced: true, canSell: true, rawFlags: { isHoneypot: false, isRug: false, isBan: false } },
+        isHoneypot: false,
+        isRug: false,
+        isBan: false,
+        top10Holders: 0.22,
+        smartNetInflow5m: 18500,
+        smartNetInflow15m: 42000,
+        smartNetInflow1h: 61000,
+        kolNetInflow5m: 6200,
+        kolNetInflow15m: 14000,
+        smartWallets5m: 4,
+        smartWallets15m: 7,
+        kolWallets5m: 2,
+        kolWallets15m: 3,
+        smartCount: 5,
+        topWallets: [
+          { address: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', role: 'smart', buyUsd: 8200, sellUsd: 0, netUsd: 8200, tradeCount: 2, side: 'buy', twitter: '', name: 'SmartDegen', tags: ['smart_money'] },
+          { address: 'DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK', role: 'kol', buyUsd: 4100, sellUsd: 900, netUsd: 3200, tradeCount: 3, side: 'mixed', twitter: 'ansem', name: 'Ansem', tags: ['kol'] },
+          { address: '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1', role: 'smart', buyUsd: 2500, sellUsd: 0, netUsd: 2500, tradeCount: 1, side: 'buy', twitter: '', name: '', tags: ['smart_degen'] },
+        ],
+      },
+      signalScoreSnapshot: null,
+    },
+    {
+      key: 'demo:base:0xdemo00000000000000000000000000000000cafe',
+      address: '0xdemo00000000000000000000000000000000cafe',
+      symbol: 'RISK',
+      name: 'Risk Block Demo',
+      chain: 'base',
+      signalAt: now - 40 * 60 * 1000,
+      priceAtSignal: 0.04,
+      currentPrice: 0.031,
+      signalReason: 'monitor-hot-15m',
+      signalReasonText: 'Monitor 15m 火热 · 分61/100',
+      entryGrade: 'D',
+      priceHistory: [
+        { time: now - 40 * 60 * 1000, price: 0.04, marker: 'buy' },
+        { time: now - 20 * 60 * 1000, price: 0.036 },
+        { time: now, price: 0.031 },
+      ],
+      signalMeta: {
+        designDemo: true,
+        heatWindow: '15m',
+        priceChange1h: -12,
+        volume1h: 90000,
+        liquidity: 18000,
+        buyPercent: 42,
+        hasSmartMoneyData: true,
+        dataQuality: 'gmgn-enriched',
+        securityChecked: true,
+        security: { renounced: false, canSell: true, rawFlags: { isHoneypot: false, isRug: false, isBan: false } },
+        isHoneypot: false,
+        isRug: false,
+        isBan: false,
+        top10Holders: 0.58,
+        smartNetInflow5m: 1200,
+        smartNetInflow15m: 3500,
+        kolNetInflow5m: 0,
+        smartWallets5m: 1,
+        smartWallets15m: 2,
+        topWallets: [
+          { address: '0xabc000000000000000000000000000000000beef', role: 'smart', buyUsd: 900, sellUsd: 1400, netUsd: -500, tradeCount: 2, side: 'sell', twitter: '', name: 'ExitWallet', tags: ['smart_money'] },
+        ],
+      },
+      signalScoreSnapshot: null,
+    },
+  ];
+
+  for (const s of samples) {
+    // Build score snapshot so AI panel uses real security/resonance reports
+    const tokenLike = {
+      symbol: s.symbol,
+      address: s.address,
+      chain: s.chain,
+      priceChange1h: s.signalMeta.priceChange1h,
+      volume1h: s.signalMeta.volume1h,
+      volume24h: s.signalMeta.volume1h * 3,
+      liquidity: s.signalMeta.liquidity,
+      hasSmartMoneyData: true,
+      dataQuality: 'gmgn-enriched',
+      securityChecked: s.signalMeta.securityChecked,
+      security: s.signalMeta.security,
+      isHoneypot: s.signalMeta.isHoneypot,
+      isRug: s.signalMeta.isRug,
+      isBan: s.signalMeta.isBan,
+      top10Holders: s.signalMeta.top10Holders,
+      smartCount: s.signalMeta.smartCount || 3,
+      smartNetInflow5m: s.signalMeta.smartNetInflow5m,
+      smartNetInflow15m: s.signalMeta.smartNetInflow15m,
+      smartNetInflow1h: s.signalMeta.smartNetInflow1h,
+      kolNetInflow5m: s.signalMeta.kolNetInflow5m,
+      kolNetInflow15m: s.signalMeta.kolNetInflow15m,
+      smartWallets5m: s.signalMeta.smartWallets5m,
+      smartWallets15m: s.signalMeta.smartWallets15m,
+      kolWallets5m: s.signalMeta.kolWallets5m,
+      kolWallets15m: s.signalMeta.kolWallets15m,
+      txns1h: { buys: 200, sells: 90, total: 290 },
+    };
+    const snapshot = window.SignalEngine?.scoreTokenSignal?.(tokenLike) || null;
+    if (snapshot && s.entryGrade === 'D') {
+      snapshot.entryGrade = 'D';
+      snapshot.suggestedAction = '禁止交易';
+      snapshot.riskLevel = '高';
+    }
+    state.trackedTokens[s.key] = {
+      address: s.address,
+      symbol: s.symbol,
+      name: s.name,
+      icon: '',
+      chain: s.chain,
+      signalAt: s.signalAt,
+      signalReason: s.signalReason,
+      signalReasonText: s.signalReasonText,
+      priceAtSignal: s.priceAtSignal,
+      buyMarker: { time: s.signalAt, price: s.priceAtSignal, label: '信号买入点' },
+      priceHistory: s.priceHistory,
+      currentPrice: s.currentPrice,
+      lastCapitalInflowAt: now,
+      signalMeta: { ...s.signalMeta, signalScoreSnapshot: snapshot },
+      signalScoreSnapshot: snapshot,
+      aiNotes: null,
+      historyStatus: 'active',
+      outcomeStatus: 'pending',
+      outcomeTier: '观察中',
+      outcomeRecorded: false,
+      designDemo: true,
+    };
+    // AI 面板与策略模态默认均不展开，需用户主动点开
+    state.aiExpanded[s.key] = false;
+  }
+
+  // Seed a couple of outcome stats for the bar
+  if (!Array.isArray(state.signalOutcomes)) state.signalOutcomes = [];
+  state.signalOutcomes = [
+    {
+      id: 'demo-win-1',
+      key: samples[0].key,
+      symbol: 'ALPHA',
+      status: 'win',
+      isWin: true,
+      isLoss: false,
+      tier: '有效信号',
+      maxGain: 42,
+      currentChange: 30,
+      patternKey: 'monitor-hot-5m|a',
+      settledAt: now,
+    },
+    {
+      id: 'demo-loss-1',
+      key: samples[1].key,
+      symbol: 'RISK',
+      status: 'loss',
+      isWin: false,
+      isLoss: true,
+      tier: '失败/跌破',
+      maxGain: 5,
+      currentChange: -22,
+      patternKey: 'monitor-hot-15m|d',
+      settledAt: now,
+    },
+    ...(state.signalOutcomes.filter((o) => !String(o.id || '').startsWith('demo-'))),
+  ].slice(0, 40);
+
+  closeStrategyModal();
+  renderMemecoinMonitoring();
+  showToast('设计预览已加载 · AI/策略默认收起，点「AI」或「策略预览」查看', 'info');
+}
+
+function initDesignDemoButtons() {
+  const run = () =>seedDesignDemoTracking();
+  document.getElementById('designDemoBtn')?.addEventListener('click', run);
+  document.getElementById('designDemoBtnEmpty')?.addEventListener('click', run);
+  // Auto-seed once on local host when URL has ?demo=1
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('demo') === '1' || q.get('design') === '1') {
+      setTimeout(run, 400);
+    }
+  } catch (_) { /* ignore */ }
+}
+
 function init() {
   setStatus('loading');
+  initStrategyModal();
+  initDesignDemoButtons();
   loadSignalTracking();
   renderMemecoinSignals();
   renderMemecoinMonitoring();

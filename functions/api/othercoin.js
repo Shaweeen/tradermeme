@@ -51,7 +51,7 @@ const FILTER_OUT = new Set([
 /** Fetch with timeout */
 async function safeFetch(url, timeoutMs = 8000) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() =>controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: controller.signal, headers: { 'Accept': 'application/json' } });
     clearTimeout(timeout);
@@ -72,7 +72,7 @@ async function getBybitTickers() {
   if (!data?.result?.list) return [];
 
   return data.result.list
-    .filter((t) => t.symbol?.endsWith('USDT') && !t.symbol.includes('USDC'))
+    .filter((t) =>t.symbol?.endsWith('USDT') && !t.symbol.includes('USDC'))
     .map((t) => ({
       symbol: t.symbol.replace('USDT', ''),
       rawSymbol: t.symbol,
@@ -160,10 +160,10 @@ function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
 
   // --- Signal 1: Funding Rate Anomaly ---
   const fr = Math.abs(bybitTicker.fundingRate);
-  if (fr > SIGNAL_CONFIG.fundingRateMin) {
+  if (fr >SIGNAL_CONFIG.fundingRateMin) {
     const frSeverity = Math.min(fr / SIGNAL_CONFIG.fundingRateMax, 3);
     score += frSeverity * 15;
-    const direction = bybitTicker.fundingRate > 0 ? '多头偏高 🔥' : '空头偏高 ❄️';
+    const direction = bybitTicker.fundingRate >0 ? '多头偏高' : '空头偏高';
     signals.push({
       type: 'funding',
       label: '资金费率',
@@ -175,14 +175,14 @@ function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
   // --- Signal 2: Price Surge ---
   const pct24h = (bybitTicker.price24hPcnt * 100);
   const absPct = Math.abs(pct24h);
-  if (absPct > SIGNAL_CONFIG.priceSurgeMin && absPct < SIGNAL_CONFIG.priceSurgeMax) {
+  if (absPct >SIGNAL_CONFIG.priceSurgeMin && absPct < SIGNAL_CONFIG.priceSurgeMax) {
     const surgeSeverity = absPct / 20;
     score += surgeSeverity * 12;
-    const direction = pct24h > 0 ? '上涨 📈' : '下跌 📉';
+    const direction = pct24h >0 ? '上涨' : '下跌';
     signals.push({
       type: 'price',
       label: '价格异动',
-      detail: `${pct24h > 0 ? '+' : ''}${pct24h.toFixed(2)}% · ${direction}`,
+      detail: `${pct24h >0 ? '+' : ''}${pct24h.toFixed(2)}% · ${direction}`,
       severity: Math.min(surgeSeverity, 5),
     });
   }
@@ -191,7 +191,7 @@ function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
   const turnover = bybitTicker.turnover24h || 0;
   const binanceVol = binance?.quoteVolume || 0;
   const maxVolume = Math.max(turnover, binanceVol);
-  if (maxVolume > SIGNAL_CONFIG.volumeMin) {
+  if (maxVolume >SIGNAL_CONFIG.volumeMin) {
     const volSeverity = Math.min(maxVolume / 10000000, 5);
     score += volSeverity * 8;
     signals.push({
@@ -204,7 +204,7 @@ function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
 
   // --- Signal 4: OI Buildup ---
   const oi = bybitTicker.openInterest * bybitTicker.markPrice || 0;
-  if (oi > SIGNAL_CONFIG.oiMin) {
+  if (oi >SIGNAL_CONFIG.oiMin) {
     const oiSeverity = Math.min(oi / 50000000, 5);
     score += oiSeverity * 10;
     signals.push({
@@ -285,7 +285,7 @@ function scoreRobinhoodPair(pair, index = 0) {
     signals.push({
       type: 'price',
       label: '价格异动',
-      detail: `${priceChange24h > 0 ? '+' : ''}${priceChange24h.toFixed(2)}% · Robinhood 链`,
+      detail: `${priceChange24h >0 ? '+' : ''}${priceChange24h.toFixed(2)}% · Robinhood 链`,
       severity: Math.min(sev, 5),
     });
   }
@@ -437,10 +437,10 @@ function pickBestDexPair(pairs, symbol) {
     if (isQuoteLikeSymbol(baseSym)) return false;
     // exact or close symbol match on base
     if (baseSym !== want && baseSym !== `${want}X` && !baseSym.startsWith(want)) return false;
-    if (baseSym.length > want.length + 4) return false;
+    if (baseSym.length >want.length + 4) return false;
     // prefer stable/native quotes
     const okQuote = isQuoteLikeSymbol(quoteSym) || ['ETH', 'WETH', 'BNB', 'SOL', 'USDC', 'USDT'].includes(quoteSym);
-    return okQuote || (parseFloat(p.liquidity?.usd) || 0) > 50_000;
+    return okQuote || (parseFloat(p.liquidity?.usd) || 0) >50_000;
   });
 
   const pool = candidates.length ? candidates : pairs.filter((p) => {
@@ -655,7 +655,7 @@ async function scanSignals(chainFilter = 'all') {
           if (result) scored.push(result);
         }
         return scored
-          .sort((a, b) => b.score - a.score)
+          .sort((a, b) =>b.score - a.score)
           .slice(0, SIGNAL_CONFIG.maxResults)
           .map((coin, i) => ({
             rank: i + 1,
@@ -736,7 +736,7 @@ export async function onRequest(context) {
       else if (['solana', 'ethereum', 'base', 'bsc'].includes(rawChain)) chainFilter = 'multi';
 
       const results = await scanSignals(chainFilter);
-      const sources = [...new Set(results.map((r) => r.source).filter(Boolean))];
+      const sources = [...new Set(results.map((r) =>r.source).filter(Boolean))];
       return new Response(
         JSON.stringify({
           success: true,

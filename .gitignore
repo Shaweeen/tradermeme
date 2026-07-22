@@ -7,3 +7,5 @@ node_modules/
 .wrangler/
 dist/
 .dev.vars
+*.pre-recover
+server_output.txt

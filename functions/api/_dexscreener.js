@@ -14,11 +14,30 @@ const CHAIN_SLUG = {
 };
 
 const SEARCH_TERMS = {
-  solana: ['SOL', 'pump', 'solana meme'],
+  solana: ['SOL', 'pump', 'solana meme', 'bonk', 'letsbonk'],
   ethereum: ['ETH', 'ethereum meme'],
   base: ['base', 'base meme', 'BASE', 'brett'],
-  bsc: ['bnb meme', 'bsc', 'BNB', 'four.meme'],
-  robinhood: ['robinhood', 'ROBINHOOD', 'hood'],
+  // BSC: Binance DEX ecosystem + launchpads (four.meme / pancake) + tracker keywords
+  bsc: [
+    'bnb meme',
+    'bsc meme',
+    'BNB',
+    'four.meme',
+    'fourmeme',
+    'pancakeswap',
+    'flap',
+    'xxyy',
+    'binance meme',
+  ],
+  // Robinhood Chain: expand discovery beyond ticker noise
+  robinhood: [
+    'robinhood chain',
+    'robinhood meme',
+    'RHC meme',
+    'hood chain',
+    'hood meme',
+    'xxyy',
+  ],
 };
 
 async function safeFetch(url, timeoutMs = 10000) {
@@ -128,14 +147,19 @@ async function getTrendingPairs(chain, limit = 30) {
     }
   }
 
-  // 2) Top-up via boosts/profiles if still sparse and budget remains
-  if (deduped.size < Math.min(limit, 10) && left() > 2000) {
-    const [boosts, profiles] = await Promise.all([
+  // 2) Always try boosts/profiles for BSC & Robinhood (new meme discovery); others when sparse
+  const wantBoosts =
+    chain === 'bsc' ||
+    chain === 'robinhood' ||
+    (deduped.size < Math.min(limit, 12) && left() > 2000);
+  if (wantBoosts && left() > 1500) {
+    const [boosts, boostTop, profiles] = await Promise.all([
       getTokenBoosts('latest'),
-      getLatestTokenProfiles(60),
+      getTokenBoosts('top'),
+      getLatestTokenProfiles(80),
     ]);
     const addrs = [];
-    for (const pack of [boosts, profiles]) {
+    for (const pack of [boosts, boostTop, profiles]) {
       if (pack.error) {
         errors.push(pack.error);
         continue;
@@ -144,10 +168,10 @@ async function getTrendingPairs(chain, limit = 30) {
         if ((t.chainId || '').toLowerCase() === slug && t.tokenAddress) addrs.push(t.tokenAddress);
       }
     }
-    if (addrs.length && left() > 1500) {
-      const hyd = await getPairsByTokenAddresses(chain, addrs.slice(0, 15), 30);
+    if (addrs.length && left() > 1200) {
+      const hyd = await getPairsByTokenAddresses(chain, addrs.slice(0, 18), 40);
       if (hyd.error) errors.push(`hydrate:${hyd.error}`);
-      else pushPairs(hyd.tokens, 'dex-hydrate');
+      else pushPairs(hyd.tokens, chain === 'bsc' || chain === 'robinhood' ? 'dex-boost-new' : 'dex-hydrate');
     }
   }
 

@@ -2,11 +2,11 @@
 // Keep this endpoint separate from trending.js because Pages routes by file path.
 
 const CHAINS = [
-  { id: 'solana', gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '🪙' },
-  { id: 'ethereum', gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '⟠' },
-  { id: 'base', gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '🔵' },
-  { id: 'bsc', gmgn: 'bsc', dexscreener: 'bsc', label: 'BNB Chain', icon: '🟡' },
-  { id: 'robinhood', gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '🟢' },
+  { id: 'solana', gmgn: 'sol', dexscreener: 'solana', label: 'Solana', icon: '' },
+  { id: 'ethereum', gmgn: 'eth', dexscreener: 'ethereum', label: 'Ethereum', icon: '' },
+  { id: 'base', gmgn: 'base', dexscreener: 'base', label: 'Base', icon: '' },
+  { id: 'bsc', gmgn: 'bsc', dexscreener: 'bsc', label: 'BNB Chain', icon: '' },
+  { id: 'robinhood', gmgn: 'robinhood', dexscreener: 'robinhood', label: 'Robinhood', icon: '' },
 ];
 
 function jsonResponse(data, status = 200) {

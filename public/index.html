@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CoinWatch - 多链多币种监控仪表盘</title>
-  <meta name="description" content="实时监控 Memecoin、主流币、BTC 市场数据动态" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>" />
+  <title>DreamStudio</title>
+  <meta name="description" content="DreamStudio — multi trader · multi-chain market & contract data" />
+  <link rel="icon" type="image/svg+xml" href="/brand/dream-studio-mark.svg" />
+  <link rel="apple-touch-icon" href="/brand/dream-studio-mark.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -13,21 +14,52 @@
   <header class="header">
     <div class="header-content">
       <div class="logo">
-        <span class="logo-icon">🔥</span>
+        <a
+          class="dream-studio"
+          href="https://x.com/shaweeenx"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="dream studio · @shaweeenx"
+          aria-label="dream studio - open @shaweeenx on X"
+        >
+          <img
+            class="dream-studio-img"
+            src="/brand/dream-studio.svg"
+            width="132"
+            height="82"
+            alt="dream studio"
+            decoding="async"
+          />
+        </a>
         <div class="logo-text">
-          <h1>MemeWatch</h1>
-          <span class="logo-subtitle" id="logoSubtitle">多链监控 · 信号预警</span>
+          <h1>DreamStudio</h1>
+          <div class="logo-meta">
+            <span class="logo-subtitle" id="logoSubtitle">multi trader</span>
+            <a
+              class="sig-handle"
+              href="https://x.com/shaweeenx"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="@shaweeenx on X"
+              aria-label="Open @shaweeenx on X"
+            >
+              <svg class="sig-x-icon" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.727-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/>
+              </svg>
+              <span>@shaweeenx</span>
+            </a>
+          </div>
         </div>
       </div>
       <!-- Page Navigation -->
       <nav class="page-nav" id="pageNav">
         <button class="page-tab active" data-page="memecoin">
-          <span class="page-tab-icon">🪙</span>
+          <span class="page-tab-icon"></span>
           <span>Memecoin</span>
         </button>
-        <button class="page-tab" data-page="othercoin">
-          <span class="page-tab-icon">💎</span>
-          <span>Othercoin</span>
+        <button class="page-tab" data-page="altcoin">
+          <span class="page-tab-icon"></span>
+          <span>Altcoin</span>
         </button>
         <button class="page-tab" data-page="bitcoin">
           <span class="page-tab-icon">₿</span>
@@ -90,28 +122,28 @@
     <!-- Stats Bar -->
     <div class="stats-bar" id="statsBarMeme">
       <div class="stats-item" id="statCountMeme">
-        <span class="stat-icon">🪙</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">代币数</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statVolumeMeme">
-        <span class="stat-icon">💧</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">总交易量</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statNewestMeme">
-        <span class="stat-icon">🆕</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">最新</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statUpdatedMeme">
-        <span class="stat-icon">🕐</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">更新</span>
           <span class="stat-value">--</span>
@@ -123,7 +155,7 @@
       <section class="dashboard-section signal-section-compact" id="signalSection">
         <div class="section-header">
           <div class="section-title-group">
-            <span class="section-icon">🚨</span>
+            <span class="section-icon"></span>
             <h2 class="section-title">实时信号</h2>
             <span class="section-badge" id="signalCount">0</span>
           </div>
@@ -148,13 +180,15 @@
       <section class="dashboard-section" id="hotTokensSection">
         <div class="section-header">
           <div class="section-title-group">
-            <span class="section-icon">⚡</span>
+            <span class="section-icon"></span>
             <h2 class="section-title">热门 Memecoin</h2>
             <span class="section-badge" id="hotCount">0</span>
+            <span class="section-hint" title="多源去重 + 热度/聪明钱/社交/社区/舆论价值分">Top 20 价值排序</span>
           </div>
           <div class="section-controls">
             <div class="section-filter" id="sortSelect">
-              <button class="filter-btn active" data-sort="volume">交易量</button>
+              <button class="filter-btn active" data-sort="value">价值分</button>
+              <button class="filter-btn" data-sort="volume">交易量</button>
               <button class="filter-btn" data-sort="priceChange">涨幅</button>
               <button class="filter-btn" data-sort="buyRatio">买入比</button>
             </div>
@@ -184,7 +218,7 @@
           </div>
         </div>
         <div class="error-state" id="errorState" style="display: none;">
-          <div class="error-icon">⚠️</div>
+          <div class="error-icon"></div>
           <h3>数据加载失败</h3>
           <p id="errorMessage">无法连接到数据源，请检查网络连接后重试</p>
           <button class="retry-btn" id="retryBtn">重试</button>
@@ -194,12 +228,13 @@
       <section class="dashboard-section" id="monitorSection">
         <div class="section-header">
           <div class="section-title-group">
-            <span class="section-icon">📈</span>
+            <span class="section-icon"></span>
             <h2 class="section-title">24H AI信号</h2>
             <span class="section-badge" id="trackedCount">0</span>
           </div>
           <div class="section-controls">
             <span class="section-hint" id="trackingHint">买入点=信号发出 · 刷新清失效 · 胜率反馈选标</span>
+            <button type="button" class="design-demo-btn" id="designDemoBtn" title="注入本地设计预览样例（不写真实下单）">设计预览</button>
           </div>
         </div>
         <div class="signal-outcome-stats" id="signalOutcomeStats" aria-label="信号胜率统计">
@@ -207,8 +242,9 @@
         </div>
         <div class="monitor-grid" id="monitorGrid">
           <div class="monitor-empty" id="monitorEmpty">
-            <span class="monitor-empty-icon">🔭</span>
+            <span class="monitor-empty-icon"></span>
             <p class="monitor-empty-text">尚未追踪任何代币<br/>信号发出即标记买入点 · 刷新自动移除失效 · 胜负用于优化选标</p>
+            <button type="button" class="design-demo-btn design-demo-btn-lg" id="designDemoBtnEmpty">加载设计预览样例</button>
           </div>
           <div class="monitor-cards" id="monitorCards"></div>
         </div>
@@ -216,32 +252,32 @@
     </div>
   </div>
 
-  <!-- ===== Page: Othercoin ===== -->
-  <div class="page-content" id="pageOthercoin">
+  <!-- ===== Page: Altcoin (API: /api/othercoin) ===== -->
+  <div class="page-content" id="pageAltcoin">
     <div class="stats-bar" id="statsBarOther">
       <div class="stats-item" id="statCountOther">
-        <span class="stat-icon">💎</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">代币数</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statVolOther">
-        <span class="stat-icon">💧</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">总交易量</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statCapOther">
-        <span class="stat-icon">📊</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">平均评分</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statUpdatedOther">
-        <span class="stat-icon">🕐</span>
+        <span class="stat-icon"></span>
         <div class="stat-info">
           <span class="stat-label">更新</span>
           <span class="stat-value">--</span>
@@ -253,8 +289,8 @@
       <section class="dashboard-section" id="otherTokenSection">
         <div class="section-header">
           <div class="section-title-group">
-            <span class="section-icon">💎</span>
-            <h2 class="section-title">信号扫描 · Coinglass 多源信号</h2>
+            <span class="section-icon"></span>
+            <h2 class="section-title">信号扫描 · 合约多源信号</h2>
             <span class="section-badge" id="otherCount">0</span>
           </div>
           <div class="section-controls">
@@ -281,12 +317,12 @@
           <div class="table-body" id="otherTokenList">
             <div class="loading-state" id="otherLoadingState">
               <div class="spinner"></div>
-              <p>扫描 Coinglass 多源信号数据...</p>
+              <p>扫描合约多源信号数据...</p>
             </div>
           </div>
         </div>
         <div class="error-state" id="otherErrorState" style="display: none;">
-          <div class="error-icon">⚠️</div>
+          <div class="error-icon"></div>
           <h3>数据加载失败</h3>
           <p id="otherErrorMessage">无法连接到数据源</p>
           <button class="retry-btn" id="otherRetryBtn">重试</button>
@@ -316,6 +352,18 @@
               <div class="btc-hero-change" id="btc24hChange">--</div>
             </div>
           </div>
+          <!-- 综合偏向：仅资金费率 vs 默认 0 · 正数看多 / 非正看空 · 无中性 -->
+          <div class="btc-bias-strip" id="btcBiasStrip" hidden>
+            <div class="btc-bias-main">
+              <span class="btc-bias-label">综合偏向</span>
+              <span class="btc-bias-value" id="btcBiasLabel">--</span>
+              <span class="btc-bias-score" id="btcBiasScore">--</span>
+            </div>
+            <div class="btc-bias-bar-track" aria-hidden="true">
+              <div class="btc-bias-bar-fill" id="btcBiasBar" style="width:50%"></div>
+            </div>
+            <p class="btc-bias-summary" id="btcBiasSummary">资金费率 &gt; 0 看多 · ≤ 0 看空</p>
+          </div>
           <div class="btc-hero-details">
             <div class="btc-detail-item">
               <span class="btc-detail-label">24h 最高</span>
@@ -334,30 +382,23 @@
               <span class="btc-detail-value" id="btcUpdated">--</span>
             </div>
           </div>
-          <!-- Source Selector -->
-          <div class="btc-source-selector" id="btcSourceSelector">
-            <span class="btc-source-label">数据源:</span>
-            <div class="btc-source-btns" id="btcSourceBtns">
-              <button class="btc-source-btn active" data-source="auto" title="自动选择最快更新的数据源">
-                <span class="source-btn-icon">🤖</span>
-                <span class="source-btn-label">自动</span>
-              </button>
-              <button class="btc-source-btn" data-source="binance" title="Binance 现货价格">
-                <span class="source-btn-icon">📊</span>
-                <span class="source-btn-label">Binance</span>
-              </button>
-              <button class="btc-source-btn" data-source="bybit" title="Bybit 期货/永续合约">
-                <span class="source-btn-icon">📈</span>
-                <span class="source-btn-label">Bybit</span>
-              </button>
-              <button class="btc-source-btn" data-source="coingecko" title="CoinGecko 聚合价格">
-                <span class="source-btn-icon">🦎</span>
-                <span class="source-btn-label">CoinGecko</span>
-              </button>
-            </div>
+          <!-- 统一自信号源：不展示单所品牌；缺源时用剩余有效源均值 -->
+          <div class="btc-self-source-bar" id="btcSelfSourceBar">
+            <span class="btc-self-source-badge">自信号源</span>
+            <span class="btc-self-source-meta" id="btcSelfSourceMeta">多节点聚合 · 延误自动剔除</span>
             <div class="btc-source-status" id="btcSourceStatus">
               <span class="source-status-dot" id="sourceStatusDot"></span>
               <span class="source-status-text" id="sourceStatusText">检测中</span>
+            </div>
+          </div>
+          <div class="btc-funding-venues" id="btcFundingVenues" hidden>
+            <span class="btc-funding-venues-label">自信号源费率</span>
+            <span class="btc-fund-chip" id="fundSelfAvg">均费率 --</span>
+          </div>
+          <!-- Hidden legacy source buttons (kept for JS safety; UI 不展示单所) -->
+          <div class="btc-source-selector" id="btcSourceSelector" hidden aria-hidden="true">
+            <div class="btc-source-btns" id="btcSourceBtns">
+              <button class="btc-source-btn active" data-source="auto" type="button">自动</button>
             </div>
           </div>
           <!-- BTC Mini Chart -->
@@ -373,12 +414,14 @@
       <div class="btc-grid">
         <div class="btc-card" id="btcCardFutures">
           <div class="btc-card-header">
-            <span class="btc-card-icon">📊</span>
-            <h3>期货数据</h3>
+            <span class="btc-card-icon"></span>
+            <h3>合约数据</h3>
+            <span class="btc-badge" id="contractDataStatus">自信号源</span>
           </div>
           <div class="btc-card-body">
+            <p class="btc-period-hint" id="contractDataHint">CEX + DEX Perps 有效节点报价/费率/OI/成交量 · 相加取平均 · 缺源自动剔除 · 恢复后重新纳入</p>
             <div class="btc-metric">
-              <span class="btc-metric-label">资金费率</span>
+              <span class="btc-metric-label">资金费率（均）</span>
               <span class="btc-metric-value" id="btcFundingRate">--</span>
             </div>
             <div class="btc-metric">
@@ -386,26 +429,40 @@
               <span class="btc-metric-value" id="btcAnnualFunding">--</span>
             </div>
             <div class="btc-metric">
-              <span class="btc-metric-label">未平仓量 (OI)</span>
+              <span class="btc-metric-label">未平仓量 OI（均）</span>
               <span class="btc-metric-value" id="btcOpenInterest">--</span>
             </div>
             <div class="btc-metric">
-              <span class="btc-metric-label">标记价格</span>
+              <span class="btc-metric-label">标记 / 指数价</span>
               <span class="btc-metric-value" id="btcMarkPrice">$--</span>
             </div>
             <div class="btc-metric">
               <span class="btc-metric-label">下次资金时间</span>
               <span class="btc-metric-value" id="btcNextFundingTime">--</span>
             </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">有效节点</span>
+              <span class="btc-metric-value" id="btcContractNodes">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">24h 均成交量</span>
+              <span class="btc-metric-value" id="btcContractVol">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">源稳定性</span>
+              <span class="btc-metric-value" id="btcContractStability" style="font-size:12px;color:var(--text-muted)">检测中</span>
+            </div>
           </div>
         </div>
 
         <div class="btc-card" id="btcCardSentiment">
           <div class="btc-card-header">
-            <span class="btc-card-icon">🌐</span>
+            <span class="btc-card-icon"></span>
             <h3>市场情绪</h3>
+            <span class="btc-badge" id="sentimentDataStatus">检测中</span>
           </div>
           <div class="btc-card-body">
+            <p class="btc-period-hint" id="sentimentDataHint">市占/市值 · 彩虹图 · 减半周期 · 200 日均线</p>
             <div class="btc-metric">
               <span class="btc-metric-label">BTC 市占率</span>
               <span class="btc-metric-value" id="btcDominance">--</span>
@@ -423,137 +480,223 @@
               <span class="btc-metric-value" id="btcMarketCapChange">--</span>
             </div>
             <div class="btc-metric">
-              <span class="btc-metric-label">数据源</span>
+              <span class="btc-metric-label">恐惧贪婪</span>
+              <span class="btc-metric-value" id="btcFearGreed">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">彩虹图周期</span>
+              <span class="btc-metric-value" id="btcRainbowBand">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">减半周期</span>
+              <span class="btc-metric-value" id="btcHalvingCycle">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">200 日均线</span>
+              <span class="btc-metric-value" id="btcMa200">--</span>
+            </div>
+            <div class="btc-metric">
+              <span class="btc-metric-label">信号源</span>
               <span class="btc-metric-value" id="btcSources" style="font-size:12px; color:var(--text-muted)">--</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Long/Short Ratio Card -->
-      <div class="btc-card" id="btcCardLSRatio">
+      <!-- Multi-timeframe: 自信号源 only (no per-exchange brand names) -->
+      <div class="btc-card btc-card-wide" id="btcCardPeriodVenues">
         <div class="btc-card-header">
-          <span class="btc-card-icon">⚖️</span>
-          <h3>多空比 · Long/Short Ratio</h3>
-          <span class="btc-badge" id="lsStatus">检测中</span>
+          <span class="btc-card-icon"></span>
+          <h3>自信号源 · 计费窗看板</h3>
+          <span class="btc-badge" id="periodVenueStatus">检测中</span>
         </div>
-        <div class="btc-card-body" id="lsBody">
-          <div class="ls-grid" id="lsGrid"></div>
-          <div class="ls-summary" id="lsSummary">
-            <span class="ls-summary-label">综合信号:</span>
-            <span class="ls-summary-value" id="lsSignal">加载中...</span>
+        <div class="btc-card-body">
+          <div class="btc-tf-bar" id="btcTfBar" role="tablist" aria-label="计费周期">
+            <button type="button" class="btc-tf-btn active" data-period="1h">1小时</button>
+            <button type="button" class="btc-tf-btn" data-period="2h">2小时</button>
+            <button type="button" class="btc-tf-btn" data-period="4h">4小时</button>
           </div>
-        </div>
-      </div>
-
-      <!-- Liquidations Card -->
-      <div class="btc-card" id="btcCardLiq">
-        <div class="btc-card-header">
-          <span class="btc-card-icon">💥</span>
-          <h3>清算数据 · Liquidations</h3>
-          <span class="btc-badge" id="liqStatus">检测中</span>
-        </div>
-        <div class="btc-card-body" id="liqBody">
-          <div class="liq-summary-row">
-            <div class="liq-summary-item">
-              <span class="liq-summary-label">总清算额</span>
-              <span class="liq-summary-value" id="liqTotalUsd">--</span>
+          <div class="btc-avg-banner" id="btcAvgBanner">
+            <div class="btc-avg-banner-title">自信号源平均 · 计费窗 <span id="btcAvgPeriodLabel">1小时</span></div>
+            <div class="btc-period-agg" id="btcPeriodAgg">
+              <div class="btc-period-agg-item"><em>均报价</em><strong id="aggPrice">--</strong></div>
+              <div class="btc-period-agg-item"><em>均资金费率</em><strong id="aggFunding">--</strong></div>
+              <div class="btc-period-agg-item"><em>均 OI</em><strong id="aggOiEnd">--</strong></div>
+              <div class="btc-period-agg-item"><em>均 OI 变动</em><strong id="aggOi">--</strong></div>
+              <div class="btc-period-agg-item"><em>均成交量</em><strong id="aggVol">--</strong></div>
+              <div class="btc-period-agg-item"><em>有效节点</em><strong id="aggVenues">--</strong></div>
             </div>
-            <div class="liq-summary-item">
-              <span class="liq-summary-label">清算笔数</span>
-              <span class="liq-summary-value" id="liqCount">--</span>
-            </div>
-            <div class="liq-summary-item">
-              <span class="liq-summary-label">信号</span>
-              <span class="liq-summary-value" id="liqSignal">--</span>
+            <div class="btc-fund-outlier-alert" id="btcFundOutlierAlert" hidden>
+              <div class="btc-fund-outlier-title">特别提醒 · 资金费率异常节点（已剔除后重均）</div>
+              <div class="btc-fund-outlier-list" id="btcFundOutlierList"></div>
+              <p class="btc-fund-outlier-note" id="btcFundOutlierNote"></p>
             </div>
           </div>
-          <div class="liq-bars">
-            <div class="liq-bar-group">
-              <span class="liq-bar-label">多头清算</span>
-              <div class="liq-bar-track">
-                <div class="liq-bar-fill long" id="liqLongBar" style="width:50%"></div>
+          <div class="btc-stage-strip" id="btcStageStrip">
+            <div class="btc-stage-title">计费窗对比 · 1h / 2h / 4h（窗口内资金费结算样本均值，非现价复用）</div>
+            <div class="btc-stage-grid" id="btcStageGrid">
+              <div class="btc-stage-card" data-stage="1h">
+                <div class="btc-stage-name">1小时</div>
+                <div class="btc-stage-row"><span>均价</span><strong class="st-price">--</strong></div>
+                <div class="btc-stage-row"><span>均费率</span><strong class="st-fund">--</strong></div>
+                <div class="btc-stage-row"><span>样本</span><strong class="st-fund-n">--</strong></div>
+                <div class="btc-stage-row"><span>均量</span><strong class="st-vol">--</strong></div>
               </div>
-              <span class="liq-bar-pct" id="liqLongPct">50%</span>
-            </div>
-            <div class="liq-bar-group">
-              <span class="liq-bar-label">空头清算</span>
-              <div class="liq-bar-track">
-                <div class="liq-bar-fill short" id="liqShortBar" style="width:50%"></div>
+              <div class="btc-stage-card" data-stage="2h">
+                <div class="btc-stage-name">2小时</div>
+                <div class="btc-stage-row"><span>均价</span><strong class="st-price">--</strong></div>
+                <div class="btc-stage-row"><span>均费率</span><strong class="st-fund">--</strong></div>
+                <div class="btc-stage-row"><span>样本</span><strong class="st-fund-n">--</strong></div>
+                <div class="btc-stage-row"><span>均量</span><strong class="st-vol">--</strong></div>
               </div>
-              <span class="liq-bar-pct" id="liqShortPct">50%</span>
+              <div class="btc-stage-card" data-stage="4h">
+                <div class="btc-stage-name">4小时</div>
+                <div class="btc-stage-row"><span>均价</span><strong class="st-price">--</strong></div>
+                <div class="btc-stage-row"><span>均费率</span><strong class="st-fund">--</strong></div>
+                <div class="btc-stage-row"><span>样本</span><strong class="st-fund-n">--</strong></div>
+                <div class="btc-stage-row"><span>均量</span><strong class="st-vol">--</strong></div>
+              </div>
             </div>
           </div>
-          <div class="liq-sources" id="liqSources"></div>
+          <!-- 仅展示自信号源汇总，不列出单所 -->
+          <div class="btc-venue-table-wrap">
+            <table class="btc-venue-table" id="btcVenueTable">
+              <thead>
+                <tr>
+                  <th>信号源</th>
+                  <th>报价</th>
+                  <th>计费窗均费率</th>
+                  <th>最新费率</th>
+                  <th>OI 变动</th>
+                  <th>OI 现值</th>
+                  <th>成交量</th>
+                  <th>价格变动</th>
+                </tr>
+              </thead>
+              <tbody id="btcVenueTableBody">
+                <tr><td colspan="8" class="btc-venue-empty">加载自信号源…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="btc-period-hint" id="btcPeriodHint">自信号源：CEX + DEX Perps（含 HyperLiquid / Lighter）有效节点并入同一均值 · 无单独补充源 · 缺源剔除 · 恢复后重新纳入</p>
         </div>
       </div>
 
-      <!-- HyperLiquid Card -->
-      <div class="btc-card" id="btcCardHL">
+      <!-- 田字清算图：左→右清算单价蜡烛 · 竖线=清算线 · 横线=OI · 下方浮窗 -->
+      <div class="btc-card btc-card-wide" id="btcCardTian">
         <div class="btc-card-header">
-          <span class="btc-card-icon">⚡</span>
-          <h3>HyperLiquid · DEX 永续数据</h3>
-          <span class="btc-badge" id="hlStatus">检测中</span>
+          <h3>多空 · 清算</h3>
+          <span class="btc-badge" id="tianStatus">--</span>
         </div>
-        <div class="btc-card-body" id="hlBody">
-          <div class="hl-grid">
-            <div class="btc-metric">
-              <span class="btc-metric-label">BTC 价格</span>
-              <span class="btc-metric-value" id="hlPrice">$--</span>
+        <div class="btc-card-body" id="tianBody">
+          <div class="tian-frame tian-frame-map" id="tianFrame" aria-label="清算单价蜡烛图">
+            <canvas id="tianCanvas" class="tian-canvas" width="960" height="420"></canvas>
+            <div class="tian-click-tip" id="tianClickTip" hidden></div>
+          </div>
+
+          <!-- 田字正下方：现价 / 清算量 / OI 浮窗图标 -->
+          <div class="tian-float" id="tianPriceBelow">
+            <div class="tian-float-chip" title="当前报价">
+              <span class="tian-float-ico tian-ico-px" aria-hidden="true"></span>
+              <strong id="tianPriceTag">--</strong>
             </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">资金费率</span>
-              <span class="btc-metric-value" id="hlFundingRate">--</span>
+            <div class="tian-float-chip long" title="多头清算">
+              <span class="tian-float-ico tian-ico-long" aria-hidden="true"></span>
+              <strong id="tianLongLiqUsd">--</strong>
             </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">年化费率</span>
-              <span class="btc-metric-value" id="hlAnnualFunding">--</span>
+            <div class="tian-float-chip short" title="空头清算">
+              <span class="tian-float-ico tian-ico-short" aria-hidden="true"></span>
+              <strong id="tianShortLiqUsd">--</strong>
             </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">预预测资金费率</span>
-              <span class="btc-metric-value" id="hlPredictedFunding">--</span>
-            </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">未平仓量</span>
-              <span class="btc-metric-value" id="hlOpenInterest">--</span>
+            <div class="tian-float-chip" title="开仓 OI">
+              <span class="tian-float-ico tian-ico-oi" aria-hidden="true"></span>
+              <strong id="tianOiTag">--</strong>
             </div>
           </div>
+
+          <!-- 兼容旧 id -->
+          <span id="tianPriceTag2" hidden></span>
+          <span id="tianShortVol" hidden></span>
+          <span id="tianShortPct" hidden></span>
+          <span id="tianLongOpen" hidden></span>
+          <span id="tianLongPct" hidden></span>
+          <span id="tianPriceWindow" hidden></span>
+          <span id="tianHint" hidden></span>
+          <span id="tianReadout" hidden></span>
+          <ul id="tianLongLiqList" hidden></ul>
+          <ul id="tianShortLiqList" hidden></ul>
+          <span id="lsStatus" hidden></span>
+          <span id="lsSignal" hidden></span>
+          <span id="lsRatioValue" hidden></span>
+          <span id="lsLongPct" hidden></span>
+          <span id="lsShortPct" hidden></span>
+          <span id="lsLongBar" hidden></span>
+          <span id="lsShortBar" hidden></span>
+          <span id="lsGrid" hidden></span>
+          <span id="liqStatus" hidden></span>
+          <span id="liqTotalUsd" hidden></span>
+          <span id="liqLongUsd" hidden></span>
+          <span id="liqShortUsd" hidden></span>
+          <span id="liqLongBar" hidden></span>
+          <span id="liqShortBar" hidden></span>
+          <span id="liqLongPct" hidden></span>
+          <span id="liqShortPct" hidden></span>
+          <span id="liqSources" hidden></span>
+          <span id="liqCount" hidden></span>
+          <span id="liqSignal" hidden></span>
         </div>
       </div>
 
-      <!-- Historical Funding Rate Card -->
-      <div class="btc-card" id="btcCardFundingHistory">
+      <!-- 历史三量：价格主图 + 底栏成交量 + 可选费率/开仓 · 自信号源 -->
+      <div class="btc-card btc-card-wide" id="btcCardSelfTriChart">
         <div class="btc-card-header">
-          <span class="btc-card-icon">📜</span>
-          <h3>历史资金费率 · 过去 24h</h3>
-          <span class="btc-badge" id="fundingHistoryStatus">检测中</span>
+          <span class="btc-card-icon"></span>
+          <h3>历史三量 · 自信号源</h3>
+          <span class="btc-badge" id="selfTriStatus">检测中</span>
         </div>
-        <div class="btc-card-body" id="fundingHistoryBody">
-          <div class="funding-history-chart" id="fundingHistoryChart">
-            <canvas id="fundingSparkline"></canvas>
-          </div>
-          <div class="funding-history-stats" id="fundingHistoryStats">
-            <div class="btc-metric">
-              <span class="btc-metric-label">当前费率</span>
-              <span class="btc-metric-value" id="fhCurrent">--</span>
+        <div class="btc-card-body" id="selfTriBody">
+          <div class="btc-tri-toolbar">
+            <div class="btc-tri-legend" id="btcTriLegend" aria-label="系列开关">
+              <button type="button" class="tri-leg-btn active" data-series="price" aria-pressed="true"><i class="leg-price"></i>单价</button>
+              <button type="button" class="tri-leg-btn active" data-series="volume" aria-pressed="true"><i class="leg-vol"></i>成交量</button>
+              <button type="button" class="tri-leg-btn active" data-series="funding" aria-pressed="true"><i class="leg-fund"></i>费率 正绿负红</button>
+              <button type="button" class="tri-leg-btn" data-series="oi" aria-pressed="false"><i class="leg-oi"></i>开仓量</button>
             </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">24h 最高</span>
-              <span class="btc-metric-value" id="fhHigh">--</span>
-            </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">24h 最低</span>
-              <span class="btc-metric-value" id="fhLow">--</span>
-            </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">24h 平均</span>
-              <span class="btc-metric-value" id="fhAvg">--</span>
-            </div>
-            <div class="btc-metric">
-              <span class="btc-metric-label">数据源</span>
-              <span class="btc-metric-value" id="fhSource" style="font-size:12px;color:var(--text-muted)">--</span>
+            <div class="btc-unit-bar" id="btcSeriesUnitBar" role="tablist" aria-label="时间单位">
+              <button type="button" class="btc-unit-btn" data-unit="hour">时</button>
+              <button type="button" class="btc-unit-btn active" data-unit="day">日</button>
+              <button type="button" class="btc-unit-btn" data-unit="month">月</button>
+              <button type="button" class="btc-unit-btn" data-unit="year">年</button>
             </div>
           </div>
+
+          <div class="btc-tri-chart-shell" id="selfTriShell">
+            <div class="tri-hud" id="selfTriHud">
+              <div class="tri-hud-price-block">
+                <span class="tri-hud-k">单价</span>
+                <strong class="tri-hud-price" id="triHudPrice">--</strong>
+                <span class="tri-hud-date" id="triHudDate">移动或点击图查看读数</span>
+              </div>
+              <div class="tri-hud-chips">
+                <span class="tri-chip"><em>费率</em><b id="triHudFund">--</b></span>
+                <span class="tri-chip"><em>量</em><b id="triHudVol">--</b></span>
+                <span class="tri-chip"><em>开仓</em><b id="triHudOi">--</b></span>
+              </div>
+            </div>
+            <div class="btc-tri-chart-wrap">
+              <canvas id="selfTriChart" width="900" height="360" role="img" aria-label="自信号源价格与三量图"></canvas>
+              <div class="tri-tooltip" id="selfTriTooltip" hidden></div>
+            </div>
+          </div>
+
+          <div class="btc-tri-stats" id="btcTriStats">
+            <div class="btc-period-agg-item"><em>选中单价</em><strong id="triPrice">--</strong></div>
+            <div class="btc-period-agg-item"><em>资金费率</em><strong id="triFund">--</strong></div>
+            <div class="btc-period-agg-item"><em>自节点成交量</em><strong id="triVol">--</strong></div>
+            <div class="btc-period-agg-item"><em>自节点开仓量</em><strong id="triOi">--</strong></div>
+            <div class="btc-period-agg-item"><em>信号源</em><strong id="triSource">自信号源</strong></div>
+          </div>
+          <p class="btc-period-hint" id="selfTriHint">上图单价 · 中图资金费率（零轴·正绿负红·↑增↓减）· 下图成交量 · 十字准星对照价格与费率周期</p>
         </div>
       </div>
     </div>
@@ -561,13 +704,60 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <p>数据来源: <a href="https://gmgn.ai/" target="_blank" rel="noopener">GMGN.AI</a> · <a href="https://dexscreener.com/" target="_blank" rel="noopener">DexScreener</a> · <a href="https://www.coingecko.com/" target="_blank" rel="noopener">CoinGecko</a> · <a href="https://www.binance.com/" target="_blank" rel="noopener">Binance</a> · <a href="https://www.bybit.com/" target="_blank" rel="noopener">Bybit</a> · <a href="https://hyperliquid.xyz/" target="_blank" rel="noopener">HyperLiquid</a></p>
+    <a
+      class="sig-card"
+      href="https://x.com/shaweeenx"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="DreamStudio multi trader · @shaweeenx on X"
+    >
+      <span class="sig-card-mark" aria-hidden="true">
+        <img
+          class="dream-studio-img dream-studio-img--lg"
+          src="/brand/dream-studio.svg"
+          width="148"
+          height="92"
+          alt=""
+          decoding="async"
+        />
+      </span>
+      <span class="sig-card-body">
+        <span class="sig-card-kicker">powered by dream studio</span>
+        <span class="sig-card-name">DreamStudio</span>
+        <span class="sig-card-handle">
+          <svg class="sig-x-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.727-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/>
+          </svg>
+          @shaweeenx
+        </span>
+      </span>
+      <span class="sig-card-cta" aria-hidden="true">↗</span>
+    </a>
     <p class="footer-note">仅供信息参考，不构成投资建议。交易有风险，请谨慎决策。</p>
     <p class="footer-note" id="buildBadge">build: memecoin-rh-v3 · 本地请用 http://127.0.0.1:8788</p>
   </footer>
 
   <!-- Toast Notification -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Strategy preview modal: closed by default; only opens on explicit "报价/策略预览" click -->
+  <div id="strategyModal" class="strategy-modal" hidden aria-hidden="true">
+    <div class="strategy-modal-backdrop" data-strategy-close></div>
+    <div class="strategy-modal-panel" role="dialog" aria-modal="true" aria-labelledby="strategyModalTitle">
+      <div class="strategy-modal-header">
+        <div>
+          <h3 id="strategyModalTitle">策略订单预览</h3>
+          <p class="strategy-modal-sub">仅生成限价/止盈/止损报价 · 不执行真实交易</p>
+        </div>
+        <button type="button" class="strategy-modal-close" data-strategy-close aria-label="关闭">×</button>
+      </div>
+      <div class="strategy-modal-body" id="strategyModalBody"></div>
+      <div class="strategy-modal-footer">
+        <span class="strategy-exec-badge">executionEnabled: false</span>
+        <button type="button" class="monitor-action-btn" data-strategy-close>关闭</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Memecoin signal frame: fixed 390×350 bottom-right -->
   <div id="signalTicker" class="signal-ticker" hidden>
