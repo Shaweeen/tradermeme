@@ -27,6 +27,10 @@ import {
   buildPrimaryEnvFromBybit,
   fetchClawbyDerivsSnapshot,
   fuseContractEnvironment,
+  rankSignalsWithEnv,
+  enrichTopSignalsWithClawbyDepth,
+  buildEnvListGuidance,
+  deriveActionAdvice,
 } from './_altcoin.js';
 
 const BYBIT_BASE = 'https://api.bybit.com';
@@ -580,42 +584,45 @@ async function scanSignals(chainFilter = 'all', options = {}) {
           const result = calculateSignalScore(ticker, binanceMap, geckoMeta, environment);
           if (result) scored.push(result);
         }
-        return scored
-          .sort((a, b) => b.score - a.score)
-          .slice(0, SIGNAL_CONFIG.maxResults)
-          .map((coin, i) => ({
-            rank: i + 1,
-            address: `${coin.symbol}`,
-            symbol: coin.symbol,
-            name: coin.name,
-            icon: coin.icon,
-            chain: 'multi',
-            priceUsd: coin.price,
-            priceChange24h: coin.priceChange24h,
-            volume24h: coin.volume24h,
-            liquidity: coin.marketCap || coin.volume24h,
-            fdv: coin.marketCap || 0,
-            marketCap: coin.marketCap,
-            marketCapRank: coin.marketCapRank,
-            signalScore: coin.score,
-            signalCount: coin.signalCount,
-            signals: coin.signals,
-            strongestSignal: coin.strongestSignal,
-            strongestLabel: coin.strongestLabel,
-            strongestDetail: coin.strongestDetail,
-            setupBias: coin.setupBias || '',
-            confirms: coin.confirms,
-            envRegime: coin.envRegime || environment?.regime || null,
-            envScore: coin.envScore ?? environment?.envScore ?? null,
-            rulesVersion: coin.rulesVersion || 'altcoin-perp-v2',
-            fundingRate: coin.fundingRate,
-            openInterest: coin.openInterest,
-            source: coin.source || 'signal-scan-v2',
-            txns1h: { buys: 0, sells: 0, total: 0 },
-            txns24h: { buys: 0, sells: 0, total: 0 },
-            url: '',
-            geckoId: coin.geckoId || null,
-          }));
+        // Env-aware action + priority sort before slice
+        const ranked = rankSignalsWithEnv(scored, environment).slice(0, SIGNAL_CONFIG.maxResults);
+        return ranked.map((coin, i) => ({
+          rank: i + 1,
+          address: `${coin.symbol}`,
+          symbol: coin.symbol,
+          name: coin.name,
+          icon: coin.icon,
+          chain: 'multi',
+          priceUsd: coin.price,
+          priceChange24h: coin.priceChange24h,
+          volume24h: coin.volume24h,
+          liquidity: coin.marketCap || coin.volume24h,
+          fdv: coin.marketCap || 0,
+          marketCap: coin.marketCap,
+          marketCapRank: coin.marketCapRank,
+          signalScore: coin.score,
+          signalCount: coin.signalCount,
+          signals: coin.signals,
+          strongestSignal: coin.strongestSignal,
+          strongestLabel: coin.strongestLabel,
+          strongestDetail: coin.strongestDetail,
+          setupBias: coin.setupBias || '',
+          confirms: coin.confirms,
+          envRegime: coin.envRegime || environment?.regime || null,
+          envScore: coin.envScore ?? environment?.envScore ?? null,
+          action: coin.action || 'watch',
+          actionLabel: coin.actionLabel || '观察',
+          actionPriority: coin.actionPriority ?? 40,
+          actionReason: coin.actionReason || '',
+          rulesVersion: coin.rulesVersion || 'altcoin-perp-v2',
+          fundingRate: coin.fundingRate,
+          openInterest: coin.openInterest,
+          source: coin.source || 'signal-scan-v2',
+          txns1h: { buys: 0, sells: 0, total: 0 },
+          txns24h: { buys: 0, sells: 0, total: 0 },
+          url: '',
+          geckoId: coin.geckoId || null,
+        }));
       })()
     );
   } else {
@@ -629,22 +636,64 @@ async function scanSignals(chainFilter = 'all', options = {}) {
   }
 
   const [cexRows, rhRows] = await Promise.all(tasks);
-  const merged = [...cexRows, ...rhRows]
-    .sort((a, b) => (b.signalScore ?? 0) - (a.signalScore ?? 0))
-    .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
-    .map((row, i) => ({ ...row, rank: i + 1 }));
 
-  const rows = await enrichRowsWithDexCharts(merged);
+  // Top CEX rows → optional Clawby per-symbol depth (second source deepen)
+  let cexEnriched = cexRows;
+  let depthCount = 0;
+  if (wantCex && clawbyKey && cexRows.length) {
+    const bybitFundingBySymbol = {};
+    for (const t of bybitTickers) {
+      bybitFundingBySymbol[String(t.symbol).toUpperCase()] = Number(t.fundingRate) || 0;
+    }
+    const deepened = await enrichTopSignalsWithClawbyDepth(clawbyKey, cexRows, {
+      topN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN,
+      bybitFundingBySymbol,
+    });
+    cexEnriched = deepened.rows;
+    depthCount = deepened.depthCount;
+  }
+
+  const merged = [...cexEnriched, ...rhRows]
+    .map((row) => {
+      if (row.action) return row;
+      const advice = deriveActionAdvice(
+        {
+          setupBias: row.setupBias,
+          score: row.signalScore ?? row.score,
+          envRegime: environment?.regime,
+        },
+        environment
+      );
+      return { ...row, ...advice };
+    });
+
+  const sorted = rankSignalsWithEnv(merged, environment)
+    .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
+    .map((row, i) => ({ ...row, rank: i + 1, signalScore: row.score ?? row.signalScore }));
+
+  const rows = await enrichRowsWithDexCharts(sorted);
+  const guidance = buildEnvListGuidance(environment);
+
+  if (environment) {
+    environment.listGuidance = guidance;
+  }
+
   return {
     rows,
     environment,
     meta: {
       rulesVersion: 'altcoin-perp-v2',
       clawby: clawbySnap.available
-        ? { ok: true }
-        : { ok: false, reason: clawbySnap.reason || 'unavailable' },
+        ? { ok: true, depthCount, depthTopN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN }
+        : { ok: false, reason: clawbySnap.reason || 'unavailable', depthCount: 0 },
       primarySource: 'bybit+binance',
       secondarySource: clawbySnap.available ? 'clawby' : null,
+      listGuidance: guidance,
+      actionCounts: {
+        prefer: rows.filter((r) => r.action === 'prefer').length,
+        watch: rows.filter((r) => r.action === 'watch').length,
+        fade: rows.filter((r) => r.action === 'fade').length,
+      },
     },
   };
 }

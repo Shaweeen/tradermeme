@@ -33,6 +33,10 @@ export const ALTCOIN_SIGNAL_RULES = {
   // Environment soft gate for listing quality (not a hard block on env alone)
   envRiskOffPenalty: 12,
   envRiskOnBoost: 6,
+  // risk-off: raise floor further for non-structure noise
+  riskOffMinScoreExtra: 8,
+  // Top-N symbols to deepen with Clawby per-coin (latency budget)
+  clawbyDepthTopN: 6,
 };
 
 const FILTER_OUT = new Set([
@@ -536,12 +540,24 @@ export function scoreAltcoinPerpSignal(bybitTicker, binanceData = {}, geckoMeta 
     score = Math.min(100, score + R.envRiskOnBoost);
   }
 
-  if (score < R.minScore) return null;
+  // risk-off: structure setups keep lower floor; pure trend noise needs higher score
+  const setupBiasEarly =
+    signals.find((s) => s.type === 'structure')?.bias ||
+    signals.find((s) => s.bias)?.bias ||
+    '';
+  let minNeed = R.minScore;
+  if (regime === 'risk-off') {
+    const structureOk = ['long-flush', 'short-squeeze', 'short-crowded'].includes(setupBiasEarly);
+    if (!structureOk) minNeed = R.minScore + R.riskOffMinScoreExtra;
+  }
+  if (score < minNeed) return null;
 
   // Sort signals by severity for strongest*
   const sorted = [...signals].sort((a, b) => (b.severity || 0) - (a.severity || 0));
+  const setupBias =
+    sorted.find((s) => s.type === 'structure')?.bias || sorted[0]?.bias || '';
 
-  return {
+  const base = {
     symbol,
     name: meta.name || symbol,
     icon: meta.image || '',
@@ -559,7 +575,7 @@ export function scoreAltcoinPerpSignal(bybitTicker, binanceData = {}, geckoMeta 
     strongestSignal: sorted[0]?.type || 'unknown',
     strongestLabel: sorted[0]?.label || '',
     strongestDetail: sorted[0]?.detail || '',
-    setupBias: sorted.find((s) => s.type === 'structure')?.bias || sorted[0]?.bias || '',
+    setupBias,
     confirms,
     envRegime: regime,
     envScore: env?.envScore ?? null,
@@ -567,24 +583,343 @@ export function scoreAltcoinPerpSignal(bybitTicker, binanceData = {}, geckoMeta 
     timestamp: Date.now(),
     source: 'bybit+binance+rules-v2',
   };
+
+  const advice = deriveActionAdvice(base, env);
+  return { ...base, ...advice };
+}
+
+/**
+ * Map setup + 合约环境 → 操作建议（Altcoin only; not execution）.
+ * priority: higher sorts first within same score band.
+ */
+export function deriveActionAdvice(signal = {}, env = null) {
+  const regime = env?.regime || signal.envRegime || 'neutral';
+  const bias = signal.setupBias || '';
+  const score = num(signal.score);
+
+  // Default
+  let action = 'watch';
+  let actionLabel = '观察';
+  let priority = 40;
+  let actionReason = '多因子信号，等待环境与结构确认';
+
+  if (bias === 'short-squeeze') {
+    if (regime === 'risk-on' || regime === 'neutral') {
+      action = 'prefer';
+      actionLabel = '优先关注';
+      priority = 90;
+      actionReason = '负费率+上涨 · 轧空结构，环境未避险';
+    } else {
+      action = 'watch';
+      actionLabel = '谨慎观察';
+      priority = 55;
+      actionReason = '轧空结构但大盘避险，仓位与节奏宜保守';
+    }
+  } else if (bias === 'long-flush') {
+    if (regime === 'risk-off') {
+      action = 'prefer';
+      actionLabel = '优先关注';
+      priority = 88;
+      actionReason = '避险环境 + 多头踩踏，顺势结构优先';
+    } else if (regime === 'neutral') {
+      action = 'watch';
+      actionLabel = '观察';
+      priority = 60;
+      actionReason = '多头踩踏结构，中性环境等二次确认';
+    } else {
+      action = 'fade';
+      actionLabel = '仅观察';
+      priority = 25;
+      actionReason = '偏多环境里的踩踏可能是洗盘，勿追空';
+    }
+  } else if (bias === 'trend-crowded' || bias === 'long-crowded') {
+    if (regime === 'risk-off') {
+      action = 'fade';
+      actionLabel = '仅观察';
+      priority = 15;
+      actionReason = '避险 + 多头拥挤/顺势费率，假突破风险高';
+    } else if (regime === 'risk-on' && score >= 55) {
+      action = 'watch';
+      actionLabel = '趋势观察';
+      priority = 50;
+      actionReason = '偏多环境可跟踪，但费率拥挤勿追高';
+    } else {
+      action = 'fade';
+      actionLabel = '仅观察';
+      priority = 20;
+      actionReason = '顺势但拥挤，默认不作为优先标的';
+    }
+  } else if (bias === 'short-crowded') {
+    if (regime === 'risk-on') {
+      action = 'prefer';
+      actionLabel = '优先关注';
+      priority = 75;
+      actionReason = '偏多 + 空头费率拥挤，反转/轧空观察池';
+    } else {
+      action = 'watch';
+      actionLabel = '观察';
+      priority = 45;
+      actionReason = '空头拥挤，等价格配合';
+    }
+  } else if (regime === 'risk-off') {
+    action = 'fade';
+    actionLabel = '仅观察';
+    priority = 18;
+    actionReason = '避险环境默认降权，除非出现踩踏/轧空结构';
+  } else if (score >= 65) {
+    action = 'watch';
+    actionLabel = '观察';
+    priority = 48;
+    actionReason = '高分多因子，待结构标签';
+  }
+
+  return {
+    action, // prefer | watch | fade
+    actionLabel,
+    actionPriority: priority,
+    actionReason,
+  };
+}
+
+/**
+ * Re-rank: action priority first, then score. Attach advice if missing.
+ */
+export function rankSignalsWithEnv(scoredList = [], env = null) {
+  return (Array.isArray(scoredList) ? scoredList : [])
+    .map((c) => {
+      const advice = c.action ? c : { ...c, ...deriveActionAdvice(c, env) };
+      return {
+        ...advice,
+        envRegime: env?.regime || advice.envRegime || null,
+        envScore: env?.envScore ?? advice.envScore ?? null,
+      };
+    })
+    .sort((a, b) => {
+      const ap = num(b.actionPriority) - num(a.actionPriority);
+      if (ap !== 0) return ap;
+      return num(b.score ?? b.signalScore) - num(a.score ?? a.signalScore);
+    });
 }
 
 export function applyEnvToScoreList(scoredList, env) {
-  if (!env || !Array.isArray(scoredList)) return scoredList;
-  return scoredList
-    .map((c) => {
-      let score = c.score;
-      if (env.regime === 'risk-off') score = Math.max(0, score - ALTCOIN_SIGNAL_RULES.envRiskOffPenalty);
-      else if (env.regime === 'risk-on') score = Math.min(100, score + ALTCOIN_SIGNAL_RULES.envRiskOnBoost);
+  if (!Array.isArray(scoredList)) return [];
+  let list = scoredList;
+  if (env) {
+    list = scoredList
+      .map((c) => {
+        let score = c.score;
+        if (env.regime === 'risk-off') score = Math.max(0, score - ALTCOIN_SIGNAL_RULES.envRiskOffPenalty);
+        else if (env.regime === 'risk-on') score = Math.min(100, score + ALTCOIN_SIGNAL_RULES.envRiskOnBoost);
+        const next = {
+          ...c,
+          score: Math.round(score * 10) / 10,
+          envRegime: env.regime,
+          envScore: env.envScore,
+        };
+        return { ...next, ...deriveActionAdvice(next, env) };
+      })
+      .filter((c) => c.score >= ALTCOIN_SIGNAL_RULES.minScore);
+  }
+  return rankSignalsWithEnv(list, env);
+}
+
+/**
+ * Per-symbol Clawby depth (OI / L-S / taker / cross funding from exchange list).
+ * Used for top-N alt signals only — latency budget.
+ */
+export async function fetchClawbySymbolDepth(apiKey, symbol) {
+  const coin = String(symbol || '')
+    .toUpperCase()
+    .replace(/USDT$/i, '')
+    .trim();
+  if (!apiKey || !coin) return { ok: false, symbol: coin, error: 'bad-args' };
+
+  const pair = `${coin}USDT`;
+  const [oiRes, lsRes, takerRes, fundingRes] = await Promise.all([
+    clawbyRelay(apiKey, 'futures_open_interest_exchange_list', { symbol: coin }),
+    clawbyRelay(apiKey, 'futures_global_long_short_account_ratio_history', {
+      exchange: 'Binance',
+      symbol: pair,
+      interval: '1h',
+    }),
+    clawbyRelay(apiKey, 'futures_taker_buy_sell_volume_exchange_list', {
+      symbol: coin,
+      range: '4h',
+    }),
+    clawbyRelay(apiKey, 'futures_funding_rate_exchange_list', {}),
+  ]);
+
+  const depth = {
+    ok: true,
+    symbol: coin,
+    pair,
+    source: 'clawby',
+    oi_usd: null,
+    oi_change_pct_24h: null,
+    long_pct: null,
+    short_pct: null,
+    ls_ratio: null,
+    taker_buy_ratio: null,
+    taker_sell_ratio: null,
+    funding_avg: null,
+    funding_avg_pct: null,
+    funding_venues: [],
+    summary: '',
+  };
+
+  if (oiRes.ok) {
+    const list = rowsOf(oiRes.data);
+    const all = list.find((r) => String(r.exchange || '').toLowerCase() === 'all') || list[0];
+    if (all) {
+      depth.oi_usd = num(all.open_interest_usd);
+      depth.oi_change_pct_24h = num(
+        all.open_interest_change_percent_24h ?? all.oi_change_percent_24h
+      );
+    }
+  }
+  if (lsRes.ok) {
+    const hist = rowsOf(lsRes.data);
+    const last = hist[hist.length - 1];
+    if (last) {
+      depth.long_pct = num(last.global_account_long_percent);
+      depth.short_pct = num(last.global_account_short_percent);
+      depth.ls_ratio = num(last.global_account_long_short_ratio);
+    }
+  }
+  if (takerRes.ok) {
+    const body = takerRes.data?.data || takerRes.data;
+    if (body && body.buy_ratio != null) {
+      depth.taker_buy_ratio = num(body.buy_ratio);
+      depth.taker_sell_ratio = num(body.sell_ratio);
+    }
+  }
+  if (fundingRes.ok) {
+    const list = rowsOf(fundingRes.data);
+    const entry = list.find((r) => String(r.symbol || '').toUpperCase() === coin);
+    if (entry) {
+      const venues = (entry.stablecoin_margin_list || [])
+        .map((e) => ({
+          exchange: e.exchange,
+          rate: num(e.funding_rate),
+          rate_pct: num(e.funding_rate) * 100,
+        }))
+        .filter((e) => Number.isFinite(e.rate));
+      const avg = venues.length
+        ? venues.reduce((s, e) => s + e.rate, 0) / venues.length
+        : null;
+      depth.funding_avg = avg;
+      depth.funding_avg_pct = avg == null ? null : avg * 100;
+      depth.funding_venues = venues.slice(0, 5);
+    }
+  }
+
+  const bits = [];
+  if (depth.funding_avg_pct != null) bits.push(`费率均 ${depth.funding_avg_pct.toFixed(4)}%`);
+  if (depth.oi_usd) bits.push(`OI ${formatCompact(depth.oi_usd)}`);
+  if (depth.oi_change_pct_24h) bits.push(`OI24h ${depth.oi_change_pct_24h > 0 ? '+' : ''}${depth.oi_change_pct_24h.toFixed(1)}%`);
+  if (depth.long_pct != null) bits.push(`多账户 ${depth.long_pct.toFixed(1)}%`);
+  if (depth.taker_buy_ratio != null) bits.push(`主动买 ${(depth.taker_buy_ratio * 100).toFixed(0)}%`);
+  depth.summary = bits.join(' · ') || 'Clawby 无有效字段';
+  depth.ok = bits.length > 0;
+  if (!depth.ok) depth.error = 'empty-depth';
+  return depth;
+}
+
+/**
+ * Enrich top rows with Clawby symbol depth; optional score nudge from agreement.
+ * @param {string} apiKey
+ * @param {Array} rows scored signal rows
+ * @param {{ topN?: number, bybitFundingBySymbol?: Record<string, number> }} opts
+ */
+export async function enrichTopSignalsWithClawbyDepth(apiKey, rows = [], opts = {}) {
+  if (!apiKey || !Array.isArray(rows) || rows.length === 0) {
+    return { rows, depthCount: 0 };
+  }
+  const topN = Math.min(
+    Number(opts.topN || ALTCOIN_SIGNAL_RULES.clawbyDepthTopN),
+    rows.length
+  );
+  const targets = rows.slice(0, topN);
+  const depths = await Promise.all(
+    targets.map((r) => fetchClawbySymbolDepth(apiKey, r.symbol))
+  );
+
+  const bybitMap = opts.bybitFundingBySymbol || {};
+  const out = rows.map((row, i) => {
+    if (i >= topN) return row;
+    const depth = depths[i];
+    if (!depth?.ok) {
       return {
-        ...c,
-        score: Math.round(score * 10) / 10,
-        envRegime: env.regime,
-        envScore: env.envScore,
+        ...row,
+        clawbyDepth: depth || { ok: false },
+        clawbyDepthOk: false,
       };
-    })
-    .filter((c) => c.score >= ALTCOIN_SIGNAL_RULES.minScore)
-    .sort((a, b) => b.score - a.score);
+    }
+
+    // Funding agreement primary vs Clawby
+    const primaryFr = row.fundingRate != null ? num(row.fundingRate) : bybitMap[row.symbol];
+    let fundingAgreement = 'n/a';
+    if (primaryFr != null && depth.funding_avg != null) {
+      const sameSign = primaryFr === 0 || depth.funding_avg === 0 || primaryFr * depth.funding_avg > 0;
+      const rel =
+        Math.abs(primaryFr - depth.funding_avg) /
+        Math.max(Math.abs(primaryFr), Math.abs(depth.funding_avg), 1e-8);
+      fundingAgreement = sameSign && rel < 0.85 ? 'agree' : sameSign ? 'soft' : 'conflict';
+    }
+
+    let score = num(row.score ?? row.signalScore);
+    if (fundingAgreement === 'agree') score = Math.min(100, score + 3);
+    else if (fundingAgreement === 'conflict') score = Math.max(0, score - 6);
+
+    // Taker confirms structure
+    if (depth.taker_buy_ratio != null) {
+      if (row.setupBias === 'short-squeeze' && depth.taker_buy_ratio >= 0.52) score = Math.min(100, score + 4);
+      if (row.setupBias === 'long-flush' && depth.taker_buy_ratio <= 0.48) score = Math.min(100, score + 4);
+      if (row.setupBias === 'trend-crowded' && depth.taker_buy_ratio < 0.48) score = Math.max(0, score - 4);
+    }
+
+    const next = {
+      ...row,
+      score: Math.round(score * 10) / 10,
+      signalScore: Math.round(score * 10) / 10,
+      clawbyDepth: {
+        ...depth,
+        fundingAgreement,
+      },
+      clawbyDepthOk: true,
+      source: row.source?.includes('clawby') ? row.source : `${row.source || 'v2'}+clawby-depth`,
+    };
+    return { ...next, ...deriveActionAdvice(next, { regime: row.envRegime, envScore: row.envScore }) };
+  });
+
+  return {
+    rows: rankSignalsWithEnv(out, {
+      regime: rows[0]?.envRegime,
+      envScore: rows[0]?.envScore,
+    }),
+    depthCount: depths.filter((d) => d?.ok).length,
+  };
+}
+
+/** Banner copy for UI from environment */
+export function buildEnvListGuidance(env = null) {
+  if (!env) return { tone: 'neutral', text: '环境未就绪' };
+  if (env.regime === 'risk-off') {
+    return {
+      tone: 'off',
+      text: '避险环境：优先「多头踩踏」结构；顺势拥挤/无结构信号降为仅观察，列表已按操作优先级排序',
+    };
+  }
+  if (env.regime === 'risk-on') {
+    return {
+      tone: 'on',
+      text: '偏多环境：轧空/空头拥挤可优先；多头费率拥挤勿追高，仅作趋势观察',
+    };
+  }
+  return {
+    tone: 'neutral',
+    text: '中性环境：以结构标签（轧空/踩踏）为主，多因子高分其次',
+  };
 }
 
 export { FILTER_OUT, formatCompact };

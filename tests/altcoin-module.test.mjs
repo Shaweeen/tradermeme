@@ -6,6 +6,9 @@ import {
   scoreAltcoinPerpSignal,
   buildPrimaryEnvFromBybit,
   fuseContractEnvironment,
+  deriveActionAdvice,
+  rankSignalsWithEnv,
+  buildEnvListGuidance,
   ALTCOIN_SIGNAL_RULES,
 } from '../functions/api/_altcoin.js';
 
@@ -132,5 +135,26 @@ assert.equal(
   scoreAltcoinPerpSignal({ symbol: 'USDT', fundingRate: 0.01, price24hPcnt: 0.2, turnover24h: 1e9, openInterest: 1e6, markPrice: 1 }, {}, {}),
   null
 );
+
+// Action advice: risk-off elevates long-flush, demotes trend-crowded
+const flushAdvice = deriveActionAdvice({ setupBias: 'long-flush', score: 50 }, { regime: 'risk-off' });
+assert.equal(flushAdvice.action, 'prefer');
+const crowdedOff = deriveActionAdvice({ setupBias: 'trend-crowded', score: 60 }, { regime: 'risk-off' });
+assert.equal(crowdedOff.action, 'fade');
+const squeezeOn = deriveActionAdvice({ setupBias: 'short-squeeze', score: 55 }, { regime: 'risk-on' });
+assert.equal(squeezeOn.action, 'prefer');
+
+const ranked = rankSignalsWithEnv(
+  [
+    { symbol: 'A', score: 90, setupBias: 'trend-crowded', action: 'fade', actionPriority: 15 },
+    { symbol: 'B', score: 40, setupBias: 'long-flush', action: 'prefer', actionPriority: 88 },
+  ],
+  { regime: 'risk-off', envScore: 30 }
+);
+assert.equal(ranked[0].symbol, 'B', 'prefer should sort above fade even with lower score');
+
+const guide = buildEnvListGuidance({ regime: 'risk-off' });
+assert.equal(guide.tone, 'off');
+assert.ok(guide.text.includes('踩踏'));
 
 console.log('altcoin-module tests passed');

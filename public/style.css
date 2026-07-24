@@ -4594,6 +4594,78 @@ body.strategy-modal-open {
   opacity: 0.8;
 }
 
+.altcoin-list-guidance {
+  margin: 0 16px 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+}
+
+.altcoin-list-guidance.tone-off {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.07);
+  color: #fca5a5;
+}
+
+.altcoin-list-guidance.tone-on {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.07);
+  color: #86efac;
+}
+
+.altcoin-list-guidance.tone-neutral {
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.altcoin-action-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.altcoin-action-chip.action-prefer {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.altcoin-action-chip.action-watch {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.altcoin-action-chip.action-fade {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.token-row.othercoin-token-row.action-prefer {
+  box-shadow: inset 2px 0 0 rgba(34, 197, 94, 0.55);
+}
+
+.token-row.othercoin-token-row.action-fade {
+  opacity: 0.78;
+}
+
+.altcoin-depth-line {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--accent-cyan, #22d3ee);
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 .signal-badge {
   display: inline-flex;
   align-items: center;

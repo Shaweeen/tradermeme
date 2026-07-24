@@ -52,6 +52,7 @@ const state = {
   otherLoading: false,
   otherError: null,
   otherSortBy: 'signalScore',
+  altcoinActionFilter: 'all', // all | prefer | watch | fade
   altcoinEnvironment: null,
   altcoinMeta: null,
 
@@ -2885,6 +2886,11 @@ function renderAltcoinEnvironment(env, meta = {}) {
         ? '—'
         : '需 Clawby';
 
+  const depthN = meta?.clawby?.depthCount;
+  const depthSub = clawbyOk
+    ? (depthN != null ? `加深 ${depthN} 币` : 'Clawby 在线')
+    : secondaryLabel;
+
   panel.innerHTML = `
     <div class="altcoin-env-grid">
       <div class="altcoin-env-card ${regimeClass}">
@@ -2894,12 +2900,12 @@ function renderAltcoinEnvironment(env, meta = {}) {
       </div>
       <div class="altcoin-env-card">
         <div class="altcoin-env-card-label">BTC 费率</div>
-        <div class="altcoin-env-card-main ${getChangeClass((m.fundingBtcPct ?? m.fundingBtc ?? 0) * (m.fundingBtcPct != null ? 1 : 100))}">${formatFundingPct(m.fundingBtcPct != null ? m.fundingBtcPct : m.fundingBtc, { isPct: m.fundingBtcPct != null })}</div>
+        <div class="altcoin-env-card-main ${getChangeClass(m.fundingBtcPct != null ? m.fundingBtcPct : (m.fundingBtc || 0) * 100)}">${formatFundingPct(m.fundingBtcPct != null ? m.fundingBtcPct : m.fundingBtc, { isPct: m.fundingBtcPct != null })}</div>
         <div class="altcoin-env-card-sub">24h ${formatChange(m.priceChangeBtc)}</div>
       </div>
       <div class="altcoin-env-card">
         <div class="altcoin-env-card-label">ETH 费率</div>
-        <div class="altcoin-env-card-main ${getChangeClass((m.fundingEthPct ?? m.fundingEth ?? 0) * (m.fundingEthPct != null ? 1 : 100))}">${formatFundingPct(m.fundingEthPct != null ? m.fundingEthPct : m.fundingEth, { isPct: m.fundingEthPct != null })}</div>
+        <div class="altcoin-env-card-main ${getChangeClass(m.fundingEthPct != null ? m.fundingEthPct : (m.fundingEth || 0) * 100)}">${formatFundingPct(m.fundingEthPct != null ? m.fundingEthPct : m.fundingEth, { isPct: m.fundingEthPct != null })}</div>
         <div class="altcoin-env-card-sub">24h ${formatChange(m.priceChangeEth)}</div>
       </div>
       <div class="altcoin-env-card">
@@ -2915,11 +2921,25 @@ function renderAltcoinEnvironment(env, meta = {}) {
       <div class="altcoin-env-card">
         <div class="altcoin-env-card-label">双源校验</div>
         <div class="altcoin-env-card-main ${agreeClass}" style="font-size:14px">${agreeLabel}</div>
-        <div class="altcoin-env-card-sub">${clawbyOk ? 'Clawby 在线' : secondaryLabel}</div>
+        <div class="altcoin-env-card-sub">${depthSub}</div>
       </div>
     </div>
     ${notesHtml}
   `;
+
+  const guideEl = document.getElementById('altcoinListGuidance');
+  const guide = env.listGuidance || meta?.listGuidance;
+  if (guideEl && guide?.text) {
+    guideEl.hidden = false;
+    guideEl.className = `altcoin-list-guidance tone-${guide.tone || 'neutral'}`;
+    const counts = meta?.actionCounts;
+    const countTip = counts
+      ? ` · 优先 ${counts.prefer || 0} / 观察 ${counts.watch || 0} / 降权 ${counts.fade || 0}`
+      : '';
+    guideEl.textContent = guide.text + countTip;
+  } else if (guideEl) {
+    guideEl.hidden = true;
+  }
 }
 
 async function loadOthercoinData() {
@@ -2959,15 +2979,25 @@ async function loadOthercoinData() {
 }
 
 function renderOthercoinSortedTokens(tokens) {
-  const sorted = [...tokens].sort((a, b) => {
+  const actionFilter = state.altcoinActionFilter || 'all';
+  let list = Array.isArray(tokens) ? [...tokens] : [];
+  if (actionFilter !== 'all') {
+    list = list.filter((t) => (t.action || 'watch') === actionFilter);
+  }
+  const sorted = list.sort((a, b) => {
     switch (state.otherSortBy) {
-      case 'signalScore': return (b.signalScore ?? b.score ?? 0) - (a.signalScore ?? a.score ?? 0);
+      case 'signalScore': {
+        // Default: action priority then score (matches API ranking)
+        const ap = (b.actionPriority || 0) - (a.actionPriority || 0);
+        if (ap !== 0) return ap;
+        return (b.signalScore ?? b.score ?? 0) - (a.signalScore ?? a.score ?? 0);
+      }
       case 'volume': return (b.volume24h || 0) - (a.volume24h || 0);
       case 'priceChange': return Math.abs(b.priceChange24h || 0) - Math.abs(a.priceChange24h || 0);
       default: return 0;
     }
   });
-  if (dom.otherCount) dom.otherCount.textContent = tokens.length;
+  if (dom.otherCount) dom.otherCount.textContent = sorted.length;
   renderOthercoinTokenRows(sorted);
 }
 
@@ -2979,15 +3009,26 @@ const SIGNAL_BADGE_LABELS = {
   structure: '结构',
 };
 
+function altcoinActionClass(action) {
+  if (action === 'prefer') return 'action-prefer';
+  if (action === 'fade') return 'action-fade';
+  return 'action-watch';
+}
+
 function renderOthercoinTokenRows(tokens) {
   if (!tokens || tokens.length === 0) {
-    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>暂无达标永续信号（多因子规则 v2）</p></div>';
+    const emptyTip =
+      state.altcoinActionFilter && state.altcoinActionFilter !== 'all'
+        ? '当前筛选下无信号，试试「全部」'
+        : '暂无达标永续信号（多因子规则 v2）';
+    dom.otherTokenList.innerHTML = `<div class="empty-state"><div class="empty-icon"></div><p>${emptyTip}</p></div>`;
     return;
   }
   const fragment = document.createDocumentFragment();
   tokens.forEach((token, index) => {
     const row = document.createElement('div');
-    row.className = 'token-row othercoin-token-row';
+    const act = token.action || 'watch';
+    row.className = `token-row othercoin-token-row ${altcoinActionClass(act)}`;
     row.style.animationDelay = `${index * 0.03}s`;
     const rankEmoji = index + 1;
     const iconHtml = getTokenIcon(token);
@@ -3023,13 +3064,24 @@ function renderOthercoinTokenRows(tokens) {
     }
 
     const structure = signals.find((s) => s.type === 'structure');
-    const detailText = structure
+    let detailText = structure
       ? `${structure.label} · ${structure.detail || ''}`
       : (signals[0]?.detail || signals[0]?.label || token.strongestDetail || '');
+    if (token.actionReason) {
+      detailText = detailText
+        ? `${detailText} · ${token.actionReason}`
+        : token.actionReason;
+    }
+    const depth = token.clawbyDepth;
+    const depthLine =
+      token.clawbyDepthOk && depth?.summary
+        ? `<div class="altcoin-depth-line" title="Clawby 第二源加深">Clawby ${depth.fundingAgreement === 'conflict' ? '⚠费率冲突 · ' : depth.fundingAgreement === 'agree' ? '✓一致 · ' : ''}${depth.summary}</div>`
+        : '';
 
     const score = token.signalScore ?? token.score ?? 0;
     const scoreBarWidth = Math.min(score, 100);
     const scoreClass = score >= 60 ? 'high' : score >= 30 ? 'med' : 'low';
+    const actionChip = `<span class="altcoin-action-chip ${altcoinActionClass(act)}" title="${token.actionReason || ''}">${token.actionLabel || '观察'}</span>`;
 
     row.innerHTML = `
       <div class="td ${index < 3 ? 'rank-cell top-3' : 'rank-cell'}">${rankEmoji}</div>
@@ -3048,9 +3100,13 @@ function renderOthercoinTokenRows(tokens) {
           <div class="signal-score-bar"><div class="signal-score-fill ${scoreClass}" style="width:${scoreBarWidth}%"></div></div>
           <span class="signal-score-label">${Math.round(score)}</span>
         </div>
+        ${actionChip}
         ${badgesHtml}
       </div>
-      <div class="td signal-detail"><span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span></div>
+      <div class="td signal-detail">
+        <span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span>
+        ${depthLine}
+      </div>
       <div class="td actions-cell">
         <a href="${marketUrl}" target="_blank" rel="noopener" class="action-btn primary" title="${pairHint}">${marketLabel === 'GMGN' ? '行情' : '详情'}</a>
       </div>`;
@@ -5578,17 +5634,27 @@ dom.sortBtns.forEach((btn) => {
   });
 });
 
-// Othercoin sort
+// Altcoin sort
 dom.otherSortBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
-    dom.otherSortBtns.forEach((b) =>b.classList.remove('active'));
+    dom.otherSortBtns.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.otherSortBy = btn.dataset.sort;
-    if (state.otherTokens.length >0) renderOthercoinSortedTokens(state.otherTokens);
+    if (state.otherTokens.length > 0) renderOthercoinSortedTokens(state.otherTokens);
   });
 });
 
-// Othercoin retry
+// Altcoin action filter (prefer / watch / fade) — independent of Memecoin
+document.querySelectorAll('#altcoinActionFilter .filter-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#altcoinActionFilter .filter-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.altcoinActionFilter = btn.dataset.action || 'all';
+    if (state.otherTokens.length > 0) renderOthercoinSortedTokens(state.otherTokens);
+  });
+});
+
+// Altcoin retry
 dom.otherRetryBtn.addEventListener('click', () => {
   dom.otherErrorState.style.display = 'none';
   loadOthercoinData();

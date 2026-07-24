@@ -301,6 +301,7 @@
         <div class="altcoin-env-panel" id="altcoinEnvPanel">
           <div class="altcoin-env-loading" id="altcoinEnvLoading">加载合约环境…</div>
         </div>
+        <div class="altcoin-list-guidance" id="altcoinListGuidance" hidden></div>
       </section>
 
       <section class="dashboard-section" id="otherTokenSection">
@@ -311,9 +312,15 @@
             <span class="section-badge" id="otherCount">0</span>
           </div>
           <div class="section-controls">
-            <span class="section-hint" id="altcoinRulesHint">多因子确认 · 费率/结构优先 · 环境软调节</span>
+            <span class="section-hint" id="altcoinRulesHint">多因子 · 结构优先 · 环境排序 · Top Clawby 加深</span>
+            <div class="section-filter" id="altcoinActionFilter">
+              <button class="filter-btn active" data-action="all">全部</button>
+              <button class="filter-btn" data-action="prefer">优先</button>
+              <button class="filter-btn" data-action="watch">观察</button>
+              <button class="filter-btn" data-action="fade">仅观察</button>
+            </div>
             <div class="section-filter" id="otherSortSelect">
-              <button class="filter-btn active" data-sort="signalScore">信号强度</button>
+              <button class="filter-btn active" data-sort="signalScore">优先级/强度</button>
               <button class="filter-btn" data-sort="volume">成交额</button>
               <button class="filter-btn" data-sort="priceChange">24h 涨幅</button>
             </div>
