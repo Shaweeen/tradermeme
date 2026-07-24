@@ -1266,21 +1266,24 @@ a:hover {
   margin-top: 8px;
 }
 
-/* ===== 田字清算蜡烛图 ===== */
+/* ===== 田字清算图：左多/右空 · 上下 OI ===== */
 .tian-frame,
 .tian-frame-map {
   position: relative;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 12px;
-  background: #0b0f16;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(30, 41, 59, 0.35), transparent 55%),
+    #070b12;
   overflow: hidden;
-  min-height: 400px;
+  min-height: 420px;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06);
 }
 
 .tian-canvas {
   display: block;
   width: 100%;
-  height: 400px;
+  height: 420px;
   cursor: crosshair;
 }
 
@@ -4494,6 +4497,103 @@ body.strategy-modal-open {
   grid-template-columns: 36px 2fr 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr !important;
 }
 
+/* ===== Altcoin 合约环境面板（独立于 Memecoin） ===== */
+.altcoin-env-section {
+  margin-bottom: 4px;
+}
+
+.altcoin-env-panel {
+  padding: 12px 16px 16px;
+}
+
+.altcoin-env-loading {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px 4px;
+}
+
+.altcoin-env-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.altcoin-env-card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 78px;
+}
+
+.altcoin-env-card.env-on {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.altcoin-env-card.env-off {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.altcoin-env-card.env-neutral {
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.altcoin-env-card-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.altcoin-env-card-main {
+  font-size: 16px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.altcoin-env-card-main.good { color: var(--accent-green); }
+.altcoin-env-card-main.danger { color: var(--accent-red); }
+.altcoin-env-card-main.muted { color: var(--text-muted); }
+
+.altcoin-env-card-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.altcoin-regime-badge.env-on {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-green);
+}
+
+.altcoin-regime-badge.env-off {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+.altcoin-regime-badge.env-neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-secondary, #94a3b8);
+}
+
+.altcoin-env-notes {
+  margin: 12px 0 0;
+  padding: 0 0 0 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.altcoin-env-notes-empty {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
 .signal-badge {
   display: inline-flex;
   align-items: center;
@@ -4524,6 +4624,11 @@ body.strategy-modal-open {
 .signal-badge.oi {
   color: var(--accent-cyan);
   background: rgba(6, 182, 212, 0.12);
+}
+
+.signal-badge.structure {
+  color: #e879f9;
+  background: rgba(232, 121, 249, 0.12);
 }
 
 .signal-badge.multi {

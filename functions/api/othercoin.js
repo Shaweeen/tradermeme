@@ -1,41 +1,42 @@
 /**
- * Othercoin API - Cloudflare Pages Function
+ * Altcoin API (legacy path: /api/othercoin) — Cloudflare Pages Function
  *
- * Signal-based coin scanner. Dynamically discovers coins with strong signals
- * from funding rate, price action, volume, and open interest data.
- * No hardcoded coin list — detects signals across all available pairs.
+ * Independent from Memecoin. Contract multi-source scanner + 合约环境面板.
  *
- * Data Sources:
- *   - Bybit API: Funding rates, OI, mark prices for all USDT perpetuals
- *   - Binance API: 24hr ticker data for volume/price verification
- *   - CoinGecko API: Metadata (name, logo, market cap) for discovered coins
- *   - DexScreener: Robinhood Chain (and optional other L2) on-chain pairs
+ * Data Sources (primary):
+ *   - Bybit: funding / OI / mark for USDT perps
+ *   - Binance: 24h volume/price verification
+ *   - CoinGecko: metadata
+ * Secondary (optional):
+ *   - Clawby relay (CLAWBY_API_KEY) — funding cross-check, liquidations, L/S, taker
+ * Optional chain:
+ *   - DexScreener Robinhood (chain=robinhood|all only)
  *
- * Shared reference (with Memecoin):
- *   - `./_x_watchlist.js` — unique X username pool for social/reference checks
- *     (import matchWatchlist / getWatchlistSet when wiring community conditions)
+ * Signal rules: `./_altcoin.js` (altcoin-perp-v2) — multi-factor + env soft gate.
+ * Memecoin SignalEngine / Monitor heat is NOT used here.
  *
  * Endpoints:
- *   GET /api/othercoin                - CEX futures signals + Robinhood chain
- *   GET /api/othercoin?chain=multi    - CEX futures only
- *   GET /api/othercoin?chain=robinhood - Robinhood Chain only
- *   GET /api/othercoin?chain=all      - same as default (multi + robinhood)
+ *   GET /api/othercoin?chain=multi   - CEX futures + env panel (default for Altcoin page)
+ *   GET /api/othercoin?chain=all     - CEX + Robinhood
+ *   GET /api/othercoin?chain=robinhood
  */
+
+import {
+  ALTCOIN_SIGNAL_RULES,
+  scoreAltcoinPerpSignal,
+  buildPrimaryEnvFromBybit,
+  fetchClawbyDerivsSnapshot,
+  fuseContractEnvironment,
+} from './_altcoin.js';
 
 const BYBIT_BASE = 'https://api.bybit.com';
 const BINANCE_BASE = 'https://api.binance.com';
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
-// ===== Signal Thresholds =====
+// ===== Scan config (rules live in _altcoin.js ALTCOIN_SIGNAL_RULES) =====
 const SIGNAL_CONFIG = {
-  fundingRateMin: 0.0001,    // 0.01% — anomalous funding rate
-  fundingRateMax: 0.001,     // 0.1% — extreme funding rate
-  priceSurgeMin: 8,          // 8% — minimum 24h price move to flag
-  priceSurgeMax: 100,        // 100% — max reasonable move
-  oiMin: 500000,             // $500K — minimum OI to consider
-  volumeMin: 100000,         // $100K — minimum 24h volume
-  maxResults: 10,
-  scanDepth: 150,            // scan top N coins from CoinGecko
+  maxResults: ALTCOIN_SIGNAL_RULES.maxResults,
+  scanDepth: 150,
 };
 
 // Known stablecoins and LPs to filter out
@@ -143,108 +144,6 @@ async function getCoinGeckoTop(limit = 150) {
   return map;
 }
 
-/**
- * Calculate composite signal score for a coin
- * Returns the score and list of triggered signal reasons
- */
-function calculateSignalScore(bybitTicker, binanceData, geckoMeta) {
-  const signals = [];
-  let score = 0;
-
-  const symbol = bybitTicker.symbol;
-  const meta = geckoMeta[symbol.toLowerCase()];
-  const binance = binanceData[symbol];
-
-  // Skip stablecoins, staked tokens
-  if (FILTER_OUT.has(symbol.toLowerCase())) return null;
-
-  // --- Signal 1: Funding Rate Anomaly ---
-  const fr = Math.abs(bybitTicker.fundingRate);
-  if (fr >SIGNAL_CONFIG.fundingRateMin) {
-    const frSeverity = Math.min(fr / SIGNAL_CONFIG.fundingRateMax, 3);
-    score += frSeverity * 15;
-    const direction = bybitTicker.fundingRate >0 ? '多头偏高' : '空头偏高';
-    signals.push({
-      type: 'funding',
-      label: '资金费率',
-      detail: `${(bybitTicker.fundingRate * 100).toFixed(4)}% · ${direction}`,
-      severity: Math.min(frSeverity, 3),
-    });
-  }
-
-  // --- Signal 2: Price Surge ---
-  const pct24h = (bybitTicker.price24hPcnt * 100);
-  const absPct = Math.abs(pct24h);
-  if (absPct >SIGNAL_CONFIG.priceSurgeMin && absPct < SIGNAL_CONFIG.priceSurgeMax) {
-    const surgeSeverity = absPct / 20;
-    score += surgeSeverity * 12;
-    const direction = pct24h >0 ? '上涨' : '下跌';
-    signals.push({
-      type: 'price',
-      label: '价格异动',
-      detail: `${pct24h >0 ? '+' : ''}${pct24h.toFixed(2)}% · ${direction}`,
-      severity: Math.min(surgeSeverity, 5),
-    });
-  }
-
-  // --- Signal 3: Volume Spike ---
-  const turnover = bybitTicker.turnover24h || 0;
-  const binanceVol = binance?.quoteVolume || 0;
-  const maxVolume = Math.max(turnover, binanceVol);
-  if (maxVolume >SIGNAL_CONFIG.volumeMin) {
-    const volSeverity = Math.min(maxVolume / 10000000, 5);
-    score += volSeverity * 8;
-    signals.push({
-      type: 'volume',
-      label: '交易量激增',
-      detail: formatCompact(maxVolume),
-      severity: Math.min(volSeverity, 5),
-    });
-  }
-
-  // --- Signal 4: OI Buildup ---
-  const oi = bybitTicker.openInterest * bybitTicker.markPrice || 0;
-  if (oi >SIGNAL_CONFIG.oiMin) {
-    const oiSeverity = Math.min(oi / 50000000, 5);
-    score += oiSeverity * 10;
-    signals.push({
-      type: 'oi',
-      label: '持仓量 (OI)',
-      detail: formatCompact(oi),
-      severity: Math.min(oiSeverity, 5),
-    });
-  }
-
-  // --- Bonus: Multiple signals active ---
-  if (signals.length >= 3) score *= 1.2;
-  if (signals.length >= 4) score *= 1.3;
-
-  // Must have at least one signal to be included
-  if (signals.length === 0) return null;
-
-  return {
-    symbol: bybitTicker.symbol,
-    name: meta?.name || bybitTicker.symbol,
-    icon: meta?.image || '',
-    geckoId: meta?.id || null,
-    marketCap: meta?.marketCap || 0,
-    marketCapRank: meta?.marketCapRank || 999,
-    price: bybitTicker.markPrice || bybitTicker.price || 0,
-    priceChange24h: pct24h,
-    volume24h: maxVolume,
-    fundingRate: bybitTicker.fundingRate,
-    openInterest: oi,
-    score: Math.round(score * 10) / 10,
-    signals,
-    signalCount: signals.length,
-    strongestSignal: signals[0]?.type || 'unknown',
-    strongestLabel: signals[0]?.label || '',
-    strongestDetail: signals[0]?.detail || '',
-    timestamp: Date.now(),
-    source: 'bybit+coingecko',
-  };
-}
-
 function formatCompact(num) {
   if (!num || isNaN(num)) return '$0';
   if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`;
@@ -252,6 +151,11 @@ function formatCompact(num) {
   if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
   if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
   return `$${num.toFixed(0)}`;
+}
+
+/** Legacy name → redesigned altcoin-perp-v2 scorer */
+function calculateSignalScore(bybitTicker, binanceData, geckoMeta, env = null) {
+  return scoreAltcoinPerpSignal(bybitTicker, binanceData, geckoMeta, env);
 }
 
 /**
@@ -633,29 +537,51 @@ async function enrichRowsWithDexCharts(rows) {
 }
 
 /**
- * Main scanner: discover coins with strongest signals
+ * Main scanner: 合约环境 + redesigned signals (+ optional Clawby).
  * @param {string} chainFilter - multi | robinhood | all
+ * @param {{ clawbyKey?: string }} options
+ * @returns {{ rows: Array, environment: object|null, meta: object }}
  */
-async function scanSignals(chainFilter = 'all') {
+async function scanSignals(chainFilter = 'all', options = {}) {
   const wantCex = chainFilter === 'all' || chainFilter === 'multi' || !chainFilter;
   const wantRh = chainFilter === 'all' || chainFilter === 'robinhood' || !chainFilter;
+  const clawbyKey = options.clawbyKey || '';
+
+  let environment = null;
+  let bybitTickers = [];
+  let binanceMap = {};
+  let geckoMeta = {};
+  let clawbySnap = { available: false, reason: 'skipped', coins: {} };
+
+  if (wantCex) {
+    const [bybit, binance, gecko, clawby] = await Promise.all([
+      getBybitTickers(),
+      getBinanceTickers(),
+      getCoinGeckoTop(SIGNAL_CONFIG.scanDepth),
+      clawbyKey
+        ? fetchClawbyDerivsSnapshot(clawbyKey, { coins: ['BTC', 'ETH'] })
+        : Promise.resolve({ available: false, reason: 'no-clawby-key', coins: {} }),
+    ]);
+    bybitTickers = bybit;
+    binanceMap = binance;
+    geckoMeta = gecko;
+    clawbySnap = clawby;
+
+    const primary = buildPrimaryEnvFromBybit(bybitTickers);
+    environment = fuseContractEnvironment(primary, clawbySnap);
+  }
 
   const tasks = [];
   if (wantCex) {
     tasks.push(
       (async () => {
-        const [bybitTickers, binanceMap, geckoMeta] = await Promise.all([
-          getBybitTickers(),
-          getBinanceTickers(),
-          getCoinGeckoTop(SIGNAL_CONFIG.scanDepth),
-        ]);
         const scored = [];
         for (const ticker of bybitTickers) {
-          const result = calculateSignalScore(ticker, binanceMap, geckoMeta);
+          const result = calculateSignalScore(ticker, binanceMap, geckoMeta, environment);
           if (result) scored.push(result);
         }
         return scored
-          .sort((a, b) =>b.score - a.score)
+          .sort((a, b) => b.score - a.score)
           .slice(0, SIGNAL_CONFIG.maxResults)
           .map((coin, i) => ({
             rank: i + 1,
@@ -677,12 +603,16 @@ async function scanSignals(chainFilter = 'all') {
             strongestSignal: coin.strongestSignal,
             strongestLabel: coin.strongestLabel,
             strongestDetail: coin.strongestDetail,
+            setupBias: coin.setupBias || '',
+            confirms: coin.confirms,
+            envRegime: coin.envRegime || environment?.regime || null,
+            envScore: coin.envScore ?? environment?.envScore ?? null,
+            rulesVersion: coin.rulesVersion || 'altcoin-perp-v2',
             fundingRate: coin.fundingRate,
             openInterest: coin.openInterest,
-            source: 'signal-scan',
+            source: coin.source || 'signal-scan-v2',
             txns1h: { buys: 0, sells: 0, total: 0 },
             txns24h: { buys: 0, sells: 0, total: 0 },
-            // Placeholder — enrichRowsWithDexCharts replaces with pair chart URL
             url: '',
             geckoId: coin.geckoId || null,
           }));
@@ -704,15 +634,26 @@ async function scanSignals(chainFilter = 'all') {
     .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
     .map((row, i) => ({ ...row, rank: i + 1 }));
 
-  // Every captured token → DexScreener pair chart page (icon / mcap / Uniswap / live trades)
-  return enrichRowsWithDexCharts(merged);
+  const rows = await enrichRowsWithDexCharts(merged);
+  return {
+    rows,
+    environment,
+    meta: {
+      rulesVersion: 'altcoin-perp-v2',
+      clawby: clawbySnap.available
+        ? { ok: true }
+        : { ok: false, reason: clawbySnap.reason || 'unavailable' },
+      primarySource: 'bybit+binance',
+      secondarySource: clawbySnap.available ? 'clawby' : null,
+    },
+  };
 }
 
 /**
  * Handle API requests
  */
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
   const url = new URL(request.url);
 
   const corsHeaders = {
@@ -727,24 +668,33 @@ export async function onRequest(context) {
 
   if (url.pathname === '/api/othercoin' && request.method === 'GET') {
     try {
-      const rawChain = (url.searchParams.get('chain') || 'all').toLowerCase();
-      // Map memecoin-style chain tabs: non-RH chains → CEX multi; RH → robinhood; all → both
-      let chainFilter = 'all';
+      const rawChain = (url.searchParams.get('chain') || 'multi').toLowerCase();
+      // Default multi for Altcoin page; RH only when explicit
+      let chainFilter = 'multi';
       if (rawChain === 'robinhood') chainFilter = 'robinhood';
       else if (rawChain === 'multi' || rawChain === 'futures' || rawChain === 'cex') chainFilter = 'multi';
       else if (rawChain === 'all') chainFilter = 'all';
       else if (['solana', 'ethereum', 'base', 'bsc'].includes(rawChain)) chainFilter = 'multi';
 
-      const results = await scanSignals(chainFilter);
-      const sources = [...new Set(results.map((r) =>r.source).filter(Boolean))];
+      const clawbyKey =
+        env?.CLAWBY_API_KEY ||
+        env?.CLAWBY_KEY ||
+        (typeof process !== 'undefined' ? process.env?.CLAWBY_API_KEY : '') ||
+        '';
+
+      const { rows, environment, meta } = await scanSignals(chainFilter, { clawbyKey });
+      const sources = [...new Set(rows.map((r) => r.source).filter(Boolean))];
       return new Response(
         JSON.stringify({
           success: true,
-          source: sources.join('+') || 'signal-scan',
+          source: sources.join('+') || 'altcoin-perp-v2',
           chain: chainFilter,
-          count: results.length,
+          count: rows.length,
           timestamp: Date.now(),
-          data: results,
+          // 合约环境面板（BTC/ETH 杠杆面 + 可选 Clawby 第二源）
+          environment,
+          meta,
+          data: rows,
         }),
         {
           headers: {

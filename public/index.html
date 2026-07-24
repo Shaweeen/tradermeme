@@ -252,27 +252,27 @@
     </div>
   </div>
 
-  <!-- ===== Page: Altcoin (API: /api/othercoin) ===== -->
+  <!-- ===== Page: Altcoin (API: /api/othercoin) — independent from Memecoin ===== -->
   <div class="page-content" id="pageAltcoin">
     <div class="stats-bar" id="statsBarOther">
       <div class="stats-item" id="statCountOther">
         <span class="stat-icon"></span>
         <div class="stat-info">
-          <span class="stat-label">代币数</span>
+          <span class="stat-label">信号数</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statVolOther">
         <span class="stat-icon"></span>
         <div class="stat-info">
-          <span class="stat-label">总交易量</span>
+          <span class="stat-label">总成交额</span>
           <span class="stat-value">--</span>
         </div>
       </div>
       <div class="stats-item" id="statCapOther">
         <span class="stat-icon"></span>
         <div class="stat-info">
-          <span class="stat-label">平均评分</span>
+          <span class="stat-label">均信号分</span>
           <span class="stat-value">--</span>
         </div>
       </div>
@@ -286,17 +286,35 @@
     </div>
 
     <div class="dashboard">
+      <!-- 合约环境面板：Bybit 主源 + 可选 Clawby 第二源 -->
+      <section class="dashboard-section altcoin-env-section" id="altcoinEnvSection">
+        <div class="section-header">
+          <div class="section-title-group">
+            <span class="section-icon"></span>
+            <h2 class="section-title">合约环境</h2>
+            <span class="section-badge" id="altcoinEnvRegimeBadge">—</span>
+          </div>
+          <div class="section-controls">
+            <span class="section-hint" id="altcoinEnvHint">BTC/ETH 杠杆面 · Bybit 主源 · Clawby 第二源校验</span>
+          </div>
+        </div>
+        <div class="altcoin-env-panel" id="altcoinEnvPanel">
+          <div class="altcoin-env-loading" id="altcoinEnvLoading">加载合约环境…</div>
+        </div>
+      </section>
+
       <section class="dashboard-section" id="otherTokenSection">
         <div class="section-header">
           <div class="section-title-group">
             <span class="section-icon"></span>
-            <h2 class="section-title">信号扫描 · 合约多源信号</h2>
+            <h2 class="section-title">永续信号 · 规则 v2</h2>
             <span class="section-badge" id="otherCount">0</span>
           </div>
           <div class="section-controls">
+            <span class="section-hint" id="altcoinRulesHint">多因子确认 · 费率/结构优先 · 环境软调节</span>
             <div class="section-filter" id="otherSortSelect">
               <button class="filter-btn active" data-sort="signalScore">信号强度</button>
-              <button class="filter-btn" data-sort="volume">交易量</button>
+              <button class="filter-btn" data-sort="volume">成交额</button>
               <button class="filter-btn" data-sort="priceChange">24h 涨幅</button>
             </div>
           </div>
@@ -307,17 +325,17 @@
               <div class="th rank">#</div>
               <div class="th token">代币</div>
               <div class="th price">价格</div>
-              <div class="th change24h">24h 变化</div>
-              <div class="th volume">24h 交易量</div>
-              <div class="th signal-col">信号类型</div>
-              <div class="th signal-detail">信号详情</div>
+              <div class="th change24h">24h</div>
+              <div class="th volume">成交额</div>
+              <div class="th signal-col">信号</div>
+              <div class="th signal-detail">结构 / 详情</div>
               <div class="th actions">操作</div>
             </div>
           </div>
           <div class="table-body" id="otherTokenList">
             <div class="loading-state" id="otherLoadingState">
               <div class="spinner"></div>
-              <p>扫描合约多源信号数据...</p>
+              <p>扫描永续多因子信号…</p>
             </div>
           </div>
         </div>
@@ -489,11 +507,11 @@
             </div>
             <div class="btc-metric">
               <span class="btc-metric-label">减半周期</span>
-              <span class="btc-metric-value" id="btcHalvingCycle">--</span>
+              <span class="btc-metric-value" id="btcHalvingCycle" title="上次/下次减半日期 · 已过天数 · 距下次天数">--</span>
             </div>
             <div class="btc-metric">
               <span class="btc-metric-label">200 日均线</span>
-              <span class="btc-metric-value" id="btcMa200">--</span>
+              <span class="btc-metric-value" id="btcMa200" title="BTC 200 日移动平均线今日报价 (USD)">--</span>
             </div>
             <div class="btc-metric">
               <span class="btc-metric-label">信号源</span>
@@ -582,14 +600,15 @@
         </div>
       </div>
 
-      <!-- 田字清算图：左→右清算单价蜡烛 · 竖线=清算线 · 横线=OI · 下方浮窗 -->
+      <!-- 田字清算图：竖线=现价(左右) · 左多清算/右空清算 · 横线=1h/4h OI情绪(上下) · 暗色分区纹理 -->
       <div class="btc-card btc-card-wide" id="btcCardTian">
         <div class="btc-card-header">
           <h3>多空 · 清算</h3>
           <span class="btc-badge" id="tianStatus">--</span>
         </div>
         <div class="btc-card-body" id="tianBody">
-          <div class="tian-frame tian-frame-map" id="tianFrame" aria-label="清算单价蜡烛图">
+          <p class="btc-period-hint" id="tianAxisHint">竖线=现价（左右）· 左多爆仓 / 右空爆仓 · 横线=1h·4h OI 开仓情绪（上下）</p>
+          <div class="tian-frame tian-frame-map" id="tianFrame" aria-label="多空清算田字图">
             <canvas id="tianCanvas" class="tian-canvas" width="960" height="420"></canvas>
             <div class="tian-click-tip" id="tianClickTip" hidden></div>
           </div>

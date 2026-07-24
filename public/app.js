@@ -47,11 +47,13 @@ const state = {
   invalidLossHoldMs: 30 * 60 * 1000,
   memecoinLimit: 20, // 仅展示价值排序后 Top 20
 
-  // Altcoin state (legacy key: othercoin)
+  // Altcoin state (legacy key: othercoin) — independent of Memecoin
   otherTokens: [],
   otherLoading: false,
   otherError: null,
   otherSortBy: 'signalScore',
+  altcoinEnvironment: null,
+  altcoinMeta: null,
 
   // Bitcoin state
   btcData: null,
@@ -2812,11 +2814,11 @@ function drawSparkline(canvas, priceHistory, tracked = null) {
 }
 
 // ====================================================================================
-// OTHERCOIN PAGE — Signal-Based Scanner
+// ALTCOIN PAGE — 合约环境 + 永续规则 v2 + 可选 Clawby（独立于 Memecoin）
 // ====================================================================================
 
 async function fetchOthercoinApi() {
-  // Othercoin = CEX multi-market signals only (not per-chain memecoin boards)
+  // Altcoin page: CEX multi only (not memecoin chain boards)
   const response = await fetch(getApiUrl('/api/othercoin?chain=multi'), {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
@@ -2828,6 +2830,98 @@ async function fetchOthercoinApi() {
   return response.json();
 }
 
+function formatFundingPct(rateOrPct, { isPct = false } = {}) {
+  if (rateOrPct == null || !Number.isFinite(Number(rateOrPct))) return '—';
+  const pct = isPct ? Number(rateOrPct) : Number(rateOrPct) * 100;
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(4)}%`;
+}
+
+function renderAltcoinEnvironment(env, meta = {}) {
+  const panel = document.getElementById('altcoinEnvPanel');
+  const badge = document.getElementById('altcoinEnvRegimeBadge');
+  const hint = document.getElementById('altcoinEnvHint');
+  if (!panel) return;
+
+  if (!env) {
+    panel.innerHTML = '<div class="altcoin-env-loading">暂无合约环境数据</div>';
+    if (badge) {
+      badge.textContent = '—';
+      badge.className = 'section-badge';
+    }
+    return;
+  }
+
+  const regime = env.regime || 'neutral';
+  const regimeClass = regime === 'risk-on' ? 'env-on' : regime === 'risk-off' ? 'env-off' : 'env-neutral';
+  if (badge) {
+    badge.textContent = env.regimeLabel || regime;
+    badge.className = `section-badge altcoin-regime-badge ${regimeClass}`;
+  }
+
+  const m = env.metrics || {};
+  const clawbyOk = !!env.clawby?.available || meta?.clawby?.ok;
+  const secondaryLabel = clawbyOk ? 'Clawby 已接入' : (meta?.clawby?.reason === 'no-clawby-key' ? 'Clawby 未配置 key' : 'Clawby 不可用');
+  if (hint) {
+    hint.textContent = `主源 Bybit · 第二源 ${secondaryLabel} · 规则 ${meta?.rulesVersion || 'altcoin-perp-v2'}`;
+  }
+
+  const agree = m.fundingAgreement || 'n/a';
+  const agreeLabel =
+    agree === 'agree' ? '费率一致' : agree === 'soft' ? '费率近似' : agree === 'conflict' ? '费率冲突' : '单源';
+  const agreeClass =
+    agree === 'agree' ? 'good' : agree === 'conflict' ? 'danger' : 'muted';
+
+  const notes = (env.notes || []).slice(0, 5);
+  const notesHtml = notes.length
+    ? `<ul class="altcoin-env-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>`
+    : '<p class="altcoin-env-notes-empty">暂无环境备注</p>';
+
+  const liqTotal = m.liqTotal24h != null ? formatCompact(m.liqTotal24h) : '—';
+  const liqSplit =
+    m.liqLong24h != null || m.liqShort24h != null
+      ? `多 ${formatCompact(m.liqLong24h || 0)} / 空 ${formatCompact(m.liqShort24h || 0)}`
+      : clawbyOk
+        ? '—'
+        : '需 Clawby';
+
+  panel.innerHTML = `
+    <div class="altcoin-env-grid">
+      <div class="altcoin-env-card ${regimeClass}">
+        <div class="altcoin-env-card-label">环境制度</div>
+        <div class="altcoin-env-card-main">${env.regimeLabel || regime}</div>
+        <div class="altcoin-env-card-sub">环境分 ${env.envScore ?? '—'}/100</div>
+      </div>
+      <div class="altcoin-env-card">
+        <div class="altcoin-env-card-label">BTC 费率</div>
+        <div class="altcoin-env-card-main ${getChangeClass((m.fundingBtcPct ?? m.fundingBtc ?? 0) * (m.fundingBtcPct != null ? 1 : 100))}">${formatFundingPct(m.fundingBtcPct != null ? m.fundingBtcPct : m.fundingBtc, { isPct: m.fundingBtcPct != null })}</div>
+        <div class="altcoin-env-card-sub">24h ${formatChange(m.priceChangeBtc)}</div>
+      </div>
+      <div class="altcoin-env-card">
+        <div class="altcoin-env-card-label">ETH 费率</div>
+        <div class="altcoin-env-card-main ${getChangeClass((m.fundingEthPct ?? m.fundingEth ?? 0) * (m.fundingEthPct != null ? 1 : 100))}">${formatFundingPct(m.fundingEthPct != null ? m.fundingEthPct : m.fundingEth, { isPct: m.fundingEthPct != null })}</div>
+        <div class="altcoin-env-card-sub">24h ${formatChange(m.priceChangeEth)}</div>
+      </div>
+      <div class="altcoin-env-card">
+        <div class="altcoin-env-card-label">OI（名义）</div>
+        <div class="altcoin-env-card-main" style="font-size:14px">BTC ${formatCompact(m.oiBtcUsd || 0)}</div>
+        <div class="altcoin-env-card-sub">ETH ${formatCompact(m.oiEthUsd || 0)}</div>
+      </div>
+      <div class="altcoin-env-card">
+        <div class="altcoin-env-card-label">24h 爆仓</div>
+        <div class="altcoin-env-card-main" style="font-size:14px">${liqTotal}</div>
+        <div class="altcoin-env-card-sub">${liqSplit}</div>
+      </div>
+      <div class="altcoin-env-card">
+        <div class="altcoin-env-card-label">双源校验</div>
+        <div class="altcoin-env-card-main ${agreeClass}" style="font-size:14px">${agreeLabel}</div>
+        <div class="altcoin-env-card-sub">${clawbyOk ? 'Clawby 在线' : secondaryLabel}</div>
+      </div>
+    </div>
+    ${notesHtml}
+  `;
+}
+
 async function loadOthercoinData() {
   if (state.otherLoading) return;
   state.otherLoading = true;
@@ -2835,23 +2929,29 @@ async function loadOthercoinData() {
   dom.otherErrorState.style.display = 'none';
   dom.otherLoadingState.style.display = 'flex';
   dom.otherTokenList.innerHTML = '';
+  const envPanel = document.getElementById('altcoinEnvPanel');
+  if (envPanel) envPanel.innerHTML = '<div class="altcoin-env-loading">加载合约环境…</div>';
   setStatus('loading');
   try {
     const data = await fetchOthercoinApi();
     if (!data.success || !Array.isArray(data.data)) throw new Error('API返回数据格式异常');
     state.otherTokens = data.data;
+    state.altcoinEnvironment = data.environment || null;
+    state.altcoinMeta = data.meta || null;
+    renderAltcoinEnvironment(data.environment, data.meta);
     renderOthercoinSortedTokens(data.data);
     updateOthercoinStats(data.data, data.timestamp);
     setStatus('');
     dom.otherLoadingState.style.display = 'none';
   } catch (err) {
-    console.error('Othercoin load error:', err);
+    console.error('Altcoin load error:', err);
     state.otherError = err.message;
-    showToast(`信号扫描失败: ${err.message}`, 'error');
+    showToast(`Altcoin 扫描失败: ${err.message}`, 'error');
     dom.otherLoadingState.style.display = 'none';
     dom.otherTokenList.innerHTML = '';
     dom.otherErrorState.style.display = 'flex';
     dom.otherErrorMessage.textContent = err.message;
+    if (envPanel) envPanel.innerHTML = `<div class="altcoin-env-loading">环境加载失败: ${err.message}</div>`;
     setStatus('error');
   } finally {
     state.otherLoading = false;
@@ -2867,20 +2967,21 @@ function renderOthercoinSortedTokens(tokens) {
       default: return 0;
     }
   });
-  dom.otherCount.textContent = tokens.length;
+  if (dom.otherCount) dom.otherCount.textContent = tokens.length;
   renderOthercoinTokenRows(sorted);
 }
 
 const SIGNAL_BADGE_LABELS = {
-  funding: '资金费率',
-  price: '价格异动',
-  volume: '交易量',
-  oi: '持仓量',
+  funding: '费率',
+  price: '价格',
+  volume: '成交',
+  oi: 'OI',
+  structure: '结构',
 };
 
 function renderOthercoinTokenRows(tokens) {
   if (!tokens || tokens.length === 0) {
-    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>暂无信号数据</p></div>';
+    dom.otherTokenList.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>暂无达标永续信号（多因子规则 v2）</p></div>';
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -2891,7 +2992,6 @@ function renderOthercoinTokenRows(tokens) {
     const rankEmoji = index + 1;
     const iconHtml = getTokenIcon(token);
     const chainBadge = getChainBadgeHtml(token.chain || 'multi');
-    // 详情：Solana→GMGN，其余 EVM→DexScreener（与 Memecoin 同一规则）
     const otherChain = normalizeMarketChain(token.chain || 'multi') || token.chain;
     const marketUrl = getTokenMarketDetailUrl({ ...token, chain: otherChain });
     const marketLabel = getMarketDetailLabel(otherChain);
@@ -2900,34 +3000,33 @@ function renderOthercoinTokenRows(tokens) {
         ? 'GMGN Solana 合约行情'
         : token.pairLabel || token.dexId
           ? `${token.dexId || 'DEX'}${token.pairLabel ? ' · ' + token.pairLabel : ''}`
-          : 'DexScreener 合约行情 · 市值 / 交易对 / 实时成交';
+          : 'DexScreener 合约行情';
     const mcapHint = token.marketCap
       ? `市值 ${formatCompact(token.marketCap)}`
       : (token.fdv ? `FDV ${formatCompact(token.fdv)}` : '');
-    const nameLine = [token.name || '', mcapHint, pairHint].filter(Boolean).join(' · ');
+    const frHint = token.fundingRate != null
+      ? `费率 ${(Number(token.fundingRate) * 100).toFixed(4)}%`
+      : '';
+    const nameLine = [token.name || '', mcapHint, frHint, pairHint].filter(Boolean).join(' · ');
 
-    // Build signal badges
     let badgesHtml = '';
     const signals = token.signals || [];
-    if (signals.length >0) {
+    if (signals.length > 0) {
       badgesHtml = '<div class="signal-badge-row">';
-      if (signals.length >= 3) {
-        badgesHtml += `<span class="signal-badge multi">+${signals.length} 信号</span>`;
-      } else {
-        for (const sig of signals.slice(0, 2)) {
-          badgesHtml += `<span class="signal-badge ${sig.type}">${SIGNAL_BADGE_LABELS[sig.type] || sig.type}</span>`;
-        }
+      for (const sig of signals.slice(0, 3)) {
+        badgesHtml += `<span class="signal-badge ${sig.type}">${SIGNAL_BADGE_LABELS[sig.type] || sig.label || sig.type}</span>`;
+      }
+      if (signals.length > 3) {
+        badgesHtml += `<span class="signal-badge multi">+${signals.length - 3}</span>`;
       }
       badgesHtml += '</div>';
     }
 
-    // Signal detail text
-    let detailText = '';
-    if (signals.length >0) {
-      detailText = signals[0].detail || signals[0].label || '';
-    }
+    const structure = signals.find((s) => s.type === 'structure');
+    const detailText = structure
+      ? `${structure.label} · ${structure.detail || ''}`
+      : (signals[0]?.detail || signals[0]?.label || token.strongestDetail || '');
 
-    // Signal score bar
     const score = token.signalScore ?? token.score ?? 0;
     const scoreBarWidth = Math.min(score, 100);
     const scoreClass = score >= 60 ? 'high' : score >= 30 ? 'med' : 'low';
@@ -2964,10 +3063,10 @@ function renderOthercoinTokenRows(tokens) {
 function updateOthercoinStats(tokens, timestamp) {
   if (!dom.statsBarOther) return;
   if (dom.statCountOther) dom.statCountOther.textContent = tokens.length;
-  const totalVolume = tokens.reduce((sum, t) =>sum + (t.volume24h || 0), 0);
+  const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h || 0), 0);
   if (dom.statVolOther) dom.statVolOther.textContent = formatCompact(totalVolume);
-  const totalScore = tokens.reduce((sum, t) =>sum + (t.signalScore ?? t.score ?? 0), 0);
-  const avgScore = tokens.length >0 ? (totalScore / tokens.length).toFixed(1) : '--';
+  const totalScore = tokens.reduce((sum, t) => sum + (t.signalScore ?? t.score ?? 0), 0);
+  const avgScore = tokens.length > 0 ? (totalScore / tokens.length).toFixed(1) : '--';
   if (dom.statCapOther) dom.statCapOther.textContent = avgScore;
   if (dom.statUpdatedOther) dom.statUpdatedOther.textContent = formatTime(timestamp || Date.now());
 }
@@ -3466,12 +3565,31 @@ function renderBitcoinData() {
       dom.btcNextFundingTime.textContent = '--';
     }
   }
-  // 有效节点 / 均量 / 稳定性
-  const nOk = selfAvg.venueCount != null ? Number(selfAvg.venueCount) : null;
-  const nExp = selfAvg.expectedVenues || 6;
+  // 有效节点 / 均量 / 稳定性（含 nodeCollection 诊断）
+  const nodeCol = d.nodeCollection || d.periodBoard?.nodeCollection || null;
+  const nOk =
+    nodeCol?.venueCount != null
+      ? Number(nodeCol.venueCount)
+      : selfAvg.venueCount != null
+        ? Number(selfAvg.venueCount)
+        : null;
+  const nExp = nodeCol?.expectedVenues || selfAvg.expectedVenues || 6;
+  const onlineKeys = nodeCol?.online || selfAvg.venueKeys || selfAvg.stability?.online || [];
+  const offlineKeys = nodeCol?.offline || selfAvg.offlineKeys || selfAvg.stability?.offline || [];
   if (dom.btcContractNodes) {
-    dom.btcContractNodes.textContent =
-      nOk != null ? `${nOk}/${nExp}` : '--';
+    dom.btcContractNodes.textContent = nOk != null ? `${nOk}/${nExp}` : '--';
+    const detail = nodeCol?.detail || selfAvg.stability?.venues || {};
+    const lines = (nodeCol?.expected || Object.keys(detail) || []).map((k) => {
+      const row = detail[k] || {};
+      const st = row.ok ? '✓' : '✗';
+      const err = row.lastError ? ` (${row.lastError})` : '';
+      return `${st} ${k}${err}`;
+    });
+    dom.btcContractNodes.title = lines.length
+      ? lines.join('\n')
+      : offlineKeys.length
+        ? `离线: ${offlineKeys.join(', ')}`
+        : '节点收集';
   }
   if (dom.btcContractVol) {
     const v =
@@ -3480,32 +3598,47 @@ function renderBitcoinData() {
   }
   const stab = selfAvg.stability || d.periodBoard?.venueStability || null;
   if (dom.btcContractStability) {
-    if (stab) {
-      const on = (stab.online || []).length;
-      const off = (stab.offline || []).length;
+    if (stab || offlineKeys.length || onlineKeys.length) {
+      const on = onlineKeys.length || (stab?.online || []).length;
+      const off = offlineKeys.length || (stab?.offline || []).length;
+      const offNames = (offlineKeys.length ? offlineKeys : stab?.offline || [])
+        .map((k) => k)
+        .join('/');
       dom.btcContractStability.textContent =
         off === 0
           ? `全量在线 ${on}`
-          : `在线 ${on} · 离线 ${off}（已剔除）`;
+          : `在线 ${on} · 离线 ${off}${offNames ? ` (${offNames})` : ''}`;
+      dom.btcContractStability.title = offlineKeys
+        .map((k) => {
+          const err = nodeCol?.detail?.[k]?.lastError || 'offline';
+          return `${k}: ${err}`;
+        })
+        .join('\n');
     } else {
       dom.btcContractStability.textContent =
         nOk != null ? (nOk >= nExp ? '全量' : `降级 ${nOk}/${nExp}`) : '检测中';
     }
   }
   if (dom.contractDataStatus) {
-    const q = selfAvg.qualityLabel || '自信号源';
+    const q = nodeCol?.qualityLabel || selfAvg.qualityLabel || '自信号源';
     dom.contractDataStatus.textContent = q;
     dom.contractDataStatus.style.background =
-      nOk != null && nOk >= nExp
+      nOk != null && nOk >= nExp - 1
         ? 'rgba(34,197,94,0.1)'
         : 'rgba(255,193,7,0.1)';
     dom.contractDataStatus.style.color =
-      nOk != null && nOk >= nExp ? '#22c55e' : '#fbbf24';
+      nOk != null && nOk >= nExp - 1 ? '#22c55e' : '#fbbf24';
   }
   if (dom.contractDataHint) {
-    dom.contractDataHint.textContent =
+    const stages = (d.periodBoard?.stageAverages || nodeCol?.stages || [])
+      .map((s) => `${s.period}:${s.venueCount ?? 0}`)
+      .join(' ');
+    const base =
       stab?.policy ||
       'CEX + DEX Perps 有效节点报价/费率/OI/成交量 · 相加取平均 · 缺源剔除 · 恢复后重新纳入';
+    dom.contractDataHint.textContent = stages
+      ? `${base} · 窗节点 ${stages}`
+      : base;
   }
 
   // 市场情绪卡（与合约数据栏对齐：指标 + 状态徽标 + ETF 流）
@@ -3574,41 +3707,75 @@ function renderBitcoinData() {
 
   if (dom.btcHalvingCycle) {
     if (halving && (halving.progressPct != null || halving.cycleLabel)) {
+      const label = halving.cycleLabel || (halving.cycleNumber != null ? `第 ${halving.cycleNumber} 周期` : '');
       const prog = halving.progressPct != null ? `${halving.progressPct}%` : '--';
-      const left =
-        halving.daysLeft != null
-          ? ` · 约${halving.daysLeft}天`
-          : '';
+      const sinceDays =
+        halving.daysSinceLast ?? halving.daysSinceHalving ?? halving.cycleElapsedDays;
+      const toNext = halving.daysToNext ?? halving.daysLeft;
       const since =
-        halving.daysSinceHalving != null ? ` · 已过${halving.daysSinceHalving}天` : '';
-      dom.btcHalvingCycle.textContent = `${halving.cycleLabel || ''} ${prog}${since}${left}`.trim();
-      dom.btcHalvingCycle.title = [
-        halving.height != null ? `高度 ${halving.height}` : null,
-        halving.nextHalvingHeight != null ? `下次 ${halving.nextHalvingHeight}` : null,
+        sinceDays != null ? ` · 已过${Math.floor(sinceDays)}天` : '';
+      const left =
+        toNext != null
+          ? ` · 距下次${Number(toNext) % 1 === 0 ? Math.floor(toNext) : Number(toNext).toFixed(0)}天`
+          : '';
+      dom.btcHalvingCycle.textContent = `${label} ${prog}${since}${left}`.trim();
+      // tooltip：确认日期 + 高度
+      const tip = [
+        halving.lastHalvingDateUtc
+          ? `上次减半 ${halving.lastHalvingDateUtc} UTC`
+          : null,
+        halving.lastHalvingHeight != null
+          ? `块高 #${halving.lastHalvingHeight}`
+          : null,
+        sinceDays != null ? `距上次 ${Math.floor(sinceDays)} 天` : null,
+        halving.nextHalvingDateUtc
+          ? `下次约 ${halving.nextHalvingDateUtc} UTC`
+          : null,
+        halving.nextHalvingHeight != null
+          ? `目标块 #${halving.nextHalvingHeight}`
+          : null,
+        toNext != null ? `距下次约 ${toNext} 天` : null,
         halving.blocksLeft != null ? `剩余 ${halving.blocksLeft} 块` : null,
+        halving.height != null ? `当前高度 ${halving.height}` : null,
       ]
         .filter(Boolean)
         .join(' · ');
+      dom.btcHalvingCycle.title = tip;
     } else {
       dom.btcHalvingCycle.textContent = '--';
+      if (dom.btcHalvingCycle) dom.btcHalvingCycle.title = '';
     }
   }
 
   if (dom.btcMa200) {
-    if (ma200?.available && ma200.ma200 != null) {
-      const ma = Number(ma200.ma200);
-      const vs = ma200.vsPct;
-      const side = ma200.side === 'above' ? '上' : ma200.side === 'below' ? '下' : '';
-      const vsTxt =
-        vs != null ? ` ${vs >= 0 ? '+' : ''}${vs}%` : '';
+    const maPrice = ma200?.ma200 ?? ma200?.priceMa200;
+    if (ma200?.available && maPrice != null && Number(maPrice) > 0) {
+      const ma = Number(maPrice);
+      // 主显示：直接给出 200 日均线今日报价
       dom.btcMa200.textContent = `$${ma.toLocaleString('en-US', {
         maximumFractionDigits: 0,
-      })}${side ? ` · 价${side}` : ''}${vsTxt}`;
+        minimumFractionDigits: 0,
+      })}`;
+      const vs = ma200.vsPct;
+      const side =
+        ma200.side === 'above' ? '现价在均线上方' : ma200.side === 'below' ? '现价在均线下方' : '';
+      const vsTxt = vs != null ? `${vs >= 0 ? '+' : ''}${vs}%` : '';
+      dom.btcMa200.title = [
+        `BTC 200 日均线 $${ma.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+        ma200.asOfUtc ? `截至 ${ma200.asOfUtc} UTC` : null,
+        ma200.period ? `样本 ${ma200.period} 日` : null,
+        side || null,
+        vsTxt ? `偏离 ${vsTxt}` : null,
+        ma200.source ? `源 ${ma200.source}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
       dom.btcMa200.className = `btc-metric-value ${
         ma200.side === 'above' ? 'positive' : ma200.side === 'below' ? 'negative' : ''
       }`.trim();
     } else {
       dom.btcMa200.textContent = '--';
+      dom.btcMa200.title = ma200?.error ? `MA200 暂不可用: ${ma200.error}` : '';
       dom.btcMa200.className = 'btc-metric-value';
     }
   }
@@ -3641,9 +3808,18 @@ function renderBitcoinData() {
   if (dom.sentimentDataHint) {
     const mkt = sent.source || 'multi';
     const band = rainbow?.bandLabel || '--';
-    const prog = halving?.progressPct != null ? `${halving.progressPct}%` : '--';
-    const ma = ma200?.ma200 != null ? `$${Number(ma200.ma200).toFixed(0)}` : '--';
-    dom.sentimentDataHint.textContent = `${mkt} · 彩虹 ${band} · 减半 ${prog} · MA200 ${ma}`;
+    const since =
+      halving?.daysSinceLast ?? halving?.daysSinceHalving;
+    const toNext = halving?.daysToNext ?? halving?.daysLeft;
+    const half =
+      since != null && toNext != null
+        ? `已过${Math.floor(since)}d/剩${Math.round(toNext)}d`
+        : halving?.progressPct != null
+          ? `${halving.progressPct}%`
+          : '--';
+    const maRaw = ma200?.ma200 ?? ma200?.priceMa200;
+    const ma = maRaw != null ? `$${Number(maRaw).toFixed(0)}` : '--';
+    dom.sentimentDataHint.textContent = `${mkt} · 彩虹 ${band} · 减半 ${half} · MA200 ${ma}`;
   }
 
   // ---- 田字框架：多空 + 清算（自信号源综合）----
@@ -3654,12 +3830,16 @@ function renderBitcoinData() {
 }
 
 /**
- * 田字清算蜡烛图
- * - 竖线：当前价格在图中的定位（左右移动）
- * - 蜡烛柱：清算量（高矮=金额）
- * - 点击：短暂显示清算金额总量
- * - 横线：看多/看空 OI 比例（上下移动）+ OI 量
- * - 填充：上红看空 · 下绿看多（浅底，不压蜡烛）
+ * 田字清算图（坐标系硬规则）
+ * ┌────────────────────────────────────┐
+ * │  上 = 空头 OI 区（暗红+纹理）        │
+ * │············ 横线 OI 情绪 ··········│  ← 1h/4h OI 开仓情绪上下移动
+ * │  下 = 多头 OI 区（暗绿+纹理）        │
+ * │  左=多爆仓  │现价竖线│  右=空爆仓   │  ← 竖线随市价左右移
+ * └────────────────────────────────────┘
+ * - 多头清算柱：只画在现价竖线左侧（价 ≤ 市价）
+ * - 空头清算柱：只画在现价竖线右侧（价 ≥ 市价）
+ * - 柱高 = 该价位清算金额
  */
 const tianMapState = {
   bound: false,
@@ -3668,81 +3848,119 @@ const tianMapState = {
   layout: null,
   lastPayload: null,
   tipTimer: null,
+  hatchCanvas: null,
 };
 
-/** 多源清算回执 → 按单价聚合（综合均值）左→右序列 */
-function buildTianCandleSeries(longList, shortList) {
+/** 按侧别聚合清算价位（不做混色合并，避免绿柱跑到竖线右边） */
+function buildTianSideBuckets(rows, side) {
   const map = new Map();
-  const push = (rows, side) => {
-    for (const r of rows || []) {
-      const price = Number(r.price);
-      const usd = Number(r.usd) || 0;
-      if (!(price > 0) || !(usd > 0)) continue;
-      const key = price.toFixed(1);
-      const prev = map.get(key) || {
-        price: Number(key),
-        longSum: 0,
-        shortSum: 0,
-        longN: 0,
-        shortN: 0,
-      };
-      if (side === 'long') {
-        prev.longSum += usd;
-        prev.longN += 1;
-      } else {
-        prev.shortSum += usd;
-        prev.shortN += 1;
-      }
-      map.set(key, prev);
-    }
-  };
-  push(longList, 'long');
-  push(shortList, 'short');
-
-  const candles = [...map.values()]
-    .map((b) => {
-      // 同价多源：各自侧取均值后再合成
-      const longAvg = b.longN ? b.longSum / b.longN : 0;
-      const shortAvg = b.shortN ? b.shortSum / b.shortN : 0;
-      const usd = longAvg + shortAvg;
-      let side = 'mixed';
-      if (longAvg > 0 && shortAvg <= 0) side = 'long';
-      else if (shortAvg > 0 && longAvg <= 0) side = 'short';
-      else if (longAvg >= shortAvg) side = 'long';
-      else side = 'short';
-      return {
-        price: b.price,
-        usd,
-        longUsd: longAvg,
-        shortUsd: shortAvg,
-        side,
-        // 蜡烛 open/close 用侧别拆分，高=总金额
-        open: Math.min(longAvg, shortAvg) || 0,
-        close: usd,
-        high: usd,
-        low: 0,
-      };
-    })
+  for (const r of rows || []) {
+    const price = Number(r.price);
+    const usd = Number(r.usd) || 0;
+    if (!(price > 0) || !(usd > 0)) continue;
+    // 价位桶：相对精度（BTC 约 0.05% 或 $5）
+    const step = Math.max(5, price * 0.0004);
+    const key = Math.round(price / step) * step;
+    const prev = map.get(key) || { price: key, usd: 0, n: 0, side };
+    prev.usd += usd;
+    prev.n += 1;
+    map.set(key, prev);
+  }
+  return [...map.values()]
+    .map((b) => ({
+      price: b.price,
+      usd: b.usd,
+      side,
+      longUsd: side === 'long' ? b.usd : 0,
+      shortUsd: side === 'short' ? b.usd : 0,
+    }))
     .filter((c) => c.usd > 0)
     .sort((a, b) => a.price - b.price);
+}
 
-  return candles;
+/**
+ * 强制空间语义：
+ *  long  → 只能在现价左侧（≤ price）
+ *  short → 只能在现价右侧（≥ price）
+ *  错侧噪声：丢弃（交易所历史回执偶发错边）
+ */
+function placeCandlesByMarketSide(longBuckets, shortBuckets, marketPrice) {
+  const px = Number(marketPrice) || 0;
+  const longs = [];
+  const shorts = [];
+  for (const c of longBuckets || []) {
+    if (px > 0 && c.price > px * 1.0002) continue; // 多爆仓不应远高于现价
+    longs.push({ ...c, side: 'long', price: px > 0 ? Math.min(c.price, px) : c.price });
+  }
+  for (const c of shortBuckets || []) {
+    if (px > 0 && c.price < px * 0.9998) continue; // 空爆仓不应远低于现价
+    shorts.push({ ...c, side: 'short', price: px > 0 ? Math.max(c.price, px) : c.price });
+  }
+  return { longs, shorts, candles: [...longs, ...shorts].sort((a, b) => a.price - b.price) };
+}
+
+/**
+ * 1h + 4h OI 开仓情绪 → 空头占比 0–1（驱动横线 Y）
+ * 基线：账户多空比；叠加 1h/4h OI 变动（涨=偏多压低横线，跌=偏空抬高横线）
+ */
+function computeOiSentiment(d, stages, longPct, shortPct) {
+  let longShare = Math.max(0.05, Math.min(0.95, (Number(longPct) || 50) / 100));
+  let shortShare = Math.max(0.05, Math.min(0.95, 1 - longShare));
+
+  const stage1h = stages.find((s) => s.period === '1h') || null;
+  const stage4h = stages.find((s) => s.period === '4h') || null;
+  const agg1h = stage1h?.aggregate || stage1h?.fiveVenueAvg || {};
+  const agg4h = stage4h?.aggregate || stage4h?.fiveVenueAvg || {};
+  // 当前 period 板也可能是 1h
+  const boardAgg =
+    d.periodBoard?.period === '1h' || d.periodBoard?.period === '4h'
+      ? d.periodBoard?.fiveVenueAvg || d.periodBoard?.aggregate || {}
+      : {};
+
+  const oiCh1h = Number(agg1h.oiChangePctAvg ?? boardAgg.oiChangePctAvg);
+  const oiCh4h = Number(agg4h.oiChangePctAvg);
+  // 加权：1h 60% · 4h 40%（4h 缺失则全用 1h）
+  let oiChBlend = null;
+  if (Number.isFinite(oiCh1h) && Number.isFinite(oiCh4h)) {
+    oiChBlend = oiCh1h * 0.6 + oiCh4h * 0.4;
+  } else if (Number.isFinite(oiCh1h)) {
+    oiChBlend = oiCh1h;
+  } else if (Number.isFinite(oiCh4h)) {
+    oiChBlend = oiCh4h;
+  }
+
+  // OI 增 → 偏多：longShare ↑；OI 减 → 偏空
+  if (oiChBlend != null) {
+    // ±3% 变动映射到 ±12pp 情绪
+    const delta = Math.max(-0.12, Math.min(0.12, (oiChBlend / 3) * 0.12));
+    longShare = Math.max(0.08, Math.min(0.92, longShare + delta));
+    shortShare = 1 - longShare;
+  }
+
+  const oiUsd =
+    Number(agg4h.oiEndAvg) ||
+    Number(agg1h.oiEndAvg) ||
+    Number(boardAgg.oiEndAvg) ||
+    Number(d.futures?.openInterestUsd) ||
+    Number(d.openInterest?.totalOiUsd) ||
+    0;
+
+  return {
+    longShare,
+    shortShare,
+    longPct: longShare * 100,
+    shortPct: shortShare * 100,
+    oiUsd,
+    oiCh1h: Number.isFinite(oiCh1h) ? oiCh1h : null,
+    oiCh4h: Number.isFinite(oiCh4h) ? oiCh4h : null,
+    oiChBlend,
+  };
 }
 
 function renderTianFrame(d) {
   if (!dom.tianFrame && !dom.tianStatus) return;
 
   const stages = Array.isArray(d.periodBoard?.stageAverages) ? d.periodBoard.stageAverages : [];
-  const stage4h = stages.find((s) => s.period === '4h') || null;
-  const agg4h =
-    stage4h?.aggregate ||
-    (d.periodBoard?.period === '4h'
-      ? d.periodBoard?.fiveVenueAvg || d.periodBoard?.aggregate
-      : null) ||
-    d.periodBoard?.fiveVenueAvg ||
-    d.periodBoard?.aggregate ||
-    {};
-
   const lsr = d.longShortRatio;
   const liq = d.liquidations;
   const w4 = liq?.summary?.window4h || null;
@@ -3767,11 +3985,6 @@ function renderTianFrame(d) {
     Number(d.price?.spot) ||
     Number(d.futures?.priceAvg) ||
     0;
-  const oiUsd =
-    Number(agg4h.oiEndAvg) ||
-    Number(d.futures?.openInterestUsd) ||
-    Number(d.openInterest?.totalOiUsd) ||
-    0;
 
   const sources = Object.values(lsr?.sources || {}).filter((s) => s && Number(s.ratio) > 0);
   let ratio = Number(lsr?.summary?.avgRatio) || 0;
@@ -3793,9 +4006,16 @@ function renderTianFrame(d) {
     shortPct = 50;
   }
 
+  const oiSent = computeOiSentiment(d, stages, longPct, shortPct);
+  longPct = oiSent.longPct;
+  shortPct = oiSent.shortPct;
+  const oiUsd = oiSent.oiUsd;
+
   const longList = Array.isArray(sum.longPrices) ? sum.longPrices : [];
   const shortList = Array.isArray(sum.shortPrices) ? sum.shortPrices : [];
-  const candles = buildTianCandleSeries(longList, shortList);
+  const longBuckets = buildTianSideBuckets(longList, 'long');
+  const shortBuckets = buildTianSideBuckets(shortList, 'short');
+  const placed = placeCandlesByMarketSide(longBuckets, shortBuckets, price);
 
   const hasWindowTotals =
     w4 &&
@@ -3803,10 +4023,10 @@ function renderTianFrame(d) {
     (Number(w4.totalLong) > 0 || Number(w4.totalShort) > 0);
   const longTotal = hasWindowTotals
     ? Number(w4.totalLong) || 0
-    : candles.reduce((a, c) => a + (c.longUsd || 0), 0);
+    : placed.longs.reduce((a, c) => a + (c.usd || 0), 0);
   const shortTotal = hasWindowTotals
     ? Number(w4.totalShort) || 0
-    : candles.reduce((a, c) => a + (c.shortUsd || 0), 0);
+    : placed.shorts.reduce((a, c) => a + (c.usd || 0), 0);
 
   const priceTxt = price
     ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -3821,7 +4041,6 @@ function renderTianFrame(d) {
     dom.tianShortLiqUsd.textContent = shortTotal > 0 ? formatCompact(shortTotal) : '--';
   }
 
-  // 市场偏向：优先 API marketBias；否则 OI 多空比（多>空→看多）
   const biasLabel =
     d.marketBias?.label === '看多' || d.marketBias?.label === '看空'
       ? d.marketBias.label
@@ -3834,9 +4053,16 @@ function renderTianFrame(d) {
     oiUsd,
     longPct,
     shortPct,
+    longShare: oiSent.longShare,
+    shortShare: oiSent.shortShare,
+    oiCh1h: oiSent.oiCh1h,
+    oiCh4h: oiSent.oiCh4h,
+    oiChBlend: oiSent.oiChBlend,
     longOpen: oiUsd > 0 ? oiUsd * (longPct / 100) : 0,
     shortOpen: oiUsd > 0 ? oiUsd * (shortPct / 100) : 0,
-    candles,
+    longs: placed.longs,
+    shorts: placed.shorts,
+    candles: placed.candles,
     longTotal,
     shortTotal,
     liqTotal: longTotal + shortTotal,
@@ -3879,9 +4105,14 @@ function showTianLiqTip(x, y, p) {
   const total = Number(p.liqTotal) || Number(p.longTotal) + Number(p.shortTotal) || 0;
   const longT = Number(p.longTotal) || 0;
   const shortT = Number(p.shortTotal) || 0;
+  const oiCh =
+    p.oiChBlend != null
+      ? ` · OI Δ ${p.oiChBlend >= 0 ? '+' : ''}${Number(p.oiChBlend).toFixed(2)}%`
+      : '';
   tip.innerHTML = `清算总量 <b>${total > 0 ? formatCompact(total) : '--'}</b>
     <span style="color:#4ade80;margin-left:8px">多 ${longT > 0 ? formatCompact(longT) : '--'}</span>
-    <span style="color:#f87171;margin-left:6px">空 ${shortT > 0 ? formatCompact(shortT) : '--'}</span>`;
+    <span style="color:#f87171;margin-left:6px">空 ${shortT > 0 ? formatCompact(shortT) : '--'}</span>
+    <span style="color:#94a3b8;margin-left:6px;font-weight:600">${oiCh}</span>`;
   tip.hidden = false;
   tip.style.left = `${Math.max(40, Math.min((dom.tianCanvas?.clientWidth || 300) - 40, x))}px`;
   tip.style.top = `${Math.max(24, y)}px`;
@@ -3895,15 +4126,107 @@ function showTianLiqTip(x, y, p) {
   }, 2200);
 }
 
+/** 对角斜线纹理 */
+function getTianHatchPattern(ctx, color, angleDeg = 45) {
+  const hc = document.createElement('canvas');
+  hc.width = 10;
+  hc.height = 10;
+  const hctx = hc.getContext('2d');
+  hctx.strokeStyle = color;
+  hctx.lineWidth = 1.1;
+  hctx.beginPath();
+  if (angleDeg >= 0) {
+    // ╱
+    hctx.moveTo(-1, 11);
+    hctx.lineTo(11, -1);
+    hctx.moveTo(-1, 5);
+    hctx.lineTo(5, -1);
+    hctx.moveTo(5, 11);
+    hctx.lineTo(11, 5);
+  } else {
+    // ╲
+    hctx.moveTo(-1, -1);
+    hctx.lineTo(11, 11);
+    hctx.moveTo(5, -1);
+    hctx.lineTo(11, 5);
+    hctx.moveTo(-1, 5);
+    hctx.lineTo(5, 11);
+  }
+  hctx.stroke();
+  return ctx.createPattern(hc, 'repeat');
+}
+
 /**
- * 竖线 = 现价定位 · 蜡烛 = 清算量 · 横线+填充 = OI 看多看空比例
+ * 绘制清算柱（从底边向上，高度∝金额）
+ * long: 仅 x ≤ xPrice；short: 仅 x ≥ xPrice
+ */
+function drawTianLiqBars(ctx, bars, opts) {
+  const { pad, plotH, xOfPrice, yOfUsd, xPrice, bodyW, side } = opts;
+  const isLong = side === 'long';
+  const yBot = pad.t + plotH;
+
+  for (const c of bars || []) {
+    let x = xOfPrice(c.price);
+    // 硬夹紧：多不越中线右，空不越中线左
+    if (isLong) x = Math.min(x, xPrice - 1);
+    else x = Math.max(x, xPrice + 1);
+
+    const usd = Number(c.usd) || 0;
+    if (!(usd > 0)) continue;
+    const yTop = yOfUsd(usd);
+    const h = Math.max(4, yBot - yTop);
+    const half = bodyW / 2;
+
+    // 影线
+    ctx.strokeStyle = isLong ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, yTop);
+    ctx.lineTo(x, yBot);
+    ctx.stroke();
+
+    // 实体
+    const g = ctx.createLinearGradient(0, yTop, 0, yBot);
+    if (isLong) {
+      g.addColorStop(0, 'rgba(74,222,128,0.95)');
+      g.addColorStop(0.55, 'rgba(34,197,94,0.88)');
+      g.addColorStop(1, 'rgba(21,128,61,0.75)');
+    } else {
+      g.addColorStop(0, 'rgba(248,113,113,0.95)');
+      g.addColorStop(0.55, 'rgba(239,68,68,0.88)');
+      g.addColorStop(1, 'rgba(185,28,28,0.75)');
+    }
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    const r = Math.min(2.5, half);
+    const left = x - half;
+    const top = yTop;
+    const w = bodyW;
+    // 圆角顶
+    ctx.moveTo(left + r, top);
+    ctx.lineTo(left + w - r, top);
+    ctx.quadraticCurveTo(left + w, top, left + w, top + r);
+    ctx.lineTo(left + w, yBot);
+    ctx.lineTo(left, yBot);
+    ctx.lineTo(left, top + r);
+    ctx.quadraticCurveTo(left, top, left + r, top);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = isLong ? 'rgba(134,239,172,0.7)' : 'rgba(252,165,165,0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+/**
+ * 竖线 = 现价 · 左多清算 / 右空清算 · 横线 = 1h/4h OI 情绪 · 暗色分区+纹理
  */
 function drawTianLiquidationMap(p) {
   const canvas = dom.tianCanvas;
   if (!canvas || typeof canvas.getContext !== 'function') return;
   const parent = canvas.parentElement || canvas;
   const cssW = Math.max(320, parent.clientWidth || 960);
-  const cssH = Math.max(260, parseInt(getComputedStyle(canvas).height, 10) || 400);
+  const cssH = Math.max(280, parseInt(getComputedStyle(canvas).height, 10) || 400);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   tianMapState.dpr = dpr;
   canvas.width = Math.round(cssW * dpr);
@@ -3915,69 +4238,122 @@ function drawTianLiquidationMap(p) {
 
   const W = cssW;
   const H = cssH;
-  const pad = { t: 18, r: 14, b: 28, l: 48 };
+  const pad = { t: 22, r: 16, b: 30, l: 50 };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
 
-  // 底
-  ctx.fillStyle = '#0b0f16';
+  // 深色底
+  ctx.fillStyle = '#070b12';
   ctx.fillRect(0, 0, W, H);
 
   const price = Number(p.price) || 0;
-  let candles = Array.isArray(p.candles) ? p.candles.slice() : [];
-  if (!candles.length && price > 0) {
-    candles = [
-      { price: price * 0.995, usd: 1, side: 'long', longUsd: 1, shortUsd: 0, high: 1, low: 0, open: 0, close: 1 },
-      { price: price * 1.005, usd: 1, side: 'short', longUsd: 0, shortUsd: 1, high: 1, low: 0, open: 0, close: 1 },
-    ];
+  let longs = Array.isArray(p.longs) ? p.longs.slice() : [];
+  let shorts = Array.isArray(p.shorts) ? p.shorts.slice() : [];
+  if (!longs.length && !shorts.length && price > 0) {
+    longs = [{ price: price * 0.992, usd: 1, side: 'long' }];
+    shorts = [{ price: price * 1.008, usd: 1, side: 'short' }];
   }
 
-  let pMin = candles.length ? candles[0].price : price || 0;
-  let pMax = candles.length ? candles[candles.length - 1].price : price || 1;
-  if (price > 0) {
-    pMin = Math.min(pMin, price);
-    pMax = Math.max(pMax, price);
+  // 价格域：两侧清算价 + 现价，左右对称留白让竖线可移动
+  let pMin = price || 0;
+  let pMax = price || 1;
+  for (const c of [...longs, ...shorts]) {
+    if (c.price > 0) {
+      pMin = Math.min(pMin, c.price);
+      pMax = Math.max(pMax, c.price);
+    }
   }
   if (!(pMax > pMin)) {
     pMin = (price || 1) * 0.99;
     pMax = (price || 1) * 1.01;
   }
-  const pPad = (pMax - pMin) * 0.04 || 1;
+  // 保证现价两侧至少各 0.15% 可视区，竖线不会贴边
+  if (price > 0) {
+    const minSpan = price * 0.003;
+    pMin = Math.min(pMin, price - minSpan);
+    pMax = Math.max(pMax, price + minSpan);
+    // 相对现价略对称
+    const leftSpan = price - pMin;
+    const rightSpan = pMax - price;
+    const span = Math.max(leftSpan, rightSpan) * 1.06;
+    pMin = price - span;
+    pMax = price + span;
+  }
+  const pPad = (pMax - pMin) * 0.03 || 1;
   pMin -= pPad;
   pMax += pPad;
 
-  const maxUsd = Math.max(1, ...candles.map((c) => c.usd || 0));
+  const maxUsd = Math.max(
+    1,
+    ...longs.map((c) => c.usd || 0),
+    ...shorts.map((c) => c.usd || 0)
+  );
   const xOfPrice = (px) => pad.l + ((px - pMin) / (pMax - pMin)) * plotW;
   const yOfUsd = (usd) =>
-    pad.t + plotH - Math.sqrt(Math.max(0, usd) / maxUsd) * plotH * 0.88;
+    pad.t + plotH - Math.pow(Math.max(0, usd) / maxUsd, 0.55) * plotH * 0.82;
 
-  // —— OI 看多/看空填充（先画，浅色不压蜡烛）——
-  // 上 = 空/看空 红 · 下 = 多/看多 绿 · 分界 = 横线
-  const shortShare = Math.max(0.06, Math.min(0.94, (Number(p.shortPct) || 50) / 100));
-  const longShare = Math.max(0.06, Math.min(0.94, 1 - shortShare));
+  // —— OI 横线：上=空 下=多；shortShare 越大横线越靠下（上空区越大）——
+  const shortShare = Math.max(
+    0.08,
+    Math.min(0.92, Number(p.shortShare) || (Number(p.shortPct) || 50) / 100)
+  );
+  const longShare = Math.max(0.08, Math.min(0.92, 1 - shortShare));
   const yOi = pad.t + shortShare * plotH;
+  const xPrice = price > 0 ? xOfPrice(price) : pad.l + plotW / 2;
 
-  // 上红（看空 OI）
+  // —— 上下暗色填充 + 斜线纹理 ——
+  // 上空（看空 / 空头 OI）
   {
     const h = Math.max(0, yOi - pad.t);
-    const g = ctx.createLinearGradient(0, pad.t, 0, yOi);
-    g.addColorStop(0, 'rgba(239, 68, 68, 0.14)');
-    g.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
-    ctx.fillStyle = g;
-    ctx.fillRect(pad.l, pad.t, plotW, h);
+    if (h > 0) {
+      const g = ctx.createLinearGradient(0, pad.t, 0, yOi);
+      g.addColorStop(0, 'rgba(127, 29, 29, 0.38)');
+      g.addColorStop(0.55, 'rgba(185, 28, 28, 0.18)');
+      g.addColorStop(1, 'rgba(239, 68, 68, 0.08)');
+      ctx.fillStyle = g;
+      ctx.fillRect(pad.l, pad.t, plotW, h);
+      const pat = getTianHatchPattern(ctx, 'rgba(248,113,113,0.12)', 45);
+      if (pat) {
+        ctx.fillStyle = pat;
+        ctx.fillRect(pad.l, pad.t, plotW, h);
+      }
+    }
   }
-  // 下绿（看多 OI）
+  // 下多（看多 / 多头 OI）
   {
     const h = Math.max(0, pad.t + plotH - yOi);
-    const g = ctx.createLinearGradient(0, yOi, 0, pad.t + plotH);
-    g.addColorStop(0, 'rgba(34, 197, 94, 0.07)');
-    g.addColorStop(1, 'rgba(34, 197, 94, 0.16)');
-    ctx.fillStyle = g;
-    ctx.fillRect(pad.l, yOi, plotW, h);
+    if (h > 0) {
+      const g = ctx.createLinearGradient(0, yOi, 0, pad.t + plotH);
+      g.addColorStop(0, 'rgba(34, 197, 94, 0.07)');
+      g.addColorStop(0.45, 'rgba(22, 101, 52, 0.16)');
+      g.addColorStop(1, 'rgba(20, 83, 45, 0.32)');
+      ctx.fillStyle = g;
+      ctx.fillRect(pad.l, yOi, plotW, h);
+      const pat = getTianHatchPattern(ctx, 'rgba(74,222,128,0.11)', -45);
+      if (pat) {
+        ctx.fillStyle = pat;
+        ctx.fillRect(pad.l, yOi, plotW, h);
+      }
+    }
   }
 
-  // 细网格（不抢戏）
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.06)';
+  // 左右半区极淡分隔（多爆仓 | 空爆仓）
+  {
+    const gL = ctx.createLinearGradient(pad.l, 0, xPrice, 0);
+    gL.addColorStop(0, 'rgba(34,197,94,0.04)');
+    gL.addColorStop(1, 'rgba(34,197,94,0)');
+    ctx.fillStyle = gL;
+    ctx.fillRect(pad.l, pad.t, Math.max(0, xPrice - pad.l), plotH);
+
+    const gR = ctx.createLinearGradient(xPrice, 0, pad.l + plotW, 0);
+    gR.addColorStop(0, 'rgba(239,68,68,0)');
+    gR.addColorStop(1, 'rgba(239,68,68,0.05)');
+    ctx.fillStyle = gR;
+    ctx.fillRect(xPrice, pad.t, Math.max(0, pad.l + plotW - xPrice), plotH);
+  }
+
+  // 网格
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.055)';
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i++) {
     const y = pad.t + (plotH * i) / 4;
@@ -3987,100 +4363,138 @@ function drawTianLiquidationMap(p) {
     ctx.stroke();
   }
 
-  // 蜡烛柱：清算量
-  const n = Math.max(1, candles.length);
-  const slot = plotW / n;
-  const bodyW = Math.max(3, Math.min(16, slot * 0.58));
+  // 角标：左下「多爆」右上「空爆」
+  ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(74,222,128,0.45)';
+  ctx.textAlign = 'left';
+  ctx.fillText('多头清算', pad.l + 6, pad.t + plotH - 8);
+  ctx.fillStyle = 'rgba(248,113,113,0.45)';
+  ctx.textAlign = 'right';
+  ctx.fillText('空头清算', pad.l + plotW - 6, pad.t + 14);
 
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i];
-    const x = xOfPrice(c.price);
-    const yTop = yOfUsd(c.high || c.usd);
-    const yBot = pad.t + plotH;
-    const bodyTop = yOfUsd(c.close || c.usd);
-    const bodyBot = yOfUsd(Math.max(0, (c.open || 0) * 0.15));
-    const isLong = c.side === 'long' || (c.longUsd || 0) >= (c.shortUsd || 0);
-    const col = isLong ? '#22c55e' : '#ef4444';
-    const colDim = isLong ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)';
+  // 清算柱：左多 / 右空
+  const nBars = Math.max(1, longs.length + shorts.length);
+  const bodyW = Math.max(3.5, Math.min(14, (plotW / Math.max(nBars, 8)) * 0.55));
+  drawTianLiqBars(ctx, longs, {
+    pad,
+    plotH,
+    xOfPrice,
+    yOfUsd,
+    xPrice,
+    bodyW,
+    side: 'long',
+  });
+  drawTianLiqBars(ctx, shorts, {
+    pad,
+    plotH,
+    xOfPrice,
+    yOfUsd,
+    xPrice,
+    bodyW,
+    side: 'short',
+  });
 
-    ctx.strokeStyle = colDim;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, yTop);
-    ctx.lineTo(x, yBot);
-    ctx.stroke();
-
-    const top = Math.min(bodyTop, bodyBot);
-    const h = Math.max(3, Math.abs(bodyBot - bodyTop));
-    const g = ctx.createLinearGradient(0, top, 0, top + h);
-    if (isLong) {
-      g.addColorStop(0, 'rgba(74,222,128,0.98)');
-      g.addColorStop(1, 'rgba(22,163,74,0.82)');
-    } else {
-      g.addColorStop(0, 'rgba(248,113,113,0.98)');
-      g.addColorStop(1, 'rgba(220,38,38,0.82)');
-    }
-    ctx.fillStyle = g;
-    ctx.fillRect(x - bodyW / 2, top, bodyW, h);
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
-  }
-
-  // 竖线：当前价格定位
-  const xPrice = price > 0 ? xOfPrice(price) : pad.l + plotW / 2;
+  // —— 现价竖线（左右移动）——
   ctx.save();
-  ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
-  ctx.lineWidth = 1.5;
+  // 辉光
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.18)';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(xPrice, pad.t);
+  ctx.lineTo(xPrice, pad.t + plotH);
+  ctx.stroke();
+  ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = 'rgba(248, 250, 252, 0.92)';
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(xPrice, pad.t);
   ctx.lineTo(xPrice, pad.t + plotH);
   ctx.stroke();
   ctx.restore();
 
-  // 竖线顶部小三角（现价）
+  // 竖线顶标：现价
+  const pxLabel =
+    price > 0
+      ? `$${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+      : 'price';
+  ctx.font = 'bold 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const pxW = ctx.measureText(pxLabel).width + 12;
+  const pxTagX = Math.max(pad.l, Math.min(pad.l + plotW - pxW, xPrice - pxW / 2));
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.fillRect(pxTagX, pad.t - 16, pxW, 15);
+  ctx.strokeStyle = 'rgba(226,232,240,0.4)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pxTagX + 0.5, pad.t - 15.5, pxW - 1, 14);
+  ctx.fillStyle = '#f1f5f9';
+  ctx.textAlign = 'center';
+  ctx.fillText(pxLabel, pxTagX + pxW / 2, pad.t - 5);
+
+  // 三角指向
   ctx.fillStyle = '#e2e8f0';
   ctx.beginPath();
-  ctx.moveTo(xPrice, pad.t - 1);
-  ctx.lineTo(xPrice - 5, pad.t + 8);
-  ctx.lineTo(xPrice + 5, pad.t + 8);
+  ctx.moveTo(xPrice, pad.t + 2);
+  ctx.lineTo(xPrice - 5, pad.t + 10);
+  ctx.lineTo(xPrice + 5, pad.t + 10);
   ctx.closePath();
   ctx.fill();
 
-  // 横线：OI 比例分界（看多/看空）
+  // —— OI 横线（上下移动）——
   ctx.save();
-  ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = 'rgba(203, 213, 225, 0.9)';
-  ctx.lineWidth = 1.35;
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.16)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yOi);
+  ctx.lineTo(pad.l + plotW, yOi);
+  ctx.stroke();
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.95)';
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
   ctx.moveTo(pad.l, yOi);
   ctx.lineTo(pad.l + plotW, yOi);
   ctx.stroke();
   ctx.restore();
 
-  // 横线标签：比例 + OI 量
-  const bias = p.biasLabel === '看多' ? '看多' : p.biasLabel === '看空' ? '看空' : longShare >= shortShare ? '看多' : '看空';
+  // 横线标签
+  const bias =
+    p.biasLabel === '看多'
+      ? '看多'
+      : p.biasLabel === '看空'
+        ? '看空'
+        : longShare >= shortShare
+          ? '看多'
+          : '看空';
   const oiTxt = p.oiUsd > 0 ? formatCompact(p.oiUsd) : '--';
-  const ratioTxt = `空 ${(shortShare * 100).toFixed(0)}% · 多 ${(longShare * 100).toFixed(0)}% · OI ${oiTxt}`;
+  const ch1 =
+    p.oiCh1h != null ? `1h ${p.oiCh1h >= 0 ? '+' : ''}${Number(p.oiCh1h).toFixed(2)}%` : '';
+  const ch4 =
+    p.oiCh4h != null ? `4h ${p.oiCh4h >= 0 ? '+' : ''}${Number(p.oiCh4h).toFixed(2)}%` : '';
+  const chPart = [ch1, ch4].filter(Boolean).join(' · ');
+  const ratioTxt = `空 ${(shortShare * 100).toFixed(0)}% · 多 ${(longShare * 100).toFixed(0)}% · OI ${oiTxt}${
+    chPart ? ` · ${chPart}` : ''
+  } · ${bias}`;
   ctx.font = 'bold 10px ui-monospace, SFMono-Regular, Menlo, monospace';
   ctx.textAlign = 'left';
-  const tagPadX = 6;
-  const tagW = Math.min(plotW - 8, ctx.measureText(ratioTxt).width + 14);
+  const tagW = Math.min(plotW - 10, ctx.measureText(ratioTxt).width + 14);
   const tagX = pad.l + 6;
-  const tagY = Math.max(pad.t + 12, Math.min(pad.t + plotH - 8, yOi - 2));
-  ctx.fillStyle = 'rgba(8, 12, 20, 0.78)';
+  const tagY = Math.max(pad.t + 14, Math.min(pad.t + plotH - 10, yOi - 4));
+  ctx.fillStyle = 'rgba(8, 12, 20, 0.86)';
   ctx.fillRect(tagX, tagY - 12, tagW, 16);
   ctx.fillStyle = bias === '看多' ? '#86efac' : '#fca5a5';
-  ctx.fillText(ratioTxt, tagX + tagPadX, tagY);
+  ctx.fillText(ratioTxt, tagX + 6, tagY);
 
-  // 交点
+  // 十字交点
   ctx.fillStyle = '#f8fafc';
   ctx.beginPath();
-  ctx.arc(xPrice, yOi, 3.2, 0, Math.PI * 2);
+  ctx.arc(xPrice, yOi, 3.6, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  // 外环
+  ctx.strokeStyle = 'rgba(248,250,252,0.35)';
+  ctx.beginPath();
+  ctx.arc(xPrice, yOi, 6, 0, Math.PI * 2);
   ctx.stroke();
 
   // X 价格刻度
@@ -4095,10 +4509,15 @@ function drawTianLiquidationMap(p) {
   // Y 清算量刻度
   ctx.textAlign = 'right';
   for (let i = 0; i <= 3; i++) {
-    const usd = maxUsd * (i / 3);
-    const y = yOfUsd(usd);
-    ctx.fillText(i === 0 ? '0' : formatCompact(usd), pad.l - 6, y + 3);
+    const usd = maxUsd * Math.pow(i / 3, 1 / 0.55);
+    const y = yOfUsd(i === 0 ? 0 : usd);
+    ctx.fillText(i === 0 ? '0' : formatCompact(maxUsd * (i / 3)), pad.l - 6, y + 3);
   }
+
+  // 边框
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad.l + 0.5, pad.t + 0.5, plotW - 1, plotH - 1);
 
   tianMapState.layout = {
     pad,
@@ -4235,9 +4654,16 @@ function renderSelfTriSeries(tri) {
 
   if (!tri || !Array.isArray(tri.series) || tri.series.length < 2) {
     if (dom.selfTriStatus) {
-      dom.selfTriStatus.textContent = tri?.error ? '异常' : '样本不足';
+      dom.selfTriStatus.textContent = tri?.error ? '拉取失败' : '样本不足';
       dom.selfTriStatus.style.background = 'rgba(255,193,7,0.1)';
       dom.selfTriStatus.style.color = '#fbbf24';
+    }
+    if (dom.selfTriHint) {
+      const err =
+        tri?.error ||
+        (Array.isArray(tri?.seriesMeta?.errors) && tri.seriesMeta.errors[0]) ||
+        '暂无历史序列';
+      dom.selfTriHint.textContent = `自信号源三量暂无数据 · ${err}`;
     }
     selfTriChartState.series = [];
     selfTriChartState.hoverIdx = null;
