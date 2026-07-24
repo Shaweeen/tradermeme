@@ -1,29 +1,21 @@
 /**
  * Altcoin API (legacy path: /api/othercoin) — Cloudflare Pages Function
  *
- * Independent from Memecoin. Contract multi-source scanner + 合约环境面板.
+ * Independent from Memecoin. 报警收集逻辑 v3:
+ *   - 仅收录：周成交量 环比上涨 连续 2 周（排除 BTC）
+ *   - 按量能涨幅 + 合约 OI + 资金费率异常 排 Top 20
+ *   - 合约环境面板（BTC/ETH）+ 可选 Clawby 第二源
  *
- * Data Sources (primary):
- *   - Bybit: funding / OI / mark for USDT perps
- *   - Binance: 24h volume/price verification
- *   - CoinGecko: metadata
- * Secondary (optional):
- *   - Clawby relay (CLAWBY_API_KEY) — funding cross-check, liquidations, L/S, taker
- * Optional chain:
- *   - DexScreener Robinhood (chain=robinhood|all only)
- *
- * Signal rules: `./_altcoin.js` (altcoin-perp-v2) — multi-factor + env soft gate.
  * Memecoin SignalEngine / Monitor heat is NOT used here.
  *
  * Endpoints:
- *   GET /api/othercoin?chain=multi   - CEX futures + env panel (default for Altcoin page)
+ *   GET /api/othercoin?chain=multi   - CEX weekly-vol alerts (default)
  *   GET /api/othercoin?chain=all     - CEX + Robinhood
  *   GET /api/othercoin?chain=robinhood
  */
 
 import {
   ALTCOIN_SIGNAL_RULES,
-  scoreAltcoinPerpSignal,
   buildPrimaryEnvFromBybit,
   fetchClawbyDerivsSnapshot,
   fuseContractEnvironment,
@@ -31,6 +23,7 @@ import {
   enrichTopSignalsWithClawbyDepth,
   buildEnvListGuidance,
   deriveActionAdvice,
+  collectWeeklyVolumeAlerts,
 } from './_altcoin.js';
 
 const BYBIT_BASE = 'https://api.bybit.com';
@@ -155,11 +148,6 @@ function formatCompact(num) {
   if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
   if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
   return `$${num.toFixed(0)}`;
-}
-
-/** Legacy name → redesigned altcoin-perp-v2 scorer */
-function calculateSignalScore(bybitTicker, binanceData, geckoMeta, env = null) {
-  return scoreAltcoinPerpSignal(bybitTicker, binanceData, geckoMeta, env);
 }
 
 /**
@@ -575,69 +563,67 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     environment = fuseContractEnvironment(primary, clawbySnap);
   }
 
-  const tasks = [];
+  // ── CEX: hard gate = 连续2周成交量环比放大（排除 BTC）→ Top 20 ──
+  let cexRows = [];
+  let weeklyMeta = {};
   if (wantCex) {
-    tasks.push(
-      (async () => {
-        const scored = [];
-        for (const ticker of bybitTickers) {
-          const result = calculateSignalScore(ticker, binanceMap, geckoMeta, environment);
-          if (result) scored.push(result);
-        }
-        // Env-aware action + priority sort before slice
-        const ranked = rankSignalsWithEnv(scored, environment).slice(0, SIGNAL_CONFIG.maxResults);
-        return ranked.map((coin, i) => ({
-          rank: i + 1,
-          address: `${coin.symbol}`,
-          symbol: coin.symbol,
-          name: coin.name,
-          icon: coin.icon,
-          chain: 'multi',
-          priceUsd: coin.price,
-          priceChange24h: coin.priceChange24h,
-          volume24h: coin.volume24h,
-          liquidity: coin.marketCap || coin.volume24h,
-          fdv: coin.marketCap || 0,
-          marketCap: coin.marketCap,
-          marketCapRank: coin.marketCapRank,
-          signalScore: coin.score,
-          signalCount: coin.signalCount,
-          signals: coin.signals,
-          strongestSignal: coin.strongestSignal,
-          strongestLabel: coin.strongestLabel,
-          strongestDetail: coin.strongestDetail,
-          setupBias: coin.setupBias || '',
-          confirms: coin.confirms,
-          envRegime: coin.envRegime || environment?.regime || null,
-          envScore: coin.envScore ?? environment?.envScore ?? null,
-          action: coin.action || 'watch',
-          actionLabel: coin.actionLabel || '观察',
-          actionPriority: coin.actionPriority ?? 40,
-          actionReason: coin.actionReason || '',
-          rulesVersion: coin.rulesVersion || 'altcoin-perp-v2',
-          fundingRate: coin.fundingRate,
-          openInterest: coin.openInterest,
-          source: coin.source || 'signal-scan-v2',
-          txns1h: { buys: 0, sells: 0, total: 0 },
-          txns24h: { buys: 0, sells: 0, total: 0 },
-          url: '',
-          geckoId: coin.geckoId || null,
-        }));
-      })()
-    );
-  } else {
-    tasks.push(Promise.resolve([]));
+    const collected = await collectWeeklyVolumeAlerts({
+      bybitTickers,
+      binanceMap,
+      geckoMeta,
+      env: environment,
+      fetcher: safeFetch,
+    });
+    weeklyMeta = collected.meta || {};
+    cexRows = (collected.rows || []).map((coin, i) => ({
+      rank: i + 1,
+      address: `${coin.symbol}`,
+      symbol: coin.symbol,
+      name: coin.name,
+      icon: coin.icon,
+      chain: 'multi',
+      priceUsd: coin.price,
+      priceChange24h: coin.priceChange24h,
+      volume24h: coin.volume24h,
+      liquidity: coin.marketCap || coin.volume24h,
+      fdv: coin.marketCap || 0,
+      marketCap: coin.marketCap,
+      marketCapRank: coin.marketCapRank,
+      signalScore: coin.score,
+      signalCount: coin.signalCount,
+      signals: coin.signals,
+      strongestSignal: coin.strongestSignal,
+      strongestLabel: coin.strongestLabel,
+      strongestDetail: coin.strongestDetail,
+      setupBias: coin.setupBias || '',
+      confirms: coin.confirms,
+      envRegime: coin.envRegime || environment?.regime || null,
+      envScore: coin.envScore ?? environment?.envScore ?? null,
+      action: coin.action || 'watch',
+      actionLabel: coin.actionLabel || '观察',
+      actionPriority: coin.actionPriority ?? 40,
+      actionReason: coin.actionReason || '',
+      rulesVersion: coin.rulesVersion || ALTCOIN_SIGNAL_RULES.rulesVersion,
+      fundingRate: coin.fundingRate,
+      openInterest: coin.openInterest,
+      weeklyVolume: coin.weeklyVolume || null,
+      volumeGrowthRankKey: coin.volumeGrowthRankKey,
+      weeklySource: coin.weeklySource,
+      source: coin.source || 'weekly-vol-v3',
+      txns1h: { buys: 0, sells: 0, total: 0 },
+      txns24h: { buys: 0, sells: 0, total: 0 },
+      url: '',
+      geckoId: coin.geckoId || null,
+    }));
   }
 
+  // Robinhood optional (not part of weekly-vol gate; appended only for chain=all)
+  let rhRows = [];
   if (wantRh) {
-    tasks.push(scanRobinhoodChainSignals(SIGNAL_CONFIG.maxResults));
-  } else {
-    tasks.push(Promise.resolve([]));
+    rhRows = await scanRobinhoodChainSignals(Math.min(8, SIGNAL_CONFIG.maxResults));
   }
 
-  const [cexRows, rhRows] = await Promise.all(tasks);
-
-  // Top CEX rows → optional Clawby per-symbol depth (second source deepen)
+  // Top CEX rows → optional Clawby per-symbol depth
   let cexEnriched = cexRows;
   let depthCount = 0;
   if (wantCex && clawbyKey && cexRows.length) {
@@ -653,42 +639,58 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     depthCount = deepened.depthCount;
   }
 
-  const merged = [...cexEnriched, ...rhRows]
-    .map((row) => {
-      if (row.action) return row;
-      const advice = deriveActionAdvice(
-        {
-          setupBias: row.setupBias,
-          score: row.signalScore ?? row.score,
-          envRegime: environment?.regime,
-        },
-        environment
-      );
-      return { ...row, ...advice };
-    });
+  const merged = [...cexEnriched, ...rhRows].map((row) => {
+    if (row.action) return row;
+    const advice = deriveActionAdvice(
+      {
+        setupBias: row.setupBias,
+        score: row.signalScore ?? row.score,
+        envRegime: environment?.regime,
+      },
+      environment
+    );
+    return { ...row, ...advice };
+  });
 
-  const sorted = rankSignalsWithEnv(merged, environment)
-    .slice(0, chainFilter === 'all' ? SIGNAL_CONFIG.maxResults + 8 : SIGNAL_CONFIG.maxResults)
+  // CEX already top-20 by volume growth; keep growth rank primary for multi-only
+  const sorted = (wantCex && !wantRh
+    ? merged.sort((a, b) => {
+        const cg = Number(b.volumeGrowthRankKey || 0) - Number(a.volumeGrowthRankKey || 0);
+        if (Math.abs(cg) > 0.01) return cg;
+        const ap = (b.actionPriority || 0) - (a.actionPriority || 0);
+        if (ap !== 0) return ap;
+        return (b.signalScore ?? b.score ?? 0) - (a.signalScore ?? a.score ?? 0);
+      })
+    : rankSignalsWithEnv(merged, environment)
+  )
+    .slice(0, SIGNAL_CONFIG.maxResults)
     .map((row, i) => ({ ...row, rank: i + 1, signalScore: row.score ?? row.signalScore }));
 
   const rows = await enrichRowsWithDexCharts(sorted);
   const guidance = buildEnvListGuidance(environment);
+  // Override guidance to state collection rule clearly
+  const gateGuide = {
+    tone: guidance?.tone || 'neutral',
+    text: `收集规则：排除 BTC · 周成交量环比连续 2 周上涨 · 取量能涨幅前 ${ALTCOIN_SIGNAL_RULES.maxResults} · 叠加合约 OI / 资金费率异常${guidance?.text ? ' · ' + guidance.text : ''}`,
+  };
 
   if (environment) {
-    environment.listGuidance = guidance;
+    environment.listGuidance = gateGuide;
   }
 
   return {
     rows,
     environment,
     meta: {
-      rulesVersion: 'altcoin-perp-v2',
+      rulesVersion: ALTCOIN_SIGNAL_RULES.rulesVersion,
+      gate: weeklyMeta.gate || 'two-week-volume-up-ex-btc',
+      weekly: weeklyMeta,
       clawby: clawbySnap.available
         ? { ok: true, depthCount, depthTopN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN }
         : { ok: false, reason: clawbySnap.reason || 'unavailable', depthCount: 0 },
-      primarySource: 'bybit+binance',
+      primarySource: 'bybit-weekly-klines+ticker',
       secondarySource: clawbySnap.available ? 'clawby' : null,
-      listGuidance: guidance,
+      listGuidance: gateGuide,
       actionCounts: {
         prefer: rows.filter((r) => r.action === 'prefer').length,
         watch: rows.filter((r) => r.action === 'watch').length,
@@ -736,7 +738,7 @@ export async function onRequest(context) {
       return new Response(
         JSON.stringify({
           success: true,
-          source: sources.join('+') || 'altcoin-perp-v2',
+          source: sources.join('+') || ALTCOIN_SIGNAL_RULES.rulesVersion,
           chain: chainFilter,
           count: rows.length,
           timestamp: Date.now(),

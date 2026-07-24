@@ -1,48 +1,64 @@
 /**
  * Altcoin-only module (does NOT touch Memecoin).
  *
- * - Contract market environment (BTC/ETH leverage posture)
- * - Redesigned CEX perpetual signal rules
- * - Optional Clawby relay as second source (funding / OI / liq / L-S / taker)
+ * Alert collection gate (v3):
+ *   1) Exclude BTC (and stables / wrapped majors noise)
+ *   2) Weekly quote volume 环比上涨 连续 2 周 (w0>w1 且 w1>w2)
+ *   3) Rank by volume growth + 合约量/OI 激增 + 资金费率异常 → Top 20
  *
- * Clawby: https://api.openclawby.com/api/relay  (same family as tradingview-mcp crypto tools)
+ * Also: BTC/ETH 合约环境面板 + optional Clawby second source.
  */
 
 const CLAWBY_BASE = process.env.CLAWBY_BASE || 'https://api.openclawby.com';
+const BYBIT_BASE = 'https://api.bybit.com';
+const BINANCE_FUTURES = 'https://fapi.binance.com';
 
 // ─── Signal rules (Altcoin CEX perps) ───────────────────────────────────────
-/** Redesigned thresholds — multi-factor, less noise than pure volume flags */
+/**
+ * v3 alert collection — weekly volume expansion is the HARD gate.
+ * Only tokens that pass 2 consecutive weekly volume up-prints enter the board.
+ */
 export const ALTCOIN_SIGNAL_RULES = {
-  // Funding: |rate| as decimal (0.0001 = 0.01%)
-  fundingMild: 0.00015, // 0.015%
-  fundingHot: 0.0004, // 0.04%
-  fundingExtreme: 0.001, // 0.1%
-  // Price 24h %
+  rulesVersion: 'altcoin-weekly-vol-v3',
+  // Always exclude from collection
+  excludeSymbols: ['BTC'],
+  // Weekly volume growth (环比)
+  weekOverWeekMinGrowth: 0.05, // each week must be ≥ +5% vs prior
+  // Absolute floors so dust never ranks
+  weekVolumeMinUsd: 5_000_000, // latest week turnover ≥ $5M
+  weekVolumePriorMinUsd: 2_000_000,
+  // Candidate pre-filter before kline fan-out (latency)
+  scanPoolSize: 80, // top N by 24h turnover (ex-BTC) to check weekly
+  klineConcurrency: 8,
+  maxResults: 20, // 报警收集上限：前 20
+  // Secondary alert dimensions (within the weekly-volume set)
+  fundingMild: 0.00015,
+  fundingHot: 0.0004,
+  fundingExtreme: 0.001,
+  oiFloor: 5_000_000,
+  oiStrong: 50_000_000,
+  // 24h turnover vs soft context
+  volume24hStrong: 30_000_000,
+  // Legacy fields kept for env soft-adjust / depth
+  minScore: 20,
+  envRiskOffPenalty: 8,
+  envRiskOnBoost: 4,
+  riskOffMinScoreExtra: 0,
+  clawbyDepthTopN: 8,
+  // Old multi-factor thresholds (kept for optional helpers)
   priceMoveMin: 6,
   priceMoveStrong: 15,
-  priceMoveCap: 120, // ignore absurd prints
-  // Volume USD (turnover)
+  priceMoveCap: 120,
   volumeFloor: 2_000_000,
   volumeStrong: 25_000_000,
-  // OI notional USD
-  oiFloor: 3_000_000,
-  oiStrong: 40_000_000,
-  // Dual confirmation: need score ≥ this after multi-factor
-  minScore: 28,
-  maxResults: 12,
-  // Environment soft gate for listing quality (not a hard block on env alone)
-  envRiskOffPenalty: 12,
-  envRiskOnBoost: 6,
-  // risk-off: raise floor further for non-structure noise
-  riskOffMinScoreExtra: 8,
-  // Top-N symbols to deepen with Clawby per-coin (latency budget)
-  clawbyDepthTopN: 6,
 };
 
 const FILTER_OUT = new Set([
   'usdt', 'usdc', 'dai', 'busd', 'tusd', 'usdp', 'fdusd', 'usdd', 'gusd',
   'lusd', 'husd', 'susd', 'ousd', 'pyusd', 'usdce', 'steth', 'weth', 'wbtc',
   'wsteth', 'reth', 'sfrxeth', 'wbeth', 'cbeth',
+  // majors we never treat as "alt volume leaders" board noise
+  'btc',
 ]);
 
 function num(v) {
@@ -397,7 +413,397 @@ export function fuseContractEnvironment(primary = {}, clawby = {}, opts = {}) {
   };
 }
 
-// ─── Redesigned per-symbol signal rules ─────────────────────────────────────
+// ─── Weekly volume gate (hard) — 连续 2 周成交量环比放大 ───────────────────
+
+/**
+ * Parse weekly turnovers newest-first → [w0, w1, w2, ...]
+ * Bybit list item: [start, open, high, low, close, volume, turnover]
+ * Binance kline: [openTime, o, h, l, c, volume, closeTime, quoteVolume, ...]
+ */
+export function parseWeeklyTurnovers(rawList, source = 'bybit') {
+  if (!Array.isArray(rawList) || rawList.length === 0) return [];
+  const out = [];
+  for (const row of rawList) {
+    if (!row) continue;
+    if (source === 'binance') {
+      // quote asset volume index 7
+      const qv = num(row[7] ?? row.quoteVolume);
+      const ts = num(row[0]);
+      if (qv > 0) out.push({ start: ts, turnover: qv });
+    } else {
+      // bybit array or object
+      const turnover = num(Array.isArray(row) ? row[6] : row.turnover);
+      const ts = num(Array.isArray(row) ? row[0] : row.startTime);
+      if (turnover > 0) out.push({ start: ts, turnover });
+    }
+  }
+  // newest first
+  out.sort((a, b) => b.start - a.start);
+  return out;
+}
+
+/**
+ * Hard gate: volume 环比上涨连续 2 周.
+ * Needs ≥3 weekly bars: w0 (latest) > w1 > w2 with min growth each step.
+ *
+ * @returns {{ pass, w0, w1, w2, growth1, growth2, compoundGrowth, reason }}
+ */
+export function evaluateTwoWeekVolumeGrowth(weeklyBars = [], opts = {}) {
+  const R = { ...ALTCOIN_SIGNAL_RULES, ...opts };
+  const minG = num(R.weekOverWeekMinGrowth) || 0.05;
+  const bars = Array.isArray(weeklyBars) ? weeklyBars : [];
+  if (bars.length < 3) {
+    return {
+      pass: false,
+      reason: 'need-3-weeks',
+      w0: 0,
+      w1: 0,
+      w2: 0,
+      growth1: 0,
+      growth2: 0,
+      compoundGrowth: 0,
+    };
+  }
+  const w0 = num(bars[0].turnover);
+  const w1 = num(bars[1].turnover);
+  const w2 = num(bars[2].turnover);
+  if (w0 < R.weekVolumeMinUsd) {
+    return { pass: false, reason: 'latest-week-too-small', w0, w1, w2, growth1: 0, growth2: 0, compoundGrowth: 0 };
+  }
+  if (w1 < R.weekVolumePriorMinUsd || w2 < R.weekVolumePriorMinUsd * 0.5) {
+    return { pass: false, reason: 'prior-week-too-small', w0, w1, w2, growth1: 0, growth2: 0, compoundGrowth: 0 };
+  }
+  const growth1 = w1 > 0 ? w0 / w1 - 1 : 0;
+  const growth2 = w2 > 0 ? w1 / w2 - 1 : 0;
+  const up1 = w0 >= w1 * (1 + minG);
+  const up2 = w1 >= w2 * (1 + minG);
+  const pass = up1 && up2;
+  const compoundGrowth = w2 > 0 ? w0 / w2 - 1 : 0;
+  return {
+    pass,
+    reason: pass ? 'two-week-volume-up' : !up1 ? 'week0-not-up' : 'week1-not-up',
+    w0,
+    w1,
+    w2,
+    growth1,
+    growth2,
+    compoundGrowth,
+    minGrowthRequired: minG,
+  };
+}
+
+export function isExcludedAltcoinSymbol(symbol) {
+  const s = String(symbol || '').toUpperCase().replace(/USDT$/i, '');
+  if (!s) return true;
+  if (ALTCOIN_SIGNAL_RULES.excludeSymbols.includes(s)) return true;
+  if (FILTER_OUT.has(s.toLowerCase())) return true;
+  return false;
+}
+
+/** Run async mapper with concurrency limit */
+export async function mapPool(items, concurrency, mapper) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Number(concurrency) || 6);
+  const results = new Array(list.length);
+  let next = 0;
+  async function worker() {
+    while (next < list.length) {
+      const i = next++;
+      try {
+        results[i] = await mapper(list[i], i);
+      } catch (e) {
+        results[i] = { error: e.message || String(e) };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, () => worker()));
+  return results;
+}
+
+/**
+ * Fetch weekly turnovers for a USDT perp (Bybit primary, Binance futures fallback).
+ * @param {string} symbol e.g. ETH (not ETHUSDT)
+ * @param {(url:string, ms?:number)=>Promise<any>} fetcher
+ */
+export async function fetchWeeklyTurnovers(symbol, fetcher, opts = {}) {
+  const sym = String(symbol || '').toUpperCase().replace(/USDT$/i, '');
+  const pair = `${sym}USDT`;
+  const timeout = opts.timeoutMs || 6000;
+
+  // Bybit linear weekly
+  try {
+    const bybitUrl = `${BYBIT_BASE}/v5/market/kline?category=linear&symbol=${encodeURIComponent(pair)}&interval=W&limit=4`;
+    const data = await fetcher(bybitUrl, timeout);
+    const list = data?.result?.list || data?.list || [];
+    const bars = parseWeeklyTurnovers(list, 'bybit');
+    if (bars.length >= 3) return { ok: true, source: 'bybit', symbol: sym, bars };
+  } catch (_) {
+    /* fall through */
+  }
+
+  // Binance USDT-M futures weekly
+  try {
+    const bnUrl = `${BINANCE_FUTURES}/fapi/v1/klines?symbol=${encodeURIComponent(pair)}&interval=1w&limit=4`;
+    const data = await fetcher(bnUrl, timeout);
+    const bars = parseWeeklyTurnovers(Array.isArray(data) ? data : [], 'binance');
+    if (bars.length >= 3) return { ok: true, source: 'binance', symbol: sym, bars };
+  } catch (_) {
+    /* fall through */
+  }
+
+  return { ok: false, source: 'none', symbol: sym, bars: [] };
+}
+
+/**
+ * Score a token that ALREADY passed the 2-week volume gate.
+ * Ranking dims: 成交量涨幅 + 合约 OI 激增 + 资金费率异常.
+ */
+export function scoreWeeklyVolumeAlert(bybitTicker, weeklyEval, binanceData = {}, geckoMeta = {}, env = null) {
+  const R = ALTCOIN_SIGNAL_RULES;
+  const symbol = String(bybitTicker.symbol || '').toUpperCase().replace(/USDT$/i, '');
+  if (isExcludedAltcoinSymbol(symbol)) return null;
+  if (!weeklyEval?.pass) return null;
+
+  const meta = geckoMeta[symbol.toLowerCase()] || {};
+  const binance = binanceData[symbol] || {};
+  const funding = num(bybitTicker.fundingRate);
+  const absFr = Math.abs(funding);
+  const pct24h = num(bybitTicker.price24hPcnt) * 100;
+  const turnover24h = Math.max(num(bybitTicker.turnover24h), num(binance.quoteVolume));
+  const oiUsd = num(bybitTicker.openInterest) * num(bybitTicker.markPrice || bybitTicker.price);
+
+  const signals = [];
+  let raw = 0;
+
+  // 1) Primary: two-week volume expansion magnitude
+  const g1 = Math.max(0, num(weeklyEval.growth1));
+  const g2 = Math.max(0, num(weeklyEval.growth2));
+  const compound = Math.max(0, num(weeklyEval.compoundGrowth));
+  const volGrowthScore = Math.min(55, g1 * 80 + g2 * 50 + compound * 20);
+  raw += volGrowthScore;
+  signals.push({
+    type: 'volume',
+    label: '连续2周量能放大',
+    detail: `环比 +${(g1 * 100).toFixed(0)}% / +${(g2 * 100).toFixed(0)}% · 两周复合 +${(compound * 100).toFixed(0)}%`,
+    severity: Math.min(5, 2 + g1 * 3 + g2 * 2),
+    bias: 'volume-2w-up',
+  });
+  signals.push({
+    type: 'volume_week',
+    label: '周成交额',
+    detail: `${formatCompact(weeklyEval.w0)} → 前周 ${formatCompact(weeklyEval.w1)}`,
+    severity: 2,
+  });
+
+  // 2) 合约量 / OI 激增（名义持仓规模）
+  if (oiUsd >= R.oiFloor) {
+    const sev = Math.min(oiUsd / R.oiStrong, 3.5);
+    raw += sev * 12;
+    signals.push({
+      type: 'oi',
+      label: '合约持仓量大',
+      detail: formatCompact(oiUsd),
+      severity: Math.min(sev, 3.5),
+      bias: 'oi-surge',
+    });
+  }
+  // 24h 合约成交额放大（相对周均）
+  const weekDailyAvg = weeklyEval.w0 / 7;
+  if (weekDailyAvg > 0 && turnover24h >= weekDailyAvg * 1.4 && turnover24h >= R.volume24hStrong * 0.4) {
+    raw += 10;
+    signals.push({
+      type: 'volume',
+      label: '24h 合约成交激增',
+      detail: `${formatCompact(turnover24h)} · 高于周均`,
+      severity: 2.5,
+      bias: 'turnover-spike',
+    });
+  }
+
+  // 3) 资金费率异常
+  if (absFr >= R.fundingMild) {
+    const sev = absFr >= R.fundingExtreme ? 3 : absFr >= R.fundingHot ? 2.2 : 1.2;
+    raw += sev * 14;
+    const crowdedLong = funding > 0;
+    signals.push({
+      type: 'funding',
+      label: crowdedLong ? '资金费率偏高·多' : '资金费率偏高·空',
+      detail: `${(funding * 100).toFixed(4)}%`,
+      severity: Math.min(sev, 3),
+      bias: crowdedLong ? 'long-crowded' : 'short-crowded',
+    });
+  }
+
+  // Structure tags (secondary, still useful for action advice)
+  if (absFr >= R.fundingMild && Math.abs(pct24h) >= 5) {
+    if (funding > 0 && pct24h < -5) {
+      raw += 12;
+      signals.push({
+        type: 'structure',
+        label: '多头踩踏风险',
+        detail: '正费率 + 下跌',
+        severity: 3,
+        bias: 'long-flush',
+      });
+    } else if (funding < 0 && pct24h > 5) {
+      raw += 12;
+      signals.push({
+        type: 'structure',
+        label: '空头轧空结构',
+        detail: '负费率 + 上涨',
+        severity: 3,
+        bias: 'short-squeeze',
+      });
+    } else if (funding > 0 && pct24h > 10) {
+      raw += 6;
+      signals.push({
+        type: 'structure',
+        label: '多头趋势+费率',
+        detail: '顺势但拥挤',
+        severity: 2,
+        bias: 'trend-crowded',
+      });
+    }
+  }
+
+  let score = Math.min(100, raw);
+  const regime = env?.regime || 'neutral';
+  if (regime === 'risk-off') score = Math.max(0, score - R.envRiskOffPenalty);
+  else if (regime === 'risk-on') score = Math.min(100, score + R.envRiskOnBoost);
+
+  if (score < R.minScore) return null;
+
+  const sorted = [...signals].sort((a, b) => (b.severity || 0) - (a.severity || 0));
+  const setupBias =
+    sorted.find((s) => s.type === 'structure')?.bias ||
+    sorted.find((s) => s.bias === 'volume-2w-up')?.bias ||
+    sorted[0]?.bias ||
+    'volume-2w-up';
+
+  const base = {
+    symbol,
+    name: meta.name || symbol,
+    icon: meta.image || '',
+    geckoId: meta.id || null,
+    marketCap: meta.marketCap || 0,
+    marketCapRank: meta.marketCapRank || 999,
+    price: num(bybitTicker.markPrice || bybitTicker.price),
+    priceChange24h: pct24h,
+    volume24h: turnover24h,
+    fundingRate: funding,
+    openInterest: oiUsd,
+    score: Math.round(score * 10) / 10,
+    signals: sorted,
+    signalCount: sorted.length,
+    strongestSignal: sorted[0]?.type || 'volume',
+    strongestLabel: sorted[0]?.label || '连续2周量能放大',
+    strongestDetail: sorted[0]?.detail || '',
+    setupBias,
+    confirms: sorted.length,
+    envRegime: regime,
+    envScore: env?.envScore ?? null,
+    rulesVersion: R.rulesVersion,
+    // weekly volume stats for UI
+    weeklyVolume: {
+      w0: weeklyEval.w0,
+      w1: weeklyEval.w1,
+      w2: weeklyEval.w2,
+      growth1: weeklyEval.growth1,
+      growth2: weeklyEval.growth2,
+      compoundGrowth: weeklyEval.compoundGrowth,
+      pass: true,
+    },
+    volumeGrowthRankKey: compound, // sort key: 两周复合涨幅
+    timestamp: Date.now(),
+    source: 'weekly-vol-v3',
+  };
+
+  const advice = deriveActionAdvice(base, env);
+  return { ...base, ...advice };
+}
+
+/**
+ * Build Top-20 alert list from Bybit tickers + weekly volume checks.
+ * @param {object} opts
+ * @param {Array} opts.bybitTickers
+ * @param {object} opts.binanceMap
+ * @param {object} opts.geckoMeta
+ * @param {object|null} opts.env
+ * @param {(url:string, ms?:number)=>Promise<any>} opts.fetcher
+ */
+export async function collectWeeklyVolumeAlerts(opts = {}) {
+  const R = ALTCOIN_SIGNAL_RULES;
+  const bybitTickers = Array.isArray(opts.bybitTickers) ? opts.bybitTickers : [];
+  const fetcher = opts.fetcher;
+  if (typeof fetcher !== 'function') {
+    return { rows: [], meta: { error: 'no-fetcher', candidates: 0, passed: 0 } };
+  }
+
+  // Pre-pool: exclude BTC/stables, sort by 24h turnover, take top scanPoolSize
+  const pool = bybitTickers
+    .filter((t) => t && !isExcludedAltcoinSymbol(t.symbol))
+    .map((t) => ({
+      ...t,
+      symbol: String(t.symbol || '').toUpperCase().replace(/USDT$/i, ''),
+      _turnover: Math.max(num(t.turnover24h), 0),
+    }))
+    .sort((a, b) => b._turnover - a._turnover)
+    .slice(0, R.scanPoolSize);
+
+  const weeklyResults = await mapPool(pool, R.klineConcurrency, async (t) => {
+    const wk = await fetchWeeklyTurnovers(t.symbol, fetcher);
+    const eval_ = evaluateTwoWeekVolumeGrowth(wk.bars || []);
+    return { ticker: t, weekly: wk, eval: eval_ };
+  });
+
+  const scored = [];
+  let passedGate = 0;
+  for (const item of weeklyResults) {
+    if (!item || item.error || !item.eval) continue;
+    if (!item.eval.pass) continue;
+    passedGate += 1;
+    const row = scoreWeeklyVolumeAlert(
+      item.ticker,
+      item.eval,
+      opts.binanceMap || {},
+      opts.geckoMeta || {},
+      opts.env || null
+    );
+    if (row) {
+      row.weeklySource = item.weekly?.source || 'unknown';
+      scored.push(row);
+    }
+  }
+
+  // Rank: primarily by two-week compound volume growth, then score
+  scored.sort((a, b) => {
+    const cg = num(b.volumeGrowthRankKey) - num(a.volumeGrowthRankKey);
+    if (Math.abs(cg) > 0.01) return cg;
+    return num(b.score) - num(a.score);
+  });
+
+  const top = scored.slice(0, R.maxResults);
+  // Re-apply action ranking for display order within top20 (optional soft)
+  const ranked = rankSignalsWithEnv(top, opts.env).map((r, i) => ({
+    ...r,
+    rank: i + 1,
+  }));
+
+  return {
+    rows: ranked,
+    meta: {
+      rulesVersion: R.rulesVersion,
+      candidates: pool.length,
+      passedWeeklyGate: passedGate,
+      collected: ranked.length,
+      maxResults: R.maxResults,
+      exclude: R.excludeSymbols,
+      gate: 'two-week-volume-up-ex-btc',
+    },
+  };
+}
+
+// ─── Legacy multi-factor scorer (kept for tests / RH path compatibility) ─────
 
 /**
  * Score one Bybit linear ticker with redesigned multi-factor rules.
@@ -601,9 +1007,22 @@ export function deriveActionAdvice(signal = {}, env = null) {
   let action = 'watch';
   let actionLabel = '观察';
   let priority = 40;
-  let actionReason = '多因子信号，等待环境与结构确认';
+  let actionReason = '周量能已连涨2周，等待结构/费率二次确认';
 
-  if (bias === 'short-squeeze') {
+  // 已通过硬门：连续2周量能放大 — 默认进入观察池，高分优先
+  if (bias === 'volume-2w-up' || bias === 'turnover-spike') {
+    if (score >= 55) {
+      action = 'prefer';
+      actionLabel = '量能优先';
+      priority = 70 + Math.min(20, Math.round(score / 5));
+      actionReason = '连续2周成交量环比放大 · 全市场量能异动 Top';
+    } else {
+      action = 'watch';
+      actionLabel = '量能观察';
+      priority = 52;
+      actionReason = '周量能连涨达标，关注 OI/费率是否共振';
+    }
+  } else if (bias === 'short-squeeze') {
     if (regime === 'risk-on' || regime === 'neutral') {
       action = 'prefer';
       actionLabel = '优先关注';

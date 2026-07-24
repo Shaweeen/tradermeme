@@ -2864,7 +2864,10 @@ function renderAltcoinEnvironment(env, meta = {}) {
   const clawbyOk = !!env.clawby?.available || meta?.clawby?.ok;
   const secondaryLabel = clawbyOk ? 'Clawby 已接入' : (meta?.clawby?.reason === 'no-clawby-key' ? 'Clawby 未配置 key' : 'Clawby 不可用');
   if (hint) {
-    hint.textContent = `主源 Bybit · 第二源 ${secondaryLabel} · 规则 ${meta?.rulesVersion || 'altcoin-perp-v2'}`;
+    const gateHint = meta?.gate === 'two-week-volume-up-ex-btc' || meta?.rulesVersion?.includes('weekly')
+      ? '门：周量连涨2周·除BTC·Top20'
+      : `规则 ${meta?.rulesVersion || 'v3'}`;
+    hint.textContent = `主源 Bybit · 第二源 ${secondaryLabel} · ${gateHint}`;
   }
 
   const agree = m.fundingAgreement || 'n/a';
@@ -3002,10 +3005,11 @@ function renderOthercoinSortedTokens(tokens) {
 }
 
 const SIGNAL_BADGE_LABELS = {
-  funding: '费率',
+  funding: '费率异常',
   price: '价格',
-  volume: '成交',
-  oi: 'OI',
+  volume: '量能2周',
+  volume_week: '周额',
+  oi: '合约OI',
   structure: '结构',
 };
 
@@ -3020,7 +3024,7 @@ function renderOthercoinTokenRows(tokens) {
     const emptyTip =
       state.altcoinActionFilter && state.altcoinActionFilter !== 'all'
         ? '当前筛选下无信号，试试「全部」'
-        : '暂无达标永续信号（多因子规则 v2）';
+        : '暂无达标：需周成交量环比连续2周上涨（已排除 BTC）';
     dom.otherTokenList.innerHTML = `<div class="empty-state"><div class="empty-icon"></div><p>${emptyTip}</p></div>`;
     return;
   }
@@ -3063,10 +3067,20 @@ function renderOthercoinTokenRows(tokens) {
       badgesHtml += '</div>';
     }
 
+    const volSig = signals.find((s) => s.type === 'volume' || s.type === 'volume_week');
     const structure = signals.find((s) => s.type === 'structure');
-    let detailText = structure
-      ? `${structure.label} · ${structure.detail || ''}`
-      : (signals[0]?.detail || signals[0]?.label || token.strongestDetail || '');
+    let detailText = '';
+    if (token.weeklyVolume?.pass) {
+      const g1 = ((token.weeklyVolume.growth1 || 0) * 100).toFixed(0);
+      const g2 = ((token.weeklyVolume.growth2 || 0) * 100).toFixed(0);
+      detailText = `2周量 +${g1}%/+${g2}%`;
+      if (structure) detailText += ` · ${structure.label}`;
+      else if (volSig?.detail) detailText += ` · ${volSig.detail}`;
+    } else {
+      detailText = structure
+        ? `${structure.label} · ${structure.detail || ''}`
+        : (signals[0]?.detail || signals[0]?.label || token.strongestDetail || '');
+    }
     if (token.actionReason) {
       detailText = detailText
         ? `${detailText} · ${token.actionReason}`
