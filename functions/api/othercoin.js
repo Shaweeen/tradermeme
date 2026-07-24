@@ -1,13 +1,13 @@
 /**
  * Altcoin API (legacy path: /api/othercoin) — Cloudflare Pages Function
  *
- * Independent from Memecoin. 报警收集逻辑 v3+:
- *   主源 CoinGlass 全市场（COINGLASS_API_KEY）
+ * Independent from Memecoin. 报警收集（零付费主路径）:
+ *   主源 Binance USDT-M 公开接口（无需 key）
+ *   辅源 Bybit 周 K 扫盘，多所合并去重
  *   硬门：周成交量环比连涨 2 周 · 排除 BTC · Top 20
- *   叠加：OI 激增 · 资金费率异常
- *   校验：Binance 周 K（公开）
- *   回退：无 CG key 时用 Bybit 周 K 扫盘
- *   可选：Clawby 第二源加深
+ *   叠加：OI · 资金费率异常
+ *   补充：DefiLlama 免费 DEX 全市场热度（非合约硬门）
+ *   可选：COINGLASS_API_KEY / CLAWBY_API_KEY（有则用，无则忽略）
  *
  * Memecoin SignalEngine / Monitor heat is NOT used here.
  */
@@ -23,6 +23,8 @@ import {
   deriveActionAdvice,
   collectWeeklyVolumeAlerts,
 } from './_altcoin.js';
+import { collectBinanceWeeklyAlerts, mergeVenueAlertRows } from './_altcoin_binance.js';
+import { fetchDefiLlamaDexHeat, attachDefiLlamaHints } from './_altcoin_defillama.js';
 import { collectCoinglassWeeklyAlerts } from './_altcoin_coinglass.js';
 
 const BYBIT_BASE = 'https://api.bybit.com';
@@ -562,51 +564,91 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     environment = fuseContractEnvironment(primary, clawbySnap);
   }
 
-  // ── CEX: CoinGlass 全市场优先 → 失败/无 key 回退 Bybit ──
-  // hard gate = 连续2周成交量环比放大（排除 BTC）→ Top 20
+  // ── CEX 硬门: 周量连涨2周 · 除BTC · Top20 ──
+  // 默认：Binance（公开）+ Bybit 合并；可选 CoinGlass；DefiLlama 仅热度补充
   let cexRows = [];
   let weeklyMeta = {};
+  let defillamaHeat = null;
   const coinglassKey = options.coinglassKey || '';
   if (wantCex) {
-    let collected = null;
-    if (coinglassKey) {
-      collected = await collectCoinglassWeeklyAlerts({
-        apiKey: coinglassKey,
+    const [bnPack, bybitPack, llamaPack, cgPack] = await Promise.all([
+      collectBinanceWeeklyAlerts({
         env: environment,
         geckoMeta,
         binanceMap,
-        fetcher: safeFetch, // Binance 周 K 交叉校验
-      });
-      if (!collected?.meta?.ok || !(collected.rows || []).length) {
-        weeklyMeta = {
-          ...(collected?.meta || {}),
-          fallback: 'bybit-weekly',
-          fallbackReason: collected?.meta?.error || 'coinglass-empty',
-        };
-        collected = null;
-      }
-    }
-
-    if (!collected) {
-      collected = await collectWeeklyVolumeAlerts({
+      }),
+      collectWeeklyVolumeAlerts({
         bybitTickers,
         binanceMap,
         geckoMeta,
         env: environment,
         fetcher: safeFetch,
-      });
-      weeklyMeta = {
-        ...(collected.meta || {}),
-        primary: coinglassKey ? 'bybit-fallback' : 'bybit',
-        coinglass: coinglassKey
-          ? { ok: false, reason: weeklyMeta.fallbackReason || 'empty' }
-          : { ok: false, reason: 'no-coinglass-key' },
-      };
-    } else {
-      weeklyMeta = { ...(collected.meta || {}), coinglass: { ok: true } };
+      }),
+      fetchDefiLlamaDexHeat().catch(() => ({ ok: false })),
+      coinglassKey
+        ? collectCoinglassWeeklyAlerts({
+            apiKey: coinglassKey,
+            env: environment,
+            geckoMeta,
+            binanceMap,
+            fetcher: safeFetch,
+          })
+        : Promise.resolve(null),
+    ]);
+
+    defillamaHeat = llamaPack?.ok ? llamaPack : { ok: false };
+
+    const venueLists = [];
+    if (bnPack?.rows?.length) venueLists.push(bnPack.rows);
+    if (bybitPack?.rows?.length) venueLists.push(bybitPack.rows);
+    // CoinGlass optional only — never required
+    if (cgPack?.meta?.ok && cgPack.rows?.length) venueLists.push(cgPack.rows);
+
+    let mergedRows = mergeVenueAlertRows(venueLists, environment);
+    if (defillamaHeat?.ok) {
+      mergedRows = attachDefiLlamaHints(mergedRows, defillamaHeat);
     }
 
-    cexRows = (collected.rows || []).map((coin, i) => ({
+    // If both CEX empty, leave empty list (honest)
+    weeklyMeta = {
+      ok: mergedRows.length > 0,
+      primary: bnPack?.meta?.ok ? 'binance' : bybitPack?.meta?.ok ? 'bybit' : 'none',
+      venues: {
+        binance: {
+          ok: !!bnPack?.meta?.ok,
+          collected: bnPack?.rows?.length || 0,
+          passed: bnPack?.meta?.passedWeeklyGate,
+        },
+        bybit: {
+          ok: (bybitPack?.rows || []).length > 0,
+          collected: bybitPack?.rows?.length || 0,
+          passed: bybitPack?.meta?.passedWeeklyGate,
+        },
+        coinglass: coinglassKey
+          ? {
+              ok: !!cgPack?.meta?.ok,
+              collected: cgPack?.rows?.length || 0,
+              optional: true,
+            }
+          : { ok: false, reason: 'not-configured', optional: true },
+      },
+      defillama: defillamaHeat?.ok
+        ? {
+            ok: true,
+            change_7d: defillamaHeat.change_7d,
+            change_1d: defillamaHeat.change_1d,
+            total24h: defillamaHeat.total24h,
+            tone: defillamaHeat.tone,
+            note: defillamaHeat.note,
+          }
+        : { ok: false },
+      gate: 'two-week-volume-up-ex-btc',
+      rulesVersion: 'altcoin-free-multi-venue-v3',
+      needsKey: false,
+      note: '主路径无需付费 key：Binance + Bybit；DefiLlama 为链上热度补充',
+    };
+
+    cexRows = mergedRows.map((coin, i) => ({
       rank: i + 1,
       address: `${coin.symbol}`,
       symbol: coin.symbol,
@@ -634,15 +676,18 @@ async function scanSignals(chainFilter = 'all', options = {}) {
       actionLabel: coin.actionLabel || '观察',
       actionPriority: coin.actionPriority ?? 40,
       actionReason: coin.actionReason || '',
-      rulesVersion: coin.rulesVersion || ALTCOIN_SIGNAL_RULES.rulesVersion,
+      rulesVersion: coin.rulesVersion || weeklyMeta.rulesVersion,
       fundingRate: coin.fundingRate,
       openInterest: coin.openInterest,
       weeklyVolume: coin.weeklyVolume || null,
       volumeGrowthRankKey: coin.volumeGrowthRankKey,
       weeklySource: coin.weeklySource,
+      venues: coin.venues || null,
+      multiVenue: !!coin.multiVenue,
       binanceAgreement: coin.binanceAgreement || null,
       coinglass: coin.coinglass || null,
-      source: coin.source || 'weekly-vol-v3',
+      defillama: coin.defillama || null,
+      source: coin.source || 'multi-venue-weekly-v3',
       txns1h: { buys: 0, sells: 0, total: 0 },
       txns24h: { buys: 0, sells: 0, total: 0 },
       url: '',
@@ -702,37 +747,43 @@ async function scanSignals(chainFilter = 'all', options = {}) {
   const rows = await enrichRowsWithDexCharts(sorted);
   const guidance = buildEnvListGuidance(environment);
   // Override guidance to state collection rule clearly
-  const primaryLabel =
-    weeklyMeta.primary === 'coinglass' || weeklyMeta.coinglass?.ok
-      ? 'CoinGlass 全市场'
-      : weeklyMeta.primary === 'bybit-fallback'
-        ? 'Bybit 回退'
-        : 'Bybit 周K';
+  const bnN = weeklyMeta.venues?.binance?.collected ?? 0;
+  const bbN = weeklyMeta.venues?.bybit?.collected ?? 0;
+  const llamaNote = weeklyMeta.defillama?.ok ? ` · ${weeklyMeta.defillama.note}` : '';
   const gateGuide = {
-    tone: guidance?.tone || 'neutral',
-    text: `收集：${primaryLabel} · 排除 BTC · 周量环比连涨2周 · Top ${ALTCOIN_SIGNAL_RULES.maxResults} · OI/费率异常 · Binance 校验${guidance?.text ? ' · ' + guidance.text : ''}`,
+    tone: guidance?.tone || weeklyMeta.defillama?.tone || 'neutral',
+    text: `收集：Binance+Bybit 公开合约 · 除 BTC · 周量连涨2周 · Top ${ALTCOIN_SIGNAL_RULES.maxResults}（BN ${bnN}/BB ${bbN}）${llamaNote}${guidance?.text ? ' · ' + guidance.text : ''}`,
   };
 
   if (environment) {
     environment.listGuidance = gateGuide;
+    if (defillamaHeat?.ok) {
+      environment.defillama = {
+        total24h: defillamaHeat.total24h,
+        change_1d: defillamaHeat.change_1d,
+        change_7d: defillamaHeat.change_7d,
+        tone: defillamaHeat.tone,
+        note: defillamaHeat.note,
+      };
+    }
   }
 
   return {
     rows,
     environment,
     meta: {
-      rulesVersion:
-        weeklyMeta.rulesVersion ||
-        (weeklyMeta.coinglass?.ok ? 'altcoin-coinglass-weekly-v3' : ALTCOIN_SIGNAL_RULES.rulesVersion),
+      rulesVersion: weeklyMeta.rulesVersion || 'altcoin-free-multi-venue-v3',
       gate: weeklyMeta.gate || 'two-week-volume-up-ex-btc',
       weekly: weeklyMeta,
-      coinglass: weeklyMeta.coinglass || { ok: false },
+      coinglass: weeklyMeta.venues?.coinglass || { ok: false, optional: true },
+      defillama: weeklyMeta.defillama || { ok: false },
       clawby: clawbySnap.available
         ? { ok: true, depthCount, depthTopN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN }
         : { ok: false, reason: clawbySnap.reason || 'unavailable', depthCount: 0 },
-      primarySource: weeklyMeta.primary || (weeklyMeta.coinglass?.ok ? 'coinglass' : 'bybit'),
+      primarySource: 'binance+bybit',
       secondarySource: clawbySnap.available ? 'clawby' : null,
-      validateSource: 'binance-weekly-klines',
+      validateSource: 'multi-venue-merge',
+      needsKey: false,
       listGuidance: gateGuide,
       actionCounts: {
         prefer: rows.filter((r) => r.action === 'prefer').length,

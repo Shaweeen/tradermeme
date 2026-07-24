@@ -2864,17 +2864,15 @@ function renderAltcoinEnvironment(env, meta = {}) {
   const clawbyOk = !!env.clawby?.available || meta?.clawby?.ok;
   const secondaryLabel = clawbyOk ? 'Clawby 已接入' : (meta?.clawby?.reason === 'no-clawby-key' ? 'Clawby 未配置 key' : 'Clawby 不可用');
   if (hint) {
-    const primarySrc = meta?.primarySource || meta?.weekly?.primary || '';
-    const primaryHint =
-      primarySrc === 'coinglass' || meta?.coinglass?.ok
-        ? '主源 CoinGlass 全市场'
-        : primarySrc.includes('bybit')
-          ? '主源 Bybit（回退）'
-          : '主源 Bybit';
+    const primaryHint = '主源 Binance+Bybit（无需付费 key）';
+    const llama = meta?.defillama || env.defillama;
+    const llamaHint = llama?.ok
+      ? ` · Llama DEX ${llama.change_7d != null ? (llama.change_7d >= 0 ? '+' : '') + Number(llama.change_7d).toFixed(1) + '%/7d' : '热度'}`
+      : '';
     const gateHint = meta?.gate === 'two-week-volume-up-ex-btc' || meta?.rulesVersion?.includes('weekly')
       ? '门：周量连涨2周·除BTC·Top20'
       : `规则 ${meta?.rulesVersion || 'v3'}`;
-    hint.textContent = `${primaryHint} · Binance 校验 · ${secondaryLabel} · ${gateHint}`;
+    hint.textContent = `${primaryHint}${llamaHint} · ${secondaryLabel} · ${gateHint}`;
   }
 
   const agree = m.fundingAgreement || 'n/a';
@@ -3098,9 +3096,13 @@ function renderOthercoinTokenRows(tokens) {
       token.clawbyDepthOk && depth?.summary
         ? `<div class="altcoin-depth-line" title="Clawby 第二源加深">Clawby ${depth.fundingAgreement === 'conflict' ? '⚠费率冲突 · ' : depth.fundingAgreement === 'agree' ? '✓一致 · ' : ''}${depth.summary}</div>`
         : '';
+    const venues = Array.isArray(token.venues) ? token.venues.join('+') : '';
+    const venueLine = token.multiVenue || venues
+      ? `<div class="altcoin-depth-line" title="多所确认">${token.multiVenue ? '多所确认' : '来源'} ${venues || token.weeklySource || token.source || ''}</div>`
+      : '';
     const cg = token.coinglass;
     const cgLine = cg
-      ? `<div class="altcoin-depth-line" title="CoinGlass 全市场">CG OI ${formatCompact(cg.openInterestUsd || 0)}${cg.oiChange24h != null ? ` · OI24h ${cg.oiChange24h > 0 ? '+' : ''}${Number(cg.oiChange24h).toFixed(1)}%` : ''}${token.binanceAgreement && token.binanceAgreement !== 'n/a' ? ` · BN ${token.binanceAgreement === 'agree' ? '✓' : token.binanceAgreement === 'conflict' ? '⚠' : '~'}` : ''}</div>`
+      ? `<div class="altcoin-depth-line" title="CoinGlass 可选">CG OI ${formatCompact(cg.openInterestUsd || 0)}</div>`
       : '';
 
     const score = token.signalScore ?? token.score ?? 0;
@@ -3130,6 +3132,7 @@ function renderOthercoinTokenRows(tokens) {
       </div>
       <div class="td signal-detail">
         <span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span>
+        ${venueLine}
         ${cgLine}
         ${depthLine}
       </div>
