@@ -2864,10 +2864,17 @@ function renderAltcoinEnvironment(env, meta = {}) {
   const clawbyOk = !!env.clawby?.available || meta?.clawby?.ok;
   const secondaryLabel = clawbyOk ? 'Clawby 已接入' : (meta?.clawby?.reason === 'no-clawby-key' ? 'Clawby 未配置 key' : 'Clawby 不可用');
   if (hint) {
+    const primarySrc = meta?.primarySource || meta?.weekly?.primary || '';
+    const primaryHint =
+      primarySrc === 'coinglass' || meta?.coinglass?.ok
+        ? '主源 CoinGlass 全市场'
+        : primarySrc.includes('bybit')
+          ? '主源 Bybit（回退）'
+          : '主源 Bybit';
     const gateHint = meta?.gate === 'two-week-volume-up-ex-btc' || meta?.rulesVersion?.includes('weekly')
       ? '门：周量连涨2周·除BTC·Top20'
       : `规则 ${meta?.rulesVersion || 'v3'}`;
-    hint.textContent = `主源 Bybit · 第二源 ${secondaryLabel} · ${gateHint}`;
+    hint.textContent = `${primaryHint} · Binance 校验 · ${secondaryLabel} · ${gateHint}`;
   }
 
   const agree = m.fundingAgreement || 'n/a';
@@ -3091,6 +3098,10 @@ function renderOthercoinTokenRows(tokens) {
       token.clawbyDepthOk && depth?.summary
         ? `<div class="altcoin-depth-line" title="Clawby 第二源加深">Clawby ${depth.fundingAgreement === 'conflict' ? '⚠费率冲突 · ' : depth.fundingAgreement === 'agree' ? '✓一致 · ' : ''}${depth.summary}</div>`
         : '';
+    const cg = token.coinglass;
+    const cgLine = cg
+      ? `<div class="altcoin-depth-line" title="CoinGlass 全市场">CG OI ${formatCompact(cg.openInterestUsd || 0)}${cg.oiChange24h != null ? ` · OI24h ${cg.oiChange24h > 0 ? '+' : ''}${Number(cg.oiChange24h).toFixed(1)}%` : ''}${token.binanceAgreement && token.binanceAgreement !== 'n/a' ? ` · BN ${token.binanceAgreement === 'agree' ? '✓' : token.binanceAgreement === 'conflict' ? '⚠' : '~'}` : ''}</div>`
+      : '';
 
     const score = token.signalScore ?? token.score ?? 0;
     const scoreBarWidth = Math.min(score, 100);
@@ -3119,6 +3130,7 @@ function renderOthercoinTokenRows(tokens) {
       </div>
       <div class="td signal-detail">
         <span class="signal-detail-text" title="${detailText}">${detailText || '--'}</span>
+        ${cgLine}
         ${depthLine}
       </div>
       <div class="td actions-cell">

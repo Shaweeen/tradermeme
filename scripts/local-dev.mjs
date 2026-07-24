@@ -62,6 +62,8 @@ function loadDevVars() {
 }
 const env = loadDevVars();
 if (env.GMGN_API_KEY) console.log('[local-dev] GMGN_API_KEY loaded from .dev.vars');
+if (env.COINGLASS_API_KEY) console.log('[local-dev] COINGLASS_API_KEY loaded from .dev.vars');
+if (env.CLAWBY_API_KEY) console.log('[local-dev] CLAWBY_API_KEY loaded from .dev.vars');
 else console.log('[local-dev] GMGN_API_KEY not set — public backup sources only');
 
 

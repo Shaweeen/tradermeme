@@ -1,17 +1,15 @@
 /**
  * Altcoin API (legacy path: /api/othercoin) — Cloudflare Pages Function
  *
- * Independent from Memecoin. 报警收集逻辑 v3:
- *   - 仅收录：周成交量 环比上涨 连续 2 周（排除 BTC）
- *   - 按量能涨幅 + 合约 OI + 资金费率异常 排 Top 20
- *   - 合约环境面板（BTC/ETH）+ 可选 Clawby 第二源
+ * Independent from Memecoin. 报警收集逻辑 v3+:
+ *   主源 CoinGlass 全市场（COINGLASS_API_KEY）
+ *   硬门：周成交量环比连涨 2 周 · 排除 BTC · Top 20
+ *   叠加：OI 激增 · 资金费率异常
+ *   校验：Binance 周 K（公开）
+ *   回退：无 CG key 时用 Bybit 周 K 扫盘
+ *   可选：Clawby 第二源加深
  *
  * Memecoin SignalEngine / Monitor heat is NOT used here.
- *
- * Endpoints:
- *   GET /api/othercoin?chain=multi   - CEX weekly-vol alerts (default)
- *   GET /api/othercoin?chain=all     - CEX + Robinhood
- *   GET /api/othercoin?chain=robinhood
  */
 
 import {
@@ -25,6 +23,7 @@ import {
   deriveActionAdvice,
   collectWeeklyVolumeAlerts,
 } from './_altcoin.js';
+import { collectCoinglassWeeklyAlerts } from './_altcoin_coinglass.js';
 
 const BYBIT_BASE = 'https://api.bybit.com';
 const BINANCE_BASE = 'https://api.binance.com';
@@ -563,18 +562,50 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     environment = fuseContractEnvironment(primary, clawbySnap);
   }
 
-  // ── CEX: hard gate = 连续2周成交量环比放大（排除 BTC）→ Top 20 ──
+  // ── CEX: CoinGlass 全市场优先 → 失败/无 key 回退 Bybit ──
+  // hard gate = 连续2周成交量环比放大（排除 BTC）→ Top 20
   let cexRows = [];
   let weeklyMeta = {};
+  const coinglassKey = options.coinglassKey || '';
   if (wantCex) {
-    const collected = await collectWeeklyVolumeAlerts({
-      bybitTickers,
-      binanceMap,
-      geckoMeta,
-      env: environment,
-      fetcher: safeFetch,
-    });
-    weeklyMeta = collected.meta || {};
+    let collected = null;
+    if (coinglassKey) {
+      collected = await collectCoinglassWeeklyAlerts({
+        apiKey: coinglassKey,
+        env: environment,
+        geckoMeta,
+        binanceMap,
+        fetcher: safeFetch, // Binance 周 K 交叉校验
+      });
+      if (!collected?.meta?.ok || !(collected.rows || []).length) {
+        weeklyMeta = {
+          ...(collected?.meta || {}),
+          fallback: 'bybit-weekly',
+          fallbackReason: collected?.meta?.error || 'coinglass-empty',
+        };
+        collected = null;
+      }
+    }
+
+    if (!collected) {
+      collected = await collectWeeklyVolumeAlerts({
+        bybitTickers,
+        binanceMap,
+        geckoMeta,
+        env: environment,
+        fetcher: safeFetch,
+      });
+      weeklyMeta = {
+        ...(collected.meta || {}),
+        primary: coinglassKey ? 'bybit-fallback' : 'bybit',
+        coinglass: coinglassKey
+          ? { ok: false, reason: weeklyMeta.fallbackReason || 'empty' }
+          : { ok: false, reason: 'no-coinglass-key' },
+      };
+    } else {
+      weeklyMeta = { ...(collected.meta || {}), coinglass: { ok: true } };
+    }
+
     cexRows = (collected.rows || []).map((coin, i) => ({
       rank: i + 1,
       address: `${coin.symbol}`,
@@ -609,6 +640,8 @@ async function scanSignals(chainFilter = 'all', options = {}) {
       weeklyVolume: coin.weeklyVolume || null,
       volumeGrowthRankKey: coin.volumeGrowthRankKey,
       weeklySource: coin.weeklySource,
+      binanceAgreement: coin.binanceAgreement || null,
+      coinglass: coin.coinglass || null,
       source: coin.source || 'weekly-vol-v3',
       txns1h: { buys: 0, sells: 0, total: 0 },
       txns24h: { buys: 0, sells: 0, total: 0 },
@@ -669,9 +702,15 @@ async function scanSignals(chainFilter = 'all', options = {}) {
   const rows = await enrichRowsWithDexCharts(sorted);
   const guidance = buildEnvListGuidance(environment);
   // Override guidance to state collection rule clearly
+  const primaryLabel =
+    weeklyMeta.primary === 'coinglass' || weeklyMeta.coinglass?.ok
+      ? 'CoinGlass 全市场'
+      : weeklyMeta.primary === 'bybit-fallback'
+        ? 'Bybit 回退'
+        : 'Bybit 周K';
   const gateGuide = {
     tone: guidance?.tone || 'neutral',
-    text: `收集规则：排除 BTC · 周成交量环比连续 2 周上涨 · 取量能涨幅前 ${ALTCOIN_SIGNAL_RULES.maxResults} · 叠加合约 OI / 资金费率异常${guidance?.text ? ' · ' + guidance.text : ''}`,
+    text: `收集：${primaryLabel} · 排除 BTC · 周量环比连涨2周 · Top ${ALTCOIN_SIGNAL_RULES.maxResults} · OI/费率异常 · Binance 校验${guidance?.text ? ' · ' + guidance.text : ''}`,
   };
 
   if (environment) {
@@ -682,14 +721,18 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     rows,
     environment,
     meta: {
-      rulesVersion: ALTCOIN_SIGNAL_RULES.rulesVersion,
+      rulesVersion:
+        weeklyMeta.rulesVersion ||
+        (weeklyMeta.coinglass?.ok ? 'altcoin-coinglass-weekly-v3' : ALTCOIN_SIGNAL_RULES.rulesVersion),
       gate: weeklyMeta.gate || 'two-week-volume-up-ex-btc',
       weekly: weeklyMeta,
+      coinglass: weeklyMeta.coinglass || { ok: false },
       clawby: clawbySnap.available
         ? { ok: true, depthCount, depthTopN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN }
         : { ok: false, reason: clawbySnap.reason || 'unavailable', depthCount: 0 },
-      primarySource: 'bybit-weekly-klines+ticker',
+      primarySource: weeklyMeta.primary || (weeklyMeta.coinglass?.ok ? 'coinglass' : 'bybit'),
       secondarySource: clawbySnap.available ? 'clawby' : null,
+      validateSource: 'binance-weekly-klines',
       listGuidance: gateGuide,
       actionCounts: {
         prefer: rows.filter((r) => r.action === 'prefer').length,
@@ -732,8 +775,16 @@ export async function onRequest(context) {
         env?.CLAWBY_KEY ||
         (typeof process !== 'undefined' ? process.env?.CLAWBY_API_KEY : '') ||
         '';
+      const coinglassKey =
+        env?.COINGLASS_API_KEY ||
+        env?.COINGLASS_KEY ||
+        (typeof process !== 'undefined' ? process.env?.COINGLASS_API_KEY : '') ||
+        '';
 
-      const { rows, environment, meta } = await scanSignals(chainFilter, { clawbyKey });
+      const { rows, environment, meta } = await scanSignals(chainFilter, {
+        clawbyKey,
+        coinglassKey,
+      });
       const sources = [...new Set(rows.map((r) => r.source).filter(Boolean))];
       return new Response(
         JSON.stringify({
