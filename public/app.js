@@ -2864,7 +2864,7 @@ function renderAltcoinEnvironment(env, meta = {}) {
   const clawbyOk = !!env.clawby?.available || meta?.clawby?.ok;
   const secondaryLabel = clawbyOk ? 'Clawby 已接入' : (meta?.clawby?.reason === 'no-clawby-key' ? 'Clawby 未配置 key' : 'Clawby 不可用');
   if (hint) {
-    const primaryHint = '主源 Binance+Bybit（无需付费 key）';
+    const primaryHint = '主源 Binance+Bybit+OKX（无需付费 key）';
     const llama = meta?.defillama || env.defillama;
     const llamaHint = llama?.ok
       ? ` · Llama DEX ${llama.change_7d != null ? (llama.change_7d >= 0 ? '+' : '') + Number(llama.change_7d).toFixed(1) + '%/7d' : '热度'}`

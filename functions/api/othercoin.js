@@ -2,9 +2,8 @@
  * Altcoin API (legacy path: /api/othercoin) — Cloudflare Pages Function
  *
  * Independent from Memecoin. 报警收集（零付费主路径）:
- *   主源 Binance USDT-M 公开接口（无需 key）
- *   辅源 Bybit 周 K 扫盘，多所合并去重
- *   硬门：周成交量环比连涨 2 周 · 排除 BTC · Top 20
+ *   主源 Binance + Bybit + OKX 公开永续（无需 key）
+ *   硬门：周成交量环比连涨 2 周 · 排除 BTC · Top 20 · 多所合并
  *   叠加：OI · 资金费率异常
  *   补充：DefiLlama 免费 DEX 全市场热度（非合约硬门）
  *   可选：COINGLASS_API_KEY / CLAWBY_API_KEY（有则用，无则忽略）
@@ -24,6 +23,7 @@ import {
   collectWeeklyVolumeAlerts,
 } from './_altcoin.js';
 import { collectBinanceWeeklyAlerts, mergeVenueAlertRows } from './_altcoin_binance.js';
+import { collectOkxWeeklyAlerts } from './_altcoin_okx.js';
 import { fetchDefiLlamaDexHeat, attachDefiLlamaHints } from './_altcoin_defillama.js';
 import { collectCoinglassWeeklyAlerts } from './_altcoin_coinglass.js';
 
@@ -571,7 +571,7 @@ async function scanSignals(chainFilter = 'all', options = {}) {
   let defillamaHeat = null;
   const coinglassKey = options.coinglassKey || '';
   if (wantCex) {
-    const [bnPack, bybitPack, llamaPack, cgPack] = await Promise.all([
+    const [bnPack, bybitPack, okxPack, llamaPack, cgPack] = await Promise.all([
       collectBinanceWeeklyAlerts({
         env: environment,
         geckoMeta,
@@ -583,6 +583,11 @@ async function scanSignals(chainFilter = 'all', options = {}) {
         geckoMeta,
         env: environment,
         fetcher: safeFetch,
+      }),
+      collectOkxWeeklyAlerts({
+        env: environment,
+        geckoMeta,
+        binanceMap,
       }),
       fetchDefiLlamaDexHeat().catch(() => ({ ok: false })),
       coinglassKey
@@ -601,6 +606,7 @@ async function scanSignals(chainFilter = 'all', options = {}) {
     const venueLists = [];
     if (bnPack?.rows?.length) venueLists.push(bnPack.rows);
     if (bybitPack?.rows?.length) venueLists.push(bybitPack.rows);
+    if (okxPack?.rows?.length) venueLists.push(okxPack.rows);
     // CoinGlass optional only — never required
     if (cgPack?.meta?.ok && cgPack.rows?.length) venueLists.push(cgPack.rows);
 
@@ -609,10 +615,18 @@ async function scanSignals(chainFilter = 'all', options = {}) {
       mergedRows = attachDefiLlamaHints(mergedRows, defillamaHeat);
     }
 
-    // If both CEX empty, leave empty list (honest)
+    const primary =
+      bnPack?.meta?.ok
+        ? 'binance'
+        : bybitPack?.rows?.length
+          ? 'bybit'
+          : okxPack?.meta?.ok
+            ? 'okx'
+            : 'none';
+
     weeklyMeta = {
       ok: mergedRows.length > 0,
-      primary: bnPack?.meta?.ok ? 'binance' : bybitPack?.meta?.ok ? 'bybit' : 'none',
+      primary,
       venues: {
         binance: {
           ok: !!bnPack?.meta?.ok,
@@ -623,6 +637,11 @@ async function scanSignals(chainFilter = 'all', options = {}) {
           ok: (bybitPack?.rows || []).length > 0,
           collected: bybitPack?.rows?.length || 0,
           passed: bybitPack?.meta?.passedWeeklyGate,
+        },
+        okx: {
+          ok: !!okxPack?.meta?.ok,
+          collected: okxPack?.rows?.length || 0,
+          passed: okxPack?.meta?.passedWeeklyGate,
         },
         coinglass: coinglassKey
           ? {
@@ -645,7 +664,7 @@ async function scanSignals(chainFilter = 'all', options = {}) {
       gate: 'two-week-volume-up-ex-btc',
       rulesVersion: 'altcoin-free-multi-venue-v3',
       needsKey: false,
-      note: '主路径无需付费 key：Binance + Bybit；DefiLlama 为链上热度补充',
+      note: '主路径无需付费 key：Binance + Bybit + OKX；DefiLlama 为链上热度补充',
     };
 
     cexRows = mergedRows.map((coin, i) => ({
@@ -749,10 +768,11 @@ async function scanSignals(chainFilter = 'all', options = {}) {
   // Override guidance to state collection rule clearly
   const bnN = weeklyMeta.venues?.binance?.collected ?? 0;
   const bbN = weeklyMeta.venues?.bybit?.collected ?? 0;
+  const okxN = weeklyMeta.venues?.okx?.collected ?? 0;
   const llamaNote = weeklyMeta.defillama?.ok ? ` · ${weeklyMeta.defillama.note}` : '';
   const gateGuide = {
     tone: guidance?.tone || weeklyMeta.defillama?.tone || 'neutral',
-    text: `收集：Binance+Bybit 公开合约 · 除 BTC · 周量连涨2周 · Top ${ALTCOIN_SIGNAL_RULES.maxResults}（BN ${bnN}/BB ${bbN}）${llamaNote}${guidance?.text ? ' · ' + guidance.text : ''}`,
+    text: `收集：Binance+Bybit+OKX 公开合约 · 除 BTC · 周量连涨2周 · Top ${ALTCOIN_SIGNAL_RULES.maxResults}（BN ${bnN}/BB ${bbN}/OKX ${okxN}）${llamaNote}${guidance?.text ? ' · ' + guidance.text : ''}`,
   };
 
   if (environment) {
@@ -780,7 +800,7 @@ async function scanSignals(chainFilter = 'all', options = {}) {
       clawby: clawbySnap.available
         ? { ok: true, depthCount, depthTopN: ALTCOIN_SIGNAL_RULES.clawbyDepthTopN }
         : { ok: false, reason: clawbySnap.reason || 'unavailable', depthCount: 0 },
-      primarySource: 'binance+bybit',
+      primarySource: 'binance+bybit+okx',
       secondarySource: clawbySnap.available ? 'clawby' : null,
       validateSource: 'multi-venue-merge',
       needsKey: false,

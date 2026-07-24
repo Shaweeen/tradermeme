@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { mergeVenueAlertRows } from '../functions/api/_altcoin_binance.js';
+import { parseOkxWeeklyBars, okxInstToSymbol } from '../functions/api/_altcoin_okx.js';
 import { evaluateTwoWeekVolumeGrowth, parseWeeklyTurnovers, isExcludedAltcoinSymbol } from '../functions/api/_altcoin.js';
 
 assert.equal(isExcludedAltcoinSymbol('BTC'), true);
@@ -56,5 +57,26 @@ const eth = merged.find((r) => r.symbol === 'ETH');
 assert.ok(eth.multiVenue || (eth.venues && eth.venues.length >= 2));
 assert.ok(eth.volumeGrowthRankKey >= 0.8);
 assert.ok(!merged.some((r) => r.symbol === 'BTC'));
+
+// OKX helpers
+assert.equal(okxInstToSymbol('ETH-USDT-SWAP'), 'ETH');
+assert.equal(okxInstToSymbol('BTC-USDT-SWAP'), 'BTC');
+const okxBars = parseOkxWeeklyBars([
+  ['3', '1', '1', '1', '1', '1', '1', '30000000', '0'],
+  ['2', '1', '1', '1', '1', '1', '1', '20000000', '1'],
+  ['1', '1', '1', '1', '1', '1', '1', '10000000', '1'],
+]);
+assert.equal(okxBars.length, 3);
+assert.equal(evaluateTwoWeekVolumeGrowth(okxBars).pass, true);
+
+const threeVenue = mergeVenueAlertRows([
+  [{ symbol: 'SOL', score: 40, volumeGrowthRankKey: 0.3, weeklySource: 'binance', actionPriority: 40 }],
+  [{ symbol: 'SOL', score: 42, volumeGrowthRankKey: 0.35, weeklySource: 'bybit', actionPriority: 42 }],
+  [{ symbol: 'SOL', score: 50, volumeGrowthRankKey: 0.9, weeklySource: 'okx', actionPriority: 60 }],
+], { regime: 'neutral' });
+const sol = threeVenue.find((r) => r.symbol === 'SOL');
+assert.ok(sol);
+assert.ok(sol.venues?.length >= 2 || sol.multiVenue);
+assert.ok(sol.volumeGrowthRankKey >= 0.9);
 
 console.log('altcoin-binance tests passed');
